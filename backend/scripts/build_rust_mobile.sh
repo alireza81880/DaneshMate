@@ -149,6 +149,7 @@ extern "C" {
 #endif
 
 void daneshmate_init_core(void);
+void daneshmate_reset_store(void);
 char* daneshmate_sync_data(const char* payload_json);
 void daneshmate_free_string(char* ptr);
 

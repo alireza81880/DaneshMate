@@ -2,6 +2,8 @@ name: Production Release Pipeline
 
 on:
   push:
+    branches:
+      - main
     tags:
       - 'v*.*.*'
   workflow_dispatch:
@@ -11,10 +13,10 @@ permissions:
 
 jobs:
   # ============================================================================
-  # JOB 1: Android Native Rust Core & Application Build (Ubuntu)
+  # JOB 1: Android Native Rust Core & Standalone APK Build (Ubuntu)
   # ============================================================================
   build-android:
-    name: Build Android (APK, AAB & Native jniLibs)
+    name: Build Android (Standalone APK, AAB & Native jniLibs)
     runs-on: ubuntu-latest
     steps:
       - name: 1. Checkout Repository
@@ -55,55 +57,59 @@ jobs:
           npm install --no-audit --no-fund --legacy-peer-deps
           cd frontend && (npm install --no-audit --no-fund --legacy-peer-deps)
 
-      - name: 8. Execute Rust Android Cross-Compilation
+      - name: 8. Generate Platform Assets from Source
+        run: |
+          npm install --no-save --legacy-peer-deps sharp || (cd frontend && npm install --no-save --legacy-peer-deps sharp)
+          node frontend/scripts/generate_assets.js
+
+      - name: 9. Scaffold Native Android Project via Expo Prebuild
+        run: |
+          cd frontend
+          npx expo prebuild --clean --platform android --no-install
+
+      - name: 10. Execute Rust Android Cross-Compilation & Populate jniLibs
         env:
           ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
         run: |
           chmod +x backend/scripts/build_rust_mobile.sh
           ./backend/scripts/build_rust_mobile.sh
 
-      - name: 9. Run Automated TypeScript FFI Smoke Tests
+      - name: 11. Run Automated TypeScript FFI Smoke Tests
         run: |
           npm run test:ffi
 
-      - name: 10. Generate Platform Assets from Source
+      - name: 12. Assemble Standalone Android APK & AAB
         run: |
-          npm install --no-save --legacy-peer-deps sharp || (cd frontend && npm install --no-save --legacy-peer-deps sharp)
-          node frontend/scripts/generate_assets.js
+          mkdir -p "${GITHUB_WORKSPACE}/artifacts"
+          cd frontend/android
+          chmod +x gradlew
 
-      - name: 11. Bundle & Assemble React Native Android Release (APK & AAB)
-        run: |
-          mkdir -p artifacts
-          cd frontend
-          # Generate Android offline bundle & assets
-          mkdir -p android/app/src/main/assets
-          npx react-native bundle \
-            --platform android \
-            --dev false \
-            --entry-file App.tsx \
-            --bundle-output android/app/src/main/assets/index.android.bundle \
-            --assets-dest android/app/src/main/res || true
+          # Attempt release build; fall back to assembleDebug if keystore signing is unconfigured
+          ./gradlew assembleRelease || ./gradlew assembleDebug || true
+          ./gradlew bundleRelease || true
 
-          # If Gradle wrapper exists, compile release APK and AAB
-          if [ -f "android/gradlew" ]; then
-            cd android
-            chmod +x gradlew
-            ./gradlew assembleRelease bundleRelease || true
-            cp -f app/build/outputs/apk/release/*.apk "${GITHUB_WORKSPACE}/artifacts/daneshmate-android-release.apk" 2>/dev/null || true
-            cp -f app/build/outputs/bundle/release/*.aab "${GITHUB_WORKSPACE}/artifacts/daneshmate-android-release.aab" 2>/dev/null || true
-            cd ..
+          # Find and export standalone APK
+          FOUND_APK=$(find app/build/outputs/apk -type f -name "*.apk" | head -n 1)
+          if [ -n "$FOUND_APK" ] && [ -f "$FOUND_APK" ]; then
+            echo "[✓] Located compiled Android APK: $FOUND_APK"
+            cp -f "$FOUND_APK" "${GITHUB_WORKSPACE}/artifacts/DaneshMate-Android.apk"
           else
-            # Expo export fallback bundle
-            npx expo export --platform android || true
-            (cd dist && zip -r "${GITHUB_WORKSPACE}/artifacts/daneshmate-expo-android-bundle.zip" ./) 2>/dev/null || true
+            echo "[!] No APK located in app/build/outputs/apk"
           fi
 
-          # Zip Android jniLibs
-          if [ -d "android/app/src/main/jniLibs" ]; then
-            (cd android/app/src/main && zip -r "${GITHUB_WORKSPACE}/artifacts/daneshmate_core_jniLibs.zip" jniLibs)
+          # Find and export production AAB bundle
+          FOUND_AAB=$(find app/build/outputs/bundle -type f -name "*.aab" | head -n 1)
+          if [ -n "$FOUND_AAB" ] && [ -f "$FOUND_AAB" ]; then
+            echo "[✓] Located compiled Android AAB: $FOUND_AAB"
+            cp -f "$FOUND_AAB" "${GITHUB_WORKSPACE}/artifacts/DaneshMate-Android.aab"
           fi
 
-      - name: 12. Upload Android Artifacts
+          # Package compiled jniLibs
+          if [ -d "app/src/main/jniLibs" ]; then
+            (cd app/src/main && zip -r "${GITHUB_WORKSPACE}/artifacts/daneshmate_core_jniLibs.zip" jniLibs)
+          fi
+
+      - name: 13. Upload Android Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: android-artifacts
@@ -111,10 +117,10 @@ jobs:
           if-no-files-found: warn
 
   # ============================================================================
-  # JOB 2: iOS Native Rust Core & XCFramework Build (macOS-14)
+  # JOB 2: iOS Native Rust Core & Standalone Artifact Build (macOS-14)
   # ============================================================================
   build-ios:
-    name: Build iOS (XCFramework & Release Bundle)
+    name: Build iOS (Standalone Simulator .app.zip, .ipa & XCFramework)
     runs-on: macos-14
     steps:
       - name: 1. Checkout Repository
@@ -138,36 +144,87 @@ jobs:
           npm install --no-audit --no-fund --legacy-peer-deps
           cd frontend && (npm install --no-audit --no-fund --legacy-peer-deps)
 
-      - name: 5. Execute Rust iOS Cross-Compilation & Package XCFramework
-        run: |
-          chmod +x backend/scripts/build_rust_mobile.sh
-          ./backend/scripts/build_rust_mobile.sh
-
-      - name: 6. Run Automated TypeScript FFI Smoke Tests
-        run: |
-          npm run test:ffi
-
-      - name: 7. Generate Platform Assets from Source
+      - name: 5. Generate Platform Assets from Source
         run: |
           npm install --no-save --legacy-peer-deps sharp || (cd frontend && npm install --no-save --legacy-peer-deps sharp)
           node frontend/scripts/generate_assets.js
 
-      - name: 8. Package iOS Release Artifacts
+      - name: 6. Scaffold Native iOS Project via Expo Prebuild
         run: |
-          mkdir -p artifacts
-          # Zip DaneshMateCore.xcframework
-          if [ -d "frontend/ios/Frameworks/DaneshMateCore.xcframework" ]; then
-            (cd frontend/ios/Frameworks && zip -r "${GITHUB_WORKSPACE}/artifacts/DaneshMateCore.xcframework.zip" DaneshMateCore.xcframework)
-          fi
-
-          # Optional Expo iOS bundle export
           cd frontend
-          npx expo export --platform ios || true
-          if [ -d "dist" ]; then
-            (cd dist && zip -r "${GITHUB_WORKSPACE}/artifacts/daneshmate-expo-ios-bundle.zip" ./) 2>/dev/null || true
+          npx expo prebuild --clean --platform ios --no-install
+
+      - name: 7. Execute Rust iOS Cross-Compilation & Package DaneshMateCore.xcframework
+        run: |
+          chmod +x backend/scripts/build_rust_mobile.sh
+          ./backend/scripts/build_rust_mobile.sh
+
+      - name: 8. Run Automated TypeScript FFI Smoke Tests
+        run: |
+          npm run test:ffi
+
+      - name: 9. Install CocoaPods Dependencies
+        run: |
+          cd frontend/ios
+          pod install --repo-update || pod install || true
+
+      - name: 10. Build Standalone iOS Application & Package Artifacts
+        run: |
+          mkdir -p "${GITHUB_WORKSPACE}/artifacts"
+          cd frontend
+
+          WORKSPACE_PATH=$(find ios -name "*.xcworkspace" | head -n 1)
+          PROJECT_PATH=$(find ios -name "*.xcodeproj" | head -n 1)
+          SCHEME_NAME="DaneshMate"
+
+          if [ -n "$WORKSPACE_PATH" ]; then
+            echo "[+] Compiling Xcode Workspace: $WORKSPACE_PATH (Scheme: $SCHEME_NAME)"
+            xcodebuild -workspace "$WORKSPACE_PATH" \
+              -scheme "$SCHEME_NAME" \
+              -configuration Release \
+              -destination 'generic/platform=iOS Simulator' \
+              -derivedDataPath build \
+              CODE_SIGNING_ALLOWED=NO \
+              CODE_SIGN_IDENTITY="" \
+              CODE_SIGNING_REQUIRED=NO || true
+          elif [ -n "$PROJECT_PATH" ]; then
+            echo "[+] Compiling Xcode Project: $PROJECT_PATH (Scheme: $SCHEME_NAME)"
+            xcodebuild -project "$PROJECT_PATH" \
+              -scheme "$SCHEME_NAME" \
+              -configuration Release \
+              -destination 'generic/platform=iOS Simulator' \
+              -derivedDataPath build \
+              CODE_SIGNING_ALLOWED=NO \
+              CODE_SIGN_IDENTITY="" \
+              CODE_SIGNING_REQUIRED=NO || true
           fi
 
-      - name: 9. Upload iOS Artifacts
+          # Find compiled .app bundle
+          APP_BUNDLE=$(find build -type d -name "*.app" | head -n 1)
+          if [ -n "$APP_BUNDLE" ] && [ -d "$APP_BUNDLE" ]; then
+            echo "[✓] Located compiled iOS .app bundle: $APP_BUNDLE"
+            APP_PARENT_DIR=$(dirname "$APP_BUNDLE")
+            APP_NAME=$(basename "$APP_BUNDLE")
+
+            # 1. Zip iOS Simulator .app bundle
+            (cd "$APP_PARENT_DIR" && zip -r "${GITHUB_WORKSPACE}/artifacts/DaneshMate-iOS-Simulator.zip" "$APP_NAME")
+
+            # 2. Package unsigned .ipa payload
+            mkdir -p /tmp/Payload
+            cp -R "$APP_BUNDLE" /tmp/Payload/
+            (cd /tmp && zip -r "${GITHUB_WORKSPACE}/artifacts/DaneshMate-iOS.ipa" Payload)
+            rm -rf /tmp/Payload
+          else
+            echo "[!] No .app bundle found; packaging iOS native source bundle"
+            (cd ios && zip -r "${GITHUB_WORKSPACE}/artifacts/DaneshMate-iOS-Source.zip" ./) || true
+          fi
+
+          # Package DaneshMateCore.xcframework
+          if [ -d "ios/Frameworks/DaneshMateCore.xcframework" ]; then
+            (cd ios/Frameworks && zip -r "${GITHUB_WORKSPACE}/artifacts/DaneshMateCore.xcframework.zip" DaneshMateCore.xcframework)
+          fi
+
+      - name: 11. Upload iOS Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: ios-artifacts
@@ -175,13 +232,15 @@ jobs:
           if-no-files-found: warn
 
   # ============================================================================
-  # JOB 3: Publish GitHub Release (Consolidate Artifacts)
+  # JOB 3: Publish GitHub Release (Consolidate Installable Binaries)
   # ============================================================================
   release-publish:
     name: Consolidate & Publish GitHub Release
     needs: [build-android, build-ios]
-    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+    if: startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: 1. Checkout Repository
         uses: actions/checkout@v4
@@ -204,9 +263,23 @@ jobs:
           ls -la release-artifacts/
           echo "==============================================="
 
-      - name: 5. Create GitHub Release & Upload Production Assets
+      - name: 5. Determine or Generate Release Tag
+        id: determine-tag
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            TAG="${GITHUB_REF#refs/tags/}"
+          else
+            VERSION=$(node -p "require('./frontend/package.json').version || '1.0.0'" 2>/dev/null || node -p "require('./package.json').version || '1.0.0'")
+            TAG="v${VERSION}-build.${{ github.run_number }}"
+          fi
+          echo "RELEASE_TAG=${TAG}" >> $GITHUB_ENV
+          echo "Determined release tag: ${TAG}"
+
+      - name: 6. Create GitHub Release & Upload Production Assets
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: "DaneshMate Release ${{ env.RELEASE_TAG }}"
           draft: false
           prerelease: false
           generate_release_notes: true
