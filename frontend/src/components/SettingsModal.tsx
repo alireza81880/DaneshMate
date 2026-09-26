@@ -3,6 +3,8 @@ import { View, Text, StyleSheet, Pressable, Modal, SafeAreaView, ScrollView } fr
 import { useTheme } from '../theme/ThemeContext';
 import { ThemeCategory, ThemeId } from '../theme/colors';
 import { NeumorphicButton } from './NeumorphicButton';
+import { DonationBadge } from './DonationBadge';
+import { NullSparkleLink } from './NullSparkleLink';
 
 interface SettingsModalProps {
   visible: boolean;
@@ -106,6 +108,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ visible, onClose }
           {/* Footer */}
           <View style={styles.footer}>
             <NeumorphicButton title="اعمال و بستن" variant="primary" size="md" onPress={onClose} />
+            <DonationBadge compact style={{ marginTop: 14 }} />
+            <NullSparkleLink style={{ marginTop: 2, marginBottom: 8 }} />
           </View>
         </ScrollView>
       </SafeAreaView>

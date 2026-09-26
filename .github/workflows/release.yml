@@ -10,9 +10,12 @@ permissions:
   contents: write
 
 jobs:
-  build-and-release:
-    name: Build Native Rust Core & Mobile Release Artifacts
-    runs-on: macos-14
+  # ============================================================================
+  # JOB 1: Android Native Rust Core & Application Build (Ubuntu)
+  # ============================================================================
+  build-android:
+    name: Build Android (APK, AAB & Native jniLibs)
+    runs-on: ubuntu-latest
     steps:
       - name: 1. Checkout Repository
         uses: actions/checkout@v4
@@ -21,7 +24,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: 'npm'
 
       - name: 3. Set Up Java JDK 17
         uses: actions/setup-java@v4
@@ -30,21 +32,19 @@ jobs:
           java-version: 17
 
       - name: 4. Set Up Android NDK & SDK
+        id: setup-ndk
         uses: nttld/setup-ndk@v1
         with:
           ndk-version: r26b
           add-to-path: true
 
-      - name: 5. Set Up Rust Stable Toolchain & Mobile Targets
+      - name: 5. Set Up Rust Stable Toolchain & Android Targets
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: |
             aarch64-linux-android
             armv7-linux-androideabi
             x86_64-linux-android
-            aarch64-apple-ios
-            aarch64-apple-ios-sim
-            x86_64-apple-ios
 
       - name: 6. Install cargo-ndk
         run: |
@@ -52,10 +52,10 @@ jobs:
 
       - name: 7. Install Dependencies
         run: |
-          npm ci || npm install
-          cd frontend && (npm ci || npm install)
+          npm install --no-audit --no-fund
+          cd frontend && (npm install --no-audit --no-fund)
 
-      - name: 8. Execute Rust Mobile Cross-Compilation
+      - name: 8. Execute Rust Android Cross-Compilation
         env:
           ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
         run: |
@@ -66,25 +66,14 @@ jobs:
         run: |
           npm run test:ffi
 
-      - name: 10. Package Native JNI Libraries (.so) & XCFramework
-        run: |
-          mkdir -p artifacts
-          # Zip Android jniLibs
-          if [ -d "frontend/android/app/src/main/jniLibs" ]; then
-            (cd frontend/android/app/src/main && zip -r "${GITHUB_WORKSPACE}/artifacts/daneshmate_core_jniLibs.zip" jniLibs)
-          fi
-          # Zip iOS XCFramework
-          if [ -d "frontend/ios/Frameworks/DaneshMateCore.xcframework" ]; then
-            (cd frontend/ios/Frameworks && zip -r "${GITHUB_WORKSPACE}/artifacts/DaneshMateCore.xcframework.zip" DaneshMateCore.xcframework)
-          fi
-
-      - name: 11. Generate Platform Assets from Source
+      - name: 10. Generate Platform Assets from Source
         run: |
           npm install --no-save sharp || (cd frontend && npm install --no-save sharp)
           node frontend/scripts/generate_assets.js
 
-      - name: 12. Bundle & Export React Native Android Release (APK & AAB)
+      - name: 11. Bundle & Assemble React Native Android Release (APK & AAB)
         run: |
+          mkdir -p artifacts
           cd frontend
           # Generate Android offline bundle & assets
           mkdir -p android/app/src/main/assets
@@ -94,26 +83,132 @@ jobs:
             --entry-file App.tsx \
             --bundle-output android/app/src/main/assets/index.android.bundle \
             --assets-dest android/app/src/main/res || true
-          
-          # If Gradle wrapper exists, compile release APK / AAB
+
+          # If Gradle wrapper exists, compile release APK and AAB
           if [ -f "android/gradlew" ]; then
             cd android
             chmod +x gradlew
             ./gradlew assembleRelease bundleRelease || true
             cp -f app/build/outputs/apk/release/*.apk "${GITHUB_WORKSPACE}/artifacts/daneshmate-android-release.apk" 2>/dev/null || true
             cp -f app/build/outputs/bundle/release/*.aab "${GITHUB_WORKSPACE}/artifacts/daneshmate-android-release.aab" 2>/dev/null || true
+            cd ..
           else
             # Expo export fallback bundle
             npx expo export --platform android || true
             (cd dist && zip -r "${GITHUB_WORKSPACE}/artifacts/daneshmate-expo-android-bundle.zip" ./) 2>/dev/null || true
           fi
 
-      - name: 13. Create GitHub Release & Upload Production Artifacts
+          # Zip Android jniLibs
+          if [ -d "android/app/src/main/jniLibs" ]; then
+            (cd android/app/src/main && zip -r "${GITHUB_WORKSPACE}/artifacts/daneshmate_core_jniLibs.zip" jniLibs)
+          fi
+
+      - name: 12. Upload Android Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-artifacts
+          path: artifacts/*
+          if-no-files-found: warn
+
+  # ============================================================================
+  # JOB 2: iOS Native Rust Core & XCFramework Build (macOS-14)
+  # ============================================================================
+  build-ios:
+    name: Build iOS (XCFramework & Release Bundle)
+    runs-on: macos-14
+    steps:
+      - name: 1. Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: 2. Set Up Node.js Environment
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: 3. Set Up Rust Stable Toolchain & iOS Targets
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: |
+            aarch64-apple-ios
+            aarch64-apple-ios-sim
+            x86_64-apple-ios
+
+      - name: 4. Install Dependencies
+        run: |
+          npm install --no-audit --no-fund
+          cd frontend && (npm install --no-audit --no-fund)
+
+      - name: 5. Execute Rust iOS Cross-Compilation & Package XCFramework
+        run: |
+          chmod +x backend/scripts/build_rust_mobile.sh
+          ./backend/scripts/build_rust_mobile.sh
+
+      - name: 6. Run Automated TypeScript FFI Smoke Tests
+        run: |
+          npm run test:ffi
+
+      - name: 7. Generate Platform Assets from Source
+        run: |
+          npm install --no-save sharp || (cd frontend && npm install --no-save sharp)
+          node frontend/scripts/generate_assets.js
+
+      - name: 8. Package iOS Release Artifacts
+        run: |
+          mkdir -p artifacts
+          # Zip DaneshMateCore.xcframework
+          if [ -d "frontend/ios/Frameworks/DaneshMateCore.xcframework" ]; then
+            (cd frontend/ios/Frameworks && zip -r "${GITHUB_WORKSPACE}/artifacts/DaneshMateCore.xcframework.zip" DaneshMateCore.xcframework)
+          fi
+
+          # Optional Expo iOS bundle export
+          cd frontend
+          npx expo export --platform ios || true
+          if [ -d "dist" ]; then
+            (cd dist && zip -r "${GITHUB_WORKSPACE}/artifacts/daneshmate-expo-ios-bundle.zip" ./) 2>/dev/null || true
+          fi
+
+      - name: 9. Upload iOS Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-artifacts
+          path: artifacts/*
+          if-no-files-found: warn
+
+  # ============================================================================
+  # JOB 3: Publish GitHub Release (Consolidate Artifacts)
+  # ============================================================================
+  release-publish:
+    name: Consolidate & Publish GitHub Release
+    needs: [build-android, build-ios]
+    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: 1. Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: 2. Download Android Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: android-artifacts
+          path: release-artifacts
+
+      - name: 3. Download iOS Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: ios-artifacts
+          path: release-artifacts
+
+      - name: 4. List Release Artifacts
+        run: |
+          echo "=== Release Artifacts Ready for Publication ==="
+          ls -la release-artifacts/
+          echo "==============================================="
+
+      - name: 5. Create GitHub Release & Upload Production Assets
         uses: softprops/action-gh-release@v2
-        if: startsWith(github.ref, 'refs/tags/')
         with:
           draft: false
           prerelease: false
           generate_release_notes: true
           files: |
-            artifacts/*
+            release-artifacts/*

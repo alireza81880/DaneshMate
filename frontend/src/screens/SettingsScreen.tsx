@@ -10,6 +10,7 @@ import {
 import { useTheme } from '../theme/ThemeContext';
 import { LiquidBentoCard } from '../components/LiquidBentoCard';
 import { NullSparkleLink } from '../components/NullSparkleLink';
+import { DonationBadge } from '../components/DonationBadge';
 import { ThemeCategory, ThemeId } from '../theme/colors';
 
 export const SettingsScreen: React.FC = () => {
@@ -135,8 +136,9 @@ export const SettingsScreen: React.FC = () => {
         </Text>
       </LiquidBentoCard>
 
-      {/* Footer Branding */}
-      <NullSparkleLink />
+      {/* Footer Support & Branding */}
+      <DonationBadge style={{ marginTop: 16 }} />
+      <NullSparkleLink style={{ marginTop: 4 }} />
     </ScrollView>
   );
 };

@@ -12,6 +12,7 @@ import { useTheme } from '../theme/ThemeContext';
 import { NeumorphicCard } from '../components/NeumorphicCard';
 import { NeumorphicButton } from '../components/NeumorphicButton';
 import { NullSparkleLink } from '../components/NullSparkleLink';
+import { DonationBadge } from '../components/DonationBadge';
 import { UserProfileData } from '../components/ProfileSetupModal';
 
 interface ProfileScreenProps {
@@ -239,8 +240,9 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
         </View>
       )}
 
-      {/* Footer Branding */}
-      <NullSparkleLink />
+      {/* Footer Support & Branding */}
+      <DonationBadge style={{ marginTop: 20 }} />
+      <NullSparkleLink style={{ marginTop: 4 }} />
     </ScrollView>
   );
 };

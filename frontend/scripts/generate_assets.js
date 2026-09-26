@@ -36,7 +36,7 @@ async function main() {
     fs.mkdirSync(ASSETS_DIR, { recursive: true });
   }
 
-  // Check for source file in order of preference
+  // Check for source file in order of preference / most recently modified
   const potentialSources = [
     'logo-source.png',
     'logo-source.jpg',
@@ -46,11 +46,15 @@ async function main() {
   ];
 
   let sourcePath = null;
+  let latestMtime = 0;
   for (const filename of potentialSources) {
     const candidate = path.join(ASSETS_DIR, filename);
     if (fs.existsSync(candidate)) {
-      sourcePath = candidate;
-      break;
+      const stat = fs.statSync(candidate);
+      if (stat.size > 0 && stat.mtimeMs > latestMtime) {
+        latestMtime = stat.mtimeMs;
+        sourcePath = candidate;
+      }
     }
   }
 

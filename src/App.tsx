@@ -914,45 +914,65 @@ export default function App() {
     );
   };
 
-  // Pure Interactive "Made by null" branding footer:
-  // Strictly LTR, NO wrapper pill container, NO background borders, effects ONLY on "null"
+  // Pure Interactive "Made by null" branding & Support footer
   const renderNullFooter = () => (
-    <div className="flex items-center justify-center my-6 py-2 select-none" dir="ltr">
-      <span
-        style={{ color: theme.textSecondary }}
-        className="text-xs font-medium tracking-wide"
-      >
-        Made by{' '}
-      </span>
+    <div className="flex flex-col items-center justify-center my-6 gap-2 select-none">
+      {/* Subtle Support / Donation Link */}
       <a
-        href="https://alireza81880.github.io/"
+        href="https://donofa.ir/alirezaz_dev"
         target="_blank"
         rel="noopener noreferrer"
-        style={{ color: theme.primary, textDecoration: 'none' }}
-        className="inline-flex items-center gap-1 ml-1.5 cursor-pointer transition-transform hover:scale-110 active:scale-95 group"
-        aria-label="Visit null website profile"
+        style={{
+          backgroundColor: theme.innerBg,
+          borderColor: theme.borderLuminous,
+          color: theme.textSecondary,
+        }}
+        className="flex items-center gap-2 px-3.5 py-1.5 rounded-2xl text-[11px] font-bold border hover:border-rose-400 hover:text-white transition-all shadow-sm group cursor-pointer"
+        aria-label="حمایت مالی از پروژه در دونوفا"
       >
-        <span
-          className="sparkle-star text-xs font-black inline-block"
-          style={{ color: theme.primary }}
-        >
-          ✦
-        </span>
-        <span
-          className="shimmer-text font-black text-xs tracking-wider underline underline-offset-4"
-          style={{
-            textShadow: `0 0 12px ${theme.glowColor}`,
-          }}
-        >
-          null
-        </span>
-        <span
-          className="sparkle-star-delayed text-xs font-black inline-block"
-          style={{ color: theme.secondaryAccent || theme.primaryLight }}
-        >
-          ✦
-        </span>
+        <span className="text-rose-500 group-hover:scale-110 transition-transform">♥</span>
+        <span>حمایت مالی از پروژه</span>
+        <span style={{ color: theme.primary }} className="text-[10px]">✦</span>
       </a>
+
+      {/* Strictly LTR, NO wrapper pill container, NO background borders, effects ONLY on "null" */}
+      <div className="flex items-center justify-center py-1 select-none" dir="ltr">
+        <span
+          style={{ color: theme.textSecondary }}
+          className="text-xs font-medium tracking-wide"
+        >
+          Made by{' '}
+        </span>
+        <a
+          href="https://alireza81880.github.io/"
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{ color: theme.primary, textDecoration: 'none' }}
+          className="inline-flex items-center gap-1 ml-1.5 cursor-pointer transition-transform hover:scale-110 active:scale-95 group"
+          aria-label="Visit null website profile"
+        >
+          <span
+            className="sparkle-star text-xs font-black inline-block"
+            style={{ color: theme.primary }}
+          >
+            ✦
+          </span>
+          <span
+            className="shimmer-text font-black text-xs tracking-wider underline underline-offset-4"
+            style={{
+              textShadow: `0 0 12px ${theme.glowColor}`,
+            }}
+          >
+            null
+          </span>
+          <span
+            className="sparkle-star-delayed text-xs font-black inline-block"
+            style={{ color: theme.secondaryAccent || theme.primaryLight }}
+          >
+            ✦
+          </span>
+        </a>
+      </div>
     </div>
   );
 

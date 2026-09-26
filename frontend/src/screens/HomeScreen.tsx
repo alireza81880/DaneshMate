@@ -24,6 +24,7 @@ import { DeleteConfirmModal } from '../components/DeleteConfirmModal';
 import { NeumorphicSearchBar } from '../components/NeumorphicSearchBar';
 import { FloatingRadialMenu, MainTabType } from '../components/FloatingRadialMenu';
 import { NullSparkleLink } from '../components/NullSparkleLink';
+import { DonationBadge } from '../components/DonationBadge';
 import {
   ClassSessionCaptureModal,
   ClassSessionLog,
@@ -482,8 +483,9 @@ export const HomeScreen: React.FC = () => {
               </View>
             )}
 
-            {/* Cyber-Luxe Liquid Bento Branding Footer */}
-            <NullSparkleLink />
+            {/* Cyber-Luxe Liquid Bento Branding & Support Footer */}
+            <DonationBadge style={{ marginTop: 16 }} />
+            <NullSparkleLink style={{ marginTop: 4, marginBottom: 20 }} />
           </Animated.View>
         </ScrollView>
       )}
