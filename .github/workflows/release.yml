@@ -78,7 +78,12 @@ jobs:
             (cd frontend/ios/Frameworks && zip -r "${GITHUB_WORKSPACE}/artifacts/DaneshMateCore.xcframework.zip" DaneshMateCore.xcframework)
           fi
 
-      - name: 11. Bundle & Export React Native Android Release (APK & AAB)
+      - name: 11. Generate Platform Assets from Source
+        run: |
+          npm install --no-save sharp || (cd frontend && npm install --no-save sharp)
+          node frontend/scripts/generate_assets.js
+
+      - name: 12. Bundle & Export React Native Android Release (APK & AAB)
         run: |
           cd frontend
           # Generate Android offline bundle & assets
@@ -103,7 +108,7 @@ jobs:
             (cd dist && zip -r "${GITHUB_WORKSPACE}/artifacts/daneshmate-expo-android-bundle.zip" ./) 2>/dev/null || true
           fi
 
-      - name: 12. Create GitHub Release & Upload Production Artifacts
+      - name: 13. Create GitHub Release & Upload Production Artifacts
         uses: softprops/action-gh-release@v2
         if: startsWith(github.ref, 'refs/tags/')
         with:
