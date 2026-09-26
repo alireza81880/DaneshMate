@@ -1,0 +1,114 @@
+name: Production Release Pipeline
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    name: Build Native Rust Core & Mobile Release Artifacts
+    runs-on: macos-14
+    steps:
+      - name: 1. Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: 2. Set Up Node.js Environment
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: 3. Set Up Java JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: 17
+
+      - name: 4. Set Up Android NDK & SDK
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r26b
+          add-to-path: true
+
+      - name: 5. Set Up Rust Stable Toolchain & Mobile Targets
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: |
+            aarch64-linux-android
+            armv7-linux-androideabi
+            x86_64-linux-android
+            aarch64-apple-ios
+            aarch64-apple-ios-sim
+            x86_64-apple-ios
+
+      - name: 6. Install cargo-ndk
+        run: |
+          cargo install cargo-ndk --locked || true
+
+      - name: 7. Install Dependencies
+        run: |
+          npm ci || npm install
+          cd frontend && (npm ci || npm install)
+
+      - name: 8. Execute Rust Mobile Cross-Compilation
+        env:
+          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+        run: |
+          chmod +x backend/scripts/build_rust_mobile.sh
+          ./backend/scripts/build_rust_mobile.sh
+
+      - name: 9. Run Automated TypeScript FFI Smoke Tests
+        run: |
+          npm run test:ffi
+
+      - name: 10. Package Native JNI Libraries (.so) & XCFramework
+        run: |
+          mkdir -p artifacts
+          # Zip Android jniLibs
+          if [ -d "frontend/android/app/src/main/jniLibs" ]; then
+            (cd frontend/android/app/src/main && zip -r "${GITHUB_WORKSPACE}/artifacts/daneshmate_core_jniLibs.zip" jniLibs)
+          fi
+          # Zip iOS XCFramework
+          if [ -d "frontend/ios/Frameworks/DaneshMateCore.xcframework" ]; then
+            (cd frontend/ios/Frameworks && zip -r "${GITHUB_WORKSPACE}/artifacts/DaneshMateCore.xcframework.zip" DaneshMateCore.xcframework)
+          fi
+
+      - name: 11. Bundle & Export React Native Android Release (APK & AAB)
+        run: |
+          cd frontend
+          # Generate Android offline bundle & assets
+          mkdir -p android/app/src/main/assets
+          npx react-native bundle \
+            --platform android \
+            --dev false \
+            --entry-file App.tsx \
+            --bundle-output android/app/src/main/assets/index.android.bundle \
+            --assets-dest android/app/src/main/res || true
+          
+          # If Gradle wrapper exists, compile release APK / AAB
+          if [ -f "android/gradlew" ]; then
+            cd android
+            chmod +x gradlew
+            ./gradlew assembleRelease bundleRelease || true
+            cp -f app/build/outputs/apk/release/*.apk "${GITHUB_WORKSPACE}/artifacts/daneshmate-android-release.apk" 2>/dev/null || true
+            cp -f app/build/outputs/bundle/release/*.aab "${GITHUB_WORKSPACE}/artifacts/daneshmate-android-release.aab" 2>/dev/null || true
+          else
+            # Expo export fallback bundle
+            npx expo export --platform android || true
+            (cd dist && zip -r "${GITHUB_WORKSPACE}/artifacts/daneshmate-expo-android-bundle.zip" ./) 2>/dev/null || true
+          fi
+
+      - name: 12. Create GitHub Release & Upload Production Artifacts
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          files: |
+            artifacts/*

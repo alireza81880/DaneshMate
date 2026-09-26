@@ -1,0 +1,6 @@
+{
+  "name": "DaneshMate - Neumorphic Student Management Platform",
+  "description": "Full-stack student management mobile app built with React Native & Expo, powered by a high-performance Rust Axum backend with Neumorphic UI design.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

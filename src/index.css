@@ -1,0 +1,100 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --canvas-bg: #090D16;
+    --canvas-glass: rgba(22, 26, 34, 0.75);
+    --border-luminous: rgba(255, 255, 255, 0.1);
+    --accent-electric: #3B82F6;
+    --accent-violet: #8B5CF6;
+    --accent-emerald: #10B981;
+  }
+
+  body {
+    background-color: var(--canvas-bg);
+    color: inherit;
+    user-select: none;
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+  }
+}
+
+/* Shimmer Animation for 'Made by null' and Accents */
+@keyframes shimmer-gradient {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+.shimmer-text {
+  background: linear-gradient(
+    90deg,
+    #94A3B8 0%,
+    #3B82F6 25%,
+    #8B5CF6 50%,
+    #EC4899 75%,
+    #94A3B8 100%
+  );
+  background-size: 200% auto;
+  color: transparent;
+  -webkit-background-clip: text;
+  background-clip: text;
+  animation: shimmer-gradient 4s ease-in-out infinite;
+}
+
+@keyframes sparkle-pulse {
+  0%, 100% {
+    transform: scale(0.9) rotate(0deg);
+    opacity: 0.7;
+    filter: drop-shadow(0 0 2px rgba(59, 130, 246, 0.5));
+  }
+  50% {
+    transform: scale(1.2) rotate(45deg);
+    opacity: 1;
+    filter: drop-shadow(0 0 8px rgba(139, 92, 246, 0.8));
+  }
+}
+
+.sparkle-star {
+  animation: sparkle-pulse 2.5s ease-in-out infinite;
+}
+.sparkle-star-delayed {
+  animation: sparkle-pulse 2.5s ease-in-out infinite 1.25s;
+}
+
+/* Glass & Bento Styles */
+.liquid-glass {
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+}
+
+.liquid-glass-interactive:hover {
+  transform: translateY(-2px);
+}
+
+/* Radial Menu Arc Spring */
+.radial-fan-enter {
+  transition: all 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.15);
+}
+
+/* Custom Scrollbar for Cyber-Luxe */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #090D16;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(59, 130, 246, 0.5);
+}
