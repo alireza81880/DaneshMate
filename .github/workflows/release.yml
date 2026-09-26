@@ -52,8 +52,8 @@ jobs:
 
       - name: 7. Install Dependencies
         run: |
-          npm install --no-audit --no-fund
-          cd frontend && (npm install --no-audit --no-fund)
+          npm install --no-audit --no-fund --legacy-peer-deps
+          cd frontend && (npm install --no-audit --no-fund --legacy-peer-deps)
 
       - name: 8. Execute Rust Android Cross-Compilation
         env:
@@ -68,7 +68,7 @@ jobs:
 
       - name: 10. Generate Platform Assets from Source
         run: |
-          npm install --no-save sharp || (cd frontend && npm install --no-save sharp)
+          npm install --no-save --legacy-peer-deps sharp || (cd frontend && npm install --no-save --legacy-peer-deps sharp)
           node frontend/scripts/generate_assets.js
 
       - name: 11. Bundle & Assemble React Native Android Release (APK & AAB)
@@ -135,8 +135,8 @@ jobs:
 
       - name: 4. Install Dependencies
         run: |
-          npm install --no-audit --no-fund
-          cd frontend && (npm install --no-audit --no-fund)
+          npm install --no-audit --no-fund --legacy-peer-deps
+          cd frontend && (npm install --no-audit --no-fund --legacy-peer-deps)
 
       - name: 5. Execute Rust iOS Cross-Compilation & Package XCFramework
         run: |
@@ -149,7 +149,7 @@ jobs:
 
       - name: 7. Generate Platform Assets from Source
         run: |
-          npm install --no-save sharp || (cd frontend && npm install --no-save sharp)
+          npm install --no-save --legacy-peer-deps sharp || (cd frontend && npm install --no-save --legacy-peer-deps sharp)
           node frontend/scripts/generate_assets.js
 
       - name: 8. Package iOS Release Artifacts
