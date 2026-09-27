@@ -187,21 +187,14 @@ jobs:
           echo "[+] Configuring PWA Service Worker and Apple Mobile Web Metas in dist..."
           # Create service worker if not present
           if [ ! -f "dist/sw.js" ]; then
-            cat << 'EOF' > dist/sw.js
-// DaneshMate Offline PWA Service Worker
-const CACHE_NAME = 'daneshmate-pwa-v1';
-self.addEventListener('install', (e) => {
-  self.skipWaiting();
-});
-self.addEventListener('activate', (e) => {
-  e.waitUntil(clients.claim());
-});
-self.addEventListener('fetch', (e) => {
-  e.respondWith(
-    fetch(e.request).catch(() => caches.match(e.request))
-  );
-});
-EOF
+            node -e "
+              const sw = '// DaneshMate Offline PWA Service Worker\n' +
+                'const CACHE_NAME = \"daneshmate-pwa-v1\";\n' +
+                'self.addEventListener(\"install\", (e) => { self.skipWaiting(); });\n' +
+                'self.addEventListener(\"activate\", (e) => { e.waitUntil(clients.claim()); });\n' +
+                'self.addEventListener(\"fetch\", (e) => { e.respondWith(fetch(e.request).catch(() => caches.match(e.request))); });\n';
+              require('fs').writeFileSync('dist/sw.js', sw);
+            "
           fi
 
           # Register Service Worker & iOS Safari Web App meta tags in dist/index.html
