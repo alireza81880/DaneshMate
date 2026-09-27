@@ -171,6 +171,8 @@ export const HomeScreen: React.FC = () => {
       recurrence: item.recurrence,
       professor: item.professor,
       location: item.location,
+      midtermExamDate: item.midtermExamDate,
+      finalExamDate: item.finalExamDate,
     });
     setIsClassModalOpen(true);
   };
@@ -189,6 +191,8 @@ export const HomeScreen: React.FC = () => {
               recurrence: formData.recurrence,
               professor: formData.professor,
               location: formData.location,
+              midtermExamDate: formData.midtermExamDate,
+              finalExamDate: formData.finalExamDate,
             }
           : c
       );
@@ -201,6 +205,8 @@ export const HomeScreen: React.FC = () => {
         recurrence: formData.recurrence,
         professor: formData.professor,
         location: formData.location,
+        midtermExamDate: formData.midtermExamDate,
+        finalExamDate: formData.finalExamDate,
       };
       updated = [newClass, ...classes];
     }
@@ -242,6 +248,15 @@ export const HomeScreen: React.FC = () => {
   const handleDeleteSessionLog = (id: string) => {
     hapticFeedback.heavy();
     const updatedLogs = sessionLogs.filter((l) => l.id !== id);
+    setSessionLogs(updatedLogs);
+
+    mobileSyncBridge.performOptimisticSync(userProfile, classes, updatedLogs).then(() => {
+      mobilePersistenceAdapter.getQueuedMutations().then((q) => setQueuedCount(q.length));
+    });
+  };
+
+  const handleUpdateSessionLog = (updatedLog: ClassSessionLog) => {
+    const updatedLogs = sessionLogs.map((l) => (l.id === updatedLog.id ? updatedLog : l));
     setSessionLogs(updatedLogs);
 
     mobileSyncBridge.performOptimisticSync(userProfile, classes, updatedLogs).then(() => {
@@ -497,6 +512,7 @@ export const HomeScreen: React.FC = () => {
           sessionLogs={sessionLogs}
           onAddLog={handleSaveSessionLog}
           onDeleteLog={handleDeleteSessionLog}
+          onUpdateLog={handleUpdateSessionLog}
         />
       )}
 

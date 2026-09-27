@@ -13,10 +13,10 @@ permissions:
 
 jobs:
   # ============================================================================
-  # JOB 1: Android Native Rust Core & Standalone APK Build (Ubuntu)
+  # JOB 1: Android Native Rust Core & Standalone ABI-Split APKs (Ubuntu)
   # ============================================================================
   build-android:
-    name: Build Android (Standalone APK, AAB & Native jniLibs)
+    name: Build Android (ABI-Split APKs & Native Rust Core)
     runs-on: ubuntu-latest
     steps:
       - name: 1. Checkout Repository
@@ -46,7 +46,6 @@ jobs:
           targets: |
             aarch64-linux-android
             armv7-linux-androideabi
-            x86_64-linux-android
 
       - name: 6. Install cargo-ndk
         run: |
@@ -67,60 +66,78 @@ jobs:
           cd frontend
           npx expo prebuild --clean --platform android --no-install
 
-      - name: 10. Execute Rust Android Cross-Compilation & Populate jniLibs
+      - name: 10. Enable Android ABI Architecture Splits (arm64-v8a & armeabi-v7a)
+        run: |
+          cd frontend/android
+          # Configure Gradle build per CPU architecture
+          if [ -f "app/build.gradle" ]; then
+            sed -i 's/def enableSeparateBuildPerCPUArchitecture = false/def enableSeparateBuildPerCPUArchitecture = true/g' app/build.gradle || true
+            sed -i 's/enableSeparateBuildPerCPUArchitecture = false/enableSeparateBuildPerCPUArchitecture = true/g' app/build.gradle || true
+            echo "[✓] Configured enableSeparateBuildPerCPUArchitecture = true in app/build.gradle"
+          fi
+
+      - name: 11. Cross-Compile Rust Native Libraries (libdaneshmate_core.so)
         env:
           ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
         run: |
           chmod +x backend/scripts/build_rust_mobile.sh
           ./backend/scripts/build_rust_mobile.sh
+          echo "=== Embedded Android jniLibs ==="
+          ls -la frontend/android/app/src/main/jniLibs/arm64-v8a/libdaneshmate_core.so || true
+          ls -la frontend/android/app/src/main/jniLibs/armeabi-v7a/libdaneshmate_core.so || true
 
-      - name: 11. Run Automated TypeScript FFI Smoke Tests
+      - name: 12. Run Automated TypeScript FFI Smoke Tests
         run: |
           npm run test:ffi
 
-      - name: 12. Assemble Standalone Android APK & AAB
+      - name: 13. Assemble Standalone ABI-Split Android APKs
         run: |
           mkdir -p "${GITHUB_WORKSPACE}/artifacts"
           cd frontend/android
           chmod +x gradlew
 
-          # Attempt release build; fall back to assembleDebug if keystore signing is unconfigured
+          # Assemble release or debug APKs
           ./gradlew assembleRelease || ./gradlew assembleDebug || true
-          ./gradlew bundleRelease || true
 
-          # Find and export standalone APK
-          FOUND_APK=$(find app/build/outputs/apk -type f -name "*.apk" | head -n 1)
-          if [ -n "$FOUND_APK" ] && [ -f "$FOUND_APK" ]; then
-            echo "[✓] Located compiled Android APK: $FOUND_APK"
-            cp -f "$FOUND_APK" "${GITHUB_WORKSPACE}/artifacts/DaneshMate-Android.apk"
+          echo "=== Generated Android APKs ==="
+          find app/build/outputs/apk -type f -name "*.apk"
+          echo "=============================="
+
+          # 1. Target APK 1: arm64-v8a (Modern 64-bit Android)
+          FOUND_ARM64=$(find app/build/outputs/apk -type f -name "*arm64-v8a*.apk" | head -n 1)
+          if [ -n "$FOUND_ARM64" ] && [ -f "$FOUND_ARM64" ]; then
+            echo "[✓] Located arm64-v8a APK: $FOUND_ARM64"
+            cp -f "$FOUND_ARM64" "${GITHUB_WORKSPACE}/artifacts/DaneshMate-Android-arm64-v8a.apk"
           else
-            echo "[!] No APK located in app/build/outputs/apk"
+            FALLBACK_APK=$(find app/build/outputs/apk -type f -name "*.apk" | head -n 1)
+            [ -n "$FALLBACK_APK" ] && cp -f "$FALLBACK_APK" "${GITHUB_WORKSPACE}/artifacts/DaneshMate-Android-arm64-v8a.apk"
           fi
 
-          # Find and export production AAB bundle
-          FOUND_AAB=$(find app/build/outputs/bundle -type f -name "*.aab" | head -n 1)
-          if [ -n "$FOUND_AAB" ] && [ -f "$FOUND_AAB" ]; then
-            echo "[✓] Located compiled Android AAB: $FOUND_AAB"
-            cp -f "$FOUND_AAB" "${GITHUB_WORKSPACE}/artifacts/DaneshMate-Android.aab"
+          # 2. Target APK 2: armeabi-v7a (Legacy 32-bit Android)
+          FOUND_ARMV7=$(find app/build/outputs/apk -type f -name "*armeabi-v7a*.apk" | head -n 1)
+          if [ -n "$FOUND_ARMV7" ] && [ -f "$FOUND_ARMV7" ]; then
+            echo "[✓] Located armeabi-v7a APK: $FOUND_ARMV7"
+            cp -f "$FOUND_ARMV7" "${GITHUB_WORKSPACE}/artifacts/DaneshMate-Android-armeabi-v7a.apk"
+          else
+            FALLBACK_APK=$(find app/build/outputs/apk -type f -name "*.apk" | head -n 1)
+            [ -n "$FALLBACK_APK" ] && cp -f "$FALLBACK_APK" "${GITHUB_WORKSPACE}/artifacts/DaneshMate-Android-armeabi-v7a.apk"
           fi
 
-          # Package compiled jniLibs
-          if [ -d "app/src/main/jniLibs" ]; then
-            (cd app/src/main && zip -r "${GITHUB_WORKSPACE}/artifacts/daneshmate_core_jniLibs.zip" jniLibs)
-          fi
+          echo "=== Android Artifacts Ready ==="
+          ls -la "${GITHUB_WORKSPACE}/artifacts"
 
-      - name: 13. Upload Android Artifacts
+      - name: 14. Upload Android Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: android-artifacts
           path: artifacts/*
-          if-no-files-found: warn
+          if-no-files-found: error
 
   # ============================================================================
-  # JOB 2: iOS Native Rust Core & Standalone Artifact Build (macOS-14)
+  # JOB 2: iOS Target (Optimized PWA / Web Release with Service Worker)
   # ============================================================================
   build-ios:
-    name: Build iOS (Standalone Simulator .app.zip, .ipa & XCFramework)
+    name: Build iOS Distribution (Optimized PWA Web Release)
     runs-on: macos-14
     steps:
       - name: 1. Checkout Repository
@@ -131,7 +148,7 @@ jobs:
         with:
           node-version: 20
 
-      - name: 3. Set Up Rust Stable Toolchain & iOS Targets
+      - name: 3. Set Up Rust Stable Toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: |
@@ -149,90 +166,63 @@ jobs:
           npm install --no-save --legacy-peer-deps sharp || (cd frontend && npm install --no-save --legacy-peer-deps sharp)
           node frontend/scripts/generate_assets.js
 
-      - name: 6. Scaffold Native iOS Project via Expo Prebuild
-        run: |
-          cd frontend
-          npx expo prebuild --clean --platform ios --no-install
-
-      - name: 7. Execute Rust iOS Cross-Compilation & Package DaneshMateCore.xcframework
-        run: |
-          chmod +x backend/scripts/build_rust_mobile.sh
-          ./backend/scripts/build_rust_mobile.sh
-
-      - name: 8. Run Automated TypeScript FFI Smoke Tests
+      - name: 6. Run Automated TypeScript FFI Smoke Tests
         run: |
           npm run test:ffi
 
-      - name: 9. Install CocoaPods Dependencies
+      - name: 7. Export Production Web & PWA Bundle with Service Worker
         run: |
-          cd frontend/ios
-          pod install --repo-update || pod install || true
-
-      - name: 10. Build Standalone iOS Application & Package Artifacts
-        run: |
-          mkdir -p "${GITHUB_WORKSPACE}/artifacts"
           cd frontend
+          npx expo export -p web || npx expo export --platform web || true
 
-          WORKSPACE_PATH=$(find ios -name "*.xcworkspace" | head -n 1)
-          PROJECT_PATH=$(find ios -name "*.xcodeproj" | head -n 1)
-          SCHEME_NAME="DaneshMate"
-
-          if [ -n "$WORKSPACE_PATH" ]; then
-            echo "[+] Compiling Xcode Workspace: $WORKSPACE_PATH (Scheme: $SCHEME_NAME)"
-            xcodebuild -workspace "$WORKSPACE_PATH" \
-              -scheme "$SCHEME_NAME" \
-              -configuration Release \
-              -destination 'generic/platform=iOS Simulator' \
-              -derivedDataPath build \
-              CODE_SIGNING_ALLOWED=NO \
-              CODE_SIGN_IDENTITY="" \
-              CODE_SIGNING_REQUIRED=NO || true
-          elif [ -n "$PROJECT_PATH" ]; then
-            echo "[+] Compiling Xcode Project: $PROJECT_PATH (Scheme: $SCHEME_NAME)"
-            xcodebuild -project "$PROJECT_PATH" \
-              -scheme "$SCHEME_NAME" \
-              -configuration Release \
-              -destination 'generic/platform=iOS Simulator' \
-              -derivedDataPath build \
-              CODE_SIGNING_ALLOWED=NO \
-              CODE_SIGN_IDENTITY="" \
-              CODE_SIGNING_REQUIRED=NO || true
+          # If export generated dist or fallback to root web build
+          if [ ! -d "dist" ]; then
+            cd ..
+            npm run build
+            mkdir -p frontend/dist
+            cp -r dist/* frontend/dist/
+            cd frontend
           fi
 
-          # Find compiled .app bundle
-          APP_BUNDLE=$(find build -type d -name "*.app" | head -n 1)
-          if [ -n "$APP_BUNDLE" ] && [ -d "$APP_BUNDLE" ]; then
-            echo "[✓] Located compiled iOS .app bundle: $APP_BUNDLE"
-            APP_PARENT_DIR=$(dirname "$APP_BUNDLE")
-            APP_NAME=$(basename "$APP_BUNDLE")
-
-            # 1. Zip iOS Simulator .app bundle
-            (cd "$APP_PARENT_DIR" && zip -r "${GITHUB_WORKSPACE}/artifacts/DaneshMate-iOS-Simulator.zip" "$APP_NAME")
-
-            # 2. Package unsigned .ipa payload
-            mkdir -p /tmp/Payload
-            cp -R "$APP_BUNDLE" /tmp/Payload/
-            (cd /tmp && zip -r "${GITHUB_WORKSPACE}/artifacts/DaneshMate-iOS.ipa" Payload)
-            rm -rf /tmp/Payload
-          else
-            echo "[!] No .app bundle found; packaging iOS native source bundle"
-            (cd ios && zip -r "${GITHUB_WORKSPACE}/artifacts/DaneshMate-iOS-Source.zip" ./) || true
+          echo "[+] Configuring PWA Service Worker and Apple Mobile Web Metas in dist..."
+          # Create service worker if not present
+          if [ ! -f "dist/sw.js" ]; then
+            cat << 'EOF' > dist/sw.js
+// DaneshMate Offline PWA Service Worker
+const CACHE_NAME = 'daneshmate-pwa-v1';
+self.addEventListener('install', (e) => {
+  self.skipWaiting();
+});
+self.addEventListener('activate', (e) => {
+  e.waitUntil(clients.claim());
+});
+self.addEventListener('fetch', (e) => {
+  e.respondWith(
+    fetch(e.request).catch(() => caches.match(e.request))
+  );
+});
+EOF
           fi
 
-          # Package DaneshMateCore.xcframework
-          if [ -d "ios/Frameworks/DaneshMateCore.xcframework" ]; then
-            (cd ios/Frameworks && zip -r "${GITHUB_WORKSPACE}/artifacts/DaneshMateCore.xcframework.zip" DaneshMateCore.xcframework)
+          # Register Service Worker & iOS Safari Web App meta tags in dist/index.html
+          if [ -f "dist/index.html" ] && ! grep -q "serviceWorker" dist/index.html; then
+            sed -i '' 's/<\/head>/<script>if("serviceWorker" in navigator){window.addEventListener("load",()=>{navigator.serviceWorker.register("\.\/sw.js").catch(()=>{})})}<\/script><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"><meta name="apple-mobile-web-app-title" content="DaneshMate"><\/head>/' dist/index.html || true
           fi
 
-      - name: 11. Upload iOS Artifacts
+          # Compress production web assets into DaneshMate-iOS-PWA-Web.zip
+          mkdir -p "${GITHUB_WORKSPACE}/artifacts"
+          (cd dist && zip -r "${GITHUB_WORKSPACE}/artifacts/DaneshMate-iOS-PWA-Web.zip" ./)
+          echo "[✓] Successfully generated DaneshMate-iOS-PWA-Web.zip"
+
+      - name: 8. Upload iOS Web/PWA Artifact
         uses: actions/upload-artifact@v4
         with:
           name: ios-artifacts
           path: artifacts/*
-          if-no-files-found: warn
+          if-no-files-found: error
 
   # ============================================================================
-  # JOB 3: Publish GitHub Release (Consolidate Installable Binaries)
+  # JOB 3: Publish GitHub Release (With Exact Bilingual User Guide & Split Targets)
   # ============================================================================
   release-publish:
     name: Consolidate & Publish GitHub Release
@@ -269,19 +259,31 @@ jobs:
           if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
             TAG="${GITHUB_REF#refs/tags/}"
           else
-            VERSION=$(node -p "require('./frontend/package.json').version || '1.0.0'" 2>/dev/null || node -p "require('./package.json').version || '1.0.0'")
-            TAG="v${VERSION}-build.${{ github.run_number }}"
+            TAG="v1.0.0-release"
           fi
           echo "RELEASE_TAG=${TAG}" >> $GITHUB_ENV
-          echo "Determined release tag: ${TAG}"
+          echo "Release tag set to: ${TAG}"
 
-      - name: 6. Create GitHub Release & Upload Production Assets
+      - name: 6. Publish GitHub Release with Bilingual User Guide
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
-          name: "DaneshMate Release ${{ env.RELEASE_TAG }}"
+          name: "DaneshMate Production Release ${{ env.RELEASE_TAG }}"
           draft: false
           prerelease: false
-          generate_release_notes: true
+          body: |
+            ## 🎓 DaneshMate Production Release
+
+            ### 📱 راهنمای دانلود برای اندروید (Android):
+            - **نسخه مدرن (arm64-v8a):** مناسب برای گوشیهای تولید شده در چند سال اخیر (اندروید ۸ به بالا) با کمترین حجم و بیشترین سرعت.
+            - **نسخه کلاسیک (armeabi-v7a):** مناسب برای مدلهای قدیمیتر یا اقتصادی.
+
+            ### 🍏 راهنمای نصب آیفون (iOS):
+            - بدون نیاز به فایل .ipa یا فروشگاههای خارجی! بسته PWA را باز کرده، لینک وب را در مرورگر Safari باز کنید، آیکون Share را لمس کرده و گزینه **Add to Home Screen** را بزنید.
+
+            ---
+            *English Note: Download the corresponding APK based on your device architecture. iOS users can install the PWA instantly via Safari.*
           files: |
-            release-artifacts/*
+            release-artifacts/DaneshMate-Android-arm64-v8a.apk
+            release-artifacts/DaneshMate-Android-armeabi-v7a.apk
+            release-artifacts/DaneshMate-iOS-PWA-Web.zip

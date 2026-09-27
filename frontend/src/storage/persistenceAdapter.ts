@@ -19,6 +19,8 @@ export interface ClassItemData {
   recurrence: 'every_week' | 'even_weeks' | 'odd_weeks';
   professor?: string;
   location?: string;
+  midtermExamDate?: string;
+  finalExamDate?: string;
 }
 
 export interface AttachedFileData {
@@ -37,6 +39,7 @@ export interface SessionLogData {
   createdAt: string;
   notesText: string;
   voiceMemoSeconds?: number;
+  voiceMemoUri?: string;
   attachedFiles: AttachedFileData[];
   hasReminder?: boolean;
   reminderTrigger?: string;

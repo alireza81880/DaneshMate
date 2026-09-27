@@ -20,6 +20,16 @@ export const DocumentBubble: React.FC<DocumentBubbleProps> = React.memo(
   ({ file, time, onOpenNotify }) => {
     const { palette } = useTheme();
 
+    const formattedFileName = useMemo(() => {
+      const name = file.name || 'فایل_پیوست';
+      if (name.length <= 22) return name;
+      const lastDot = name.lastIndexOf('.');
+      const ext = lastDot !== -1 ? name.slice(lastDot) : '';
+      const base = lastDot !== -1 ? name.slice(0, lastDot) : name;
+      if (base.length <= 12) return name;
+      return `${base.slice(0, 8)}...${base.slice(-4)}${ext}`;
+    }, [file.name]);
+
     const handleOpenFile = useCallback(async () => {
       const sampleUrls: Record<FileCategory, string> = {
         pdf: 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf',
@@ -96,7 +106,9 @@ export const DocumentBubble: React.FC<DocumentBubbleProps> = React.memo(
         <View style={gpuAcceleratedCardStyle}>
           <View style={styles.bubbleHeader}>
             <Text style={styles.bubbleSender}>مستند کلاسی پیوست‌شده</Text>
-            <Text style={[styles.bubbleTime, { color: palette.textMuted }]}>{time}</Text>
+            <Text style={[styles.bubbleTime, { color: palette.textMuted }]}>
+              {time.includes('-') ? time.split('-')[0].trim() : (time.includes('/') ? time : '1405/7/5')}
+            </Text>
           </View>
 
           <Pressable
@@ -124,19 +136,24 @@ export const DocumentBubble: React.FC<DocumentBubbleProps> = React.memo(
               <Text
                 style={[styles.fileNameText, { color: palette.textPrimary }]}
                 numberOfLines={1}
+                ellipsizeMode="middle"
               >
-                {file.name}
+                {formattedFileName}
               </Text>
               <View style={styles.fileSubDetails}>
                 <Text style={[styles.fileSizeText, { color: palette.textMuted }]}>
                   {file.sizeText}
                 </Text>
-                <Text style={[styles.openIntentHint, { color: palette.primary }]}>
-                  مشاهده در برنامه پیش‌فرض ↗
-                </Text>
               </View>
             </View>
           </Pressable>
+
+          {/* Bubble Footer: Time on Bottom-Left */}
+          <View style={{ flexDirection: 'row', justifyContent: 'flex-start', paddingTop: 6, marginTop: 4, borderTopWidth: 1, borderTopColor: 'rgba(255, 255, 255, 0.05)' }}>
+            <Text style={{ fontSize: 10, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace', color: palette.textMuted }}>
+              {time.includes('-') ? time.split('-').pop()?.trim() : time}
+            </Text>
+          </View>
         </View>
       </View>
     );

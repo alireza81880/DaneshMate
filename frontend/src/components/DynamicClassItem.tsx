@@ -2,6 +2,7 @@ import React from 'react';
 import { View, Text, StyleSheet, Pressable, Platform } from 'react-native';
 import { useTheme } from '../theme/ThemeContext';
 import { WeekDay, RecurrenceType } from './ClassFormModal';
+import { toPersianDigits } from '../utils/jalali';
 
 export interface DynamicClassItemData {
   id: string;
@@ -9,8 +10,12 @@ export interface DynamicClassItemData {
   day: WeekDay;
   time: string;
   recurrence: RecurrenceType;
+  anchor_date?: string;
+  anchor_timestamp?: number;
   professor?: string;
   location?: string;
+  midtermExamDate?: string;
+  finalExamDate?: string;
 }
 
 interface DynamicClassItemProps {
@@ -28,6 +33,9 @@ export const DynamicClassItem: React.FC<DynamicClassItemProps> = ({
 
   const getRecurrenceBadge = (type: RecurrenceType) => {
     switch (type) {
+      case 'bi_weekly':
+      case 'biweekly':
+        return { label: 'یک هفته در میان', bg: 'rgba(59, 130, 246, 0.15)', color: '#2563EB' };
       case 'even_weeks':
         return { label: 'هفته‌های زوج', bg: 'rgba(147, 51, 234, 0.12)', color: '#9333ea' };
       case 'odd_weeks':
@@ -74,7 +82,7 @@ export const DynamicClassItem: React.FC<DynamicClassItemProps> = ({
           </View>
 
           <View style={[styles.timePlate, { backgroundColor: palette.surfaceInner }]}>
-            <Text style={[styles.timeText, { color: palette.textPrimary }]}>{item.time}</Text>
+            <Text style={[styles.timeText, { color: palette.textPrimary }]}>{toPersianDigits(item.time)}</Text>
           </View>
         </View>
 
@@ -95,6 +103,28 @@ export const DynamicClassItem: React.FC<DynamicClassItemProps> = ({
               <View style={[styles.metaChip, { backgroundColor: palette.surfaceInner }]}>
                 <Text style={[styles.metaText, { color: palette.textSecondary }]}>
                   📍 محل: {item.location}
+                </Text>
+              </View>
+            ) : null}
+          </View>
+        )}
+
+        {/* Optional Exam Badges (Midterm & Final Exams) */}
+        {(item.midtermExamDate || item.finalExamDate) && (
+          <View style={styles.examsRow}>
+            {item.midtermExamDate ? (
+              <View style={[styles.examBadge, { backgroundColor: 'rgba(245, 158, 11, 0.12)', borderColor: '#f59e0b' }]}>
+                <Text style={styles.examBadgeIcon}>📝</Text>
+                <Text style={[styles.examBadgeText, { color: '#d97706' }]}>
+                  میان‌ترم: {toPersianDigits(item.midtermExamDate)}
+                </Text>
+              </View>
+            ) : null}
+            {item.finalExamDate ? (
+              <View style={[styles.examBadge, { backgroundColor: 'rgba(239, 68, 68, 0.12)', borderColor: '#ef4444' }]}>
+                <Text style={styles.examBadgeIcon}>🎯</Text>
+                <Text style={[styles.examBadgeText, { color: '#dc2626' }]}>
+                  پایان‌ترم: {toPersianDigits(item.finalExamDate)}
                 </Text>
               </View>
             ) : null}
@@ -145,28 +175,27 @@ export const DynamicClassItem: React.FC<DynamicClassItemProps> = ({
 
 const styles = StyleSheet.create({
   wrapper: {
-    marginBottom: 14,
+    marginBottom: 12,
     width: '100%',
   },
   card: {
     borderRadius: 22,
     padding: 16,
-    position: 'relative',
-    overflow: 'hidden',
     borderWidth: 1,
+    overflow: 'hidden',
+    position: 'relative',
     ...Platform.select({
-      ios: {
-        shadowColor: '#000000',
-        shadowOffset: { width: 4, height: 4 },
-        shadowOpacity: 0.08,
-        shadowRadius: 8,
-      },
-      android: {
-        elevation: 4,
-      },
       web: {
-        boxShadow: '6px 6px 14px rgba(0,0,0,0.06), -6px -6px 14px rgba(255,255,255,0.7)',
+        boxShadow:
+          '5px 5px 12px rgba(166, 175, 195, 0.4), -5px -5px 12px rgba(255, 255, 255, 0.8)',
       } as any,
+      default: {
+        elevation: 3,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.08,
+        shadowRadius: 6,
+      },
     }),
   },
   topSpecular: {
@@ -174,14 +203,14 @@ const styles = StyleSheet.create({
     top: 0,
     left: 0,
     right: 0,
-    height: 2,
-    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+    height: 1,
+    backgroundColor: 'rgba(255, 255, 255, 0.4)',
   },
   topRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 8,
+    marginBottom: 10,
   },
   badgeGroup: {
     flexDirection: 'row',
@@ -189,55 +218,74 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   dayBadge: {
-    paddingVertical: 3,
-    paddingHorizontal: 8,
-    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 10,
   },
   dayBadgeText: {
     fontSize: 11,
     fontWeight: '800',
   },
   recurrenceBadge: {
-    paddingVertical: 3,
     paddingHorizontal: 8,
-    borderRadius: 8,
+    paddingVertical: 4,
+    borderRadius: 10,
   },
   recurrenceBadgeText: {
-    fontSize: 10,
-    fontWeight: '800',
+    fontSize: 10.5,
+    fontWeight: '700',
   },
   timePlate: {
+    paddingHorizontal: 10,
     paddingVertical: 4,
-    paddingHorizontal: 9,
-    borderRadius: 9,
+    borderRadius: 10,
   },
   timeText: {
-    fontSize: 11,
+    fontSize: 11.5,
     fontWeight: '800',
-    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
   },
   className: {
     fontSize: 16,
-    fontWeight: '900',
+    fontWeight: '800',
     textAlign: 'right',
-    marginVertical: 4,
+    marginBottom: 8,
   },
   metaRow: {
     flexDirection: 'row',
-    alignItems: 'center',
     flexWrap: 'wrap',
     gap: 6,
-    marginTop: 4,
     marginBottom: 8,
   },
   metaChip: {
-    paddingVertical: 3,
     paddingHorizontal: 8,
-    borderRadius: 6,
+    paddingVertical: 4,
+    borderRadius: 8,
   },
   metaText: {
     fontSize: 11,
     fontWeight: '600',
+  },
+  examsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginBottom: 10,
+  },
+  examBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  examBadgeIcon: {
+    fontSize: 11,
+  },
+  examBadgeText: {
+    fontSize: 10.5,
+    fontWeight: '700',
   },
   actionsFooter: {
     flexDirection: 'row',
@@ -253,38 +301,40 @@ const styles = StyleSheet.create({
   },
   buttonsGroup: {
     flexDirection: 'row',
+    alignItems: 'center',
     gap: 8,
   },
   actionBtn: {
+    paddingHorizontal: 12,
     paddingVertical: 6,
-    paddingHorizontal: 14,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.6)',
+    borderColor: 'rgba(255, 255, 255, 0.4)',
     ...Platform.select({
       web: {
-        boxShadow: '3px 3px 6px rgba(0,0,0,0.06), -3px -3px 6px rgba(255,255,255,0.8)',
-        cursor: 'pointer',
+        boxShadow:
+          '2px 2px 5px rgba(166, 175, 195, 0.35), -2px -2px 5px rgba(255, 255, 255, 0.7)',
       } as any,
     }),
   },
   actionBtnPressed: {
     ...Platform.select({
       web: {
-        boxShadow: 'inset 2px 2px 4px rgba(0,0,0,0.08), inset -2px -2px 4px rgba(255,255,255,0.6)',
+        boxShadow:
+          'inset 1px 1px 3px rgba(166, 175, 195, 0.5), inset -1px -1px 3px rgba(255, 255, 255, 0.8)',
       } as any,
     }),
   },
   editBtnText: {
-    fontSize: 11,
+    fontSize: 11.5,
     fontWeight: '700',
   },
   deleteBtn: {
-    borderColor: 'rgba(225, 29, 72, 0.2)',
+    borderColor: 'rgba(244, 63, 94, 0.2)',
   },
   deleteBtnText: {
-    fontSize: 11,
-    fontWeight: '700',
     color: '#e11d48',
+    fontSize: 11.5,
+    fontWeight: '700',
   },
 });

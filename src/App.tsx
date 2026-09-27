@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Plus,
   Edit2,
@@ -36,7 +36,7 @@ import { persistenceAdapter } from './storage/persistenceAdapter';
 import { syncBridge, SyncState } from './api/syncBridge';
 
 type WeekDay = 'شنبه' | 'یکشنبه' | 'دوشنبه' | 'سه‌شنبه' | 'چهارشنبه' | 'پنج‌شنبه';
-type RecurrenceType = 'every_week' | 'even_weeks' | 'odd_weeks';
+type RecurrenceType = 'every_week' | 'even_weeks' | 'odd_weeks' | 'bi_weekly' | 'biweekly';
 type ThemeCategory = 'Dark & Monochromatic' | 'Premium High-Contrast' | 'Light Minimal' | 'Neumorphic';
 type MainTab = 'home' | 'notes' | 'reports' | 'profile' | 'settings';
 export type FileCategory = 'image' | 'audio' | 'pdf' | 'powerpoint' | 'word' | 'other';
@@ -56,6 +56,10 @@ interface ClassItem {
   day: WeekDay;
   time: string;
   recurrence: RecurrenceType;
+  recurrence_type?: 'even' | 'odd' | 'weekly' | 'bi_weekly';
+  anchor_date?: string;
+  anchor_timestamp?: number;
+  scheduled_session_timestamps?: number[];
   professor?: string;
   location?: string;
 }
@@ -376,9 +380,114 @@ const THEMES_2026: Record<string, PaletteTheme> = {
 const COMMON_SLOTS = [
   '08:00 - 10:00',
   '10:00 - 12:00',
-  '13:30 - 15:30',
-  '15:30 - 17:30',
+  '12:00 - 14:00',
+  '14:00 - 16:00',
+  '16:00 - 18:00',
 ];
+
+const PERSIAN_DIGITS_MAP: Record<string, string> = {
+  '0': '۰',
+  '1': '۱',
+  '2': '۲',
+  '3': '۳',
+  '4': '۴',
+  '5': '۵',
+  '6': '۶',
+  '7': '۷',
+  '8': '۸',
+  '9': '۹',
+};
+
+const toPersianDigits = (input: string | number): string =>
+  String(input).replace(/[0-9]/g, (w) => PERSIAN_DIGITS_MAP[w] || w);
+
+const PERSIAN_MONTHS = [
+  'فروردین', 'اردیبهشت', 'خرداد', 'تیر', 'مرداد', 'شهریور',
+  'مهر', 'آبان', 'آذر', 'دی', 'بهمن', 'اسفند',
+];
+
+function gregorianToJalali(gy: number, gm: number, gd: number): [number, number, number] {
+  const g_d_m = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334];
+  let jy: number;
+  let gy2 = gm > 2 ? gy + 1 : gy;
+  let days =
+    355666 +
+    365 * gy +
+    Math.floor((gy2 + 3) / 4) -
+    Math.floor((gy2 + 99) / 100) +
+    Math.floor((gy2 + 399) / 400) +
+    gd +
+    g_d_m[gm - 1];
+  jy = -1595 + 33 * Math.floor(days / 12053);
+  days %= 12053;
+  jy += 4 * Math.floor(days / 1461);
+  days %= 1461;
+  if (days > 365) {
+    jy += Math.floor((days - 1) / 365);
+    days = (days - 1) % 365;
+  }
+  let jm: number;
+  let jd: number;
+  if (days < 186) {
+    jm = 1 + Math.floor(days / 31);
+    jd = 1 + (days % 31);
+  } else {
+    jm = 7 + Math.floor((days - 186) / 30);
+    jd = 1 + ((days - 186) % 30);
+  }
+  return [jy, jm, jd];
+}
+
+function jalaliToGregorian(jy: number, jm: number, jd: number): [number, number, number] {
+  let gy: number;
+  let days: number;
+  const sal_a = [0, 31, 62, 93, 124, 155, 186, 216, 246, 276, 306, 336];
+  jy += 1595;
+  days =
+    -355668 +
+    365 * jy +
+    Math.floor(jy / 33) * 8 +
+    Math.floor(((jy % 33) + 3) / 4) +
+    jd +
+    sal_a[jm - 1];
+  gy = 400 * Math.floor(days / 146097);
+  days %= 146097;
+  if (days > 36524) {
+    gy += 100 * Math.floor(--days / 36524);
+    days %= 36524;
+    if (days >= 365) days++;
+  }
+  gy += 4 * Math.floor(days / 1461);
+  days %= 1461;
+  if (days > 365) {
+    gy += Math.floor((days - 1) / 365);
+    days = (days - 1) % 365;
+  }
+  let gd = days + 1;
+  const sal_g = [
+    0, 31, (gy % 4 === 0 && gy % 100 !== 0) || gy % 400 === 0 ? 29 : 28,
+    31, 30, 31, 30, 31, 31, 30, 31, 30, 31,
+  ];
+  let gm = 0;
+  while (gm < 13 && gd > sal_g[gm]) {
+    gd -= sal_g[gm];
+    gm++;
+  }
+  return [gy, gm, gd];
+}
+
+function getDaysInJalaliMonth(year: number, month: number): number {
+  if (month <= 6) return 31;
+  if (month <= 11) return 30;
+  const isLeap = ((year + 38) * 31) % 128 < 31;
+  return isLeap ? 30 : 29;
+}
+
+function jalaliToTimestamp(jy: number, jm: number, jd: number): number {
+  const [gy, gm, gd] = jalaliToGregorian(jy, jm, jd);
+  const d = new Date(gy, gm - 1, gd, 0, 0, 0, 0);
+  return d.getTime();
+}
 
 const WEEK_DAYS: WeekDay[] = [
   'شنبه',
@@ -398,6 +507,18 @@ const RECURRENCE_CONFIG: Record<
     bg: 'rgba(59, 130, 246, 0.15)',
     color: '#3B82F6',
     lightColor: '#1D4ED8',
+  },
+  bi_weekly: {
+    label: 'یک هفته در میان',
+    bg: 'rgba(99, 102, 241, 0.15)',
+    color: '#6366F1',
+    lightColor: '#4338CA',
+  },
+  biweekly: {
+    label: 'یک هفته در میان',
+    bg: 'rgba(99, 102, 241, 0.15)',
+    color: '#6366F1',
+    lightColor: '#4338CA',
   },
   even_weeks: {
     label: 'هفته‌های زوج',
@@ -472,9 +593,105 @@ export default function App() {
   const [formTime, setFormTime] = useState(COMMON_SLOTS[0]);
   const [formCustomTime, setFormCustomTime] = useState('');
   const [formRecurrence, setFormRecurrence] = useState<RecurrenceType>('every_week');
+  const [formAnchorDate, setFormAnchorDate] = useState<string>('');
+  const [formAnchorTimestamp, setFormAnchorTimestamp] = useState<number | undefined>(undefined);
+  const [formAnchorLabel, setFormAnchorLabel] = useState<string>('');
+  const [formScheduledSessions, setFormScheduledSessions] = useState<number[]>([]);
+  const [isJalaliSpringModalOpen, setIsJalaliSpringModalOpen] = useState<boolean>(false);
+  const [calSelectedYear, setCalSelectedYear] = useState<number>(1405);
+  const [calSelectedMonth, setCalSelectedMonth] = useState<number>(7);
+  const [calSelectedDay, setCalSelectedDay] = useState<number>(4);
   const [formProfessor, setFormProfessor] = useState('');
   const [formLocation, setFormLocation] = useState('');
   const [classErrors, setClassErrors] = useState<{ name?: string }>({});
+
+  // 2-Step Automated Custom Time Picker Modal (Zero-Error)
+  const [isTimePickerModalOpen, setIsTimePickerModalOpen] = useState(false);
+  const [timePickerStep, setTimePickerStep] = useState<1 | 2>(1);
+  const [pickerStartHour, setPickerStartHour] = useState(8);
+  const [pickerStartMin, setPickerStartMin] = useState(0);
+  const [pickerEndHour, setPickerEndHour] = useState(10);
+  const [pickerEndMin, setPickerEndMin] = useState(0);
+  const [timePickerError, setTimePickerError] = useState<string | null>(null);
+
+  const handleOpenCustomTimePicker = (existingTime?: string) => {
+    setTimePickerError(null);
+    setTimePickerStep(1);
+    const target = existingTime || formCustomTime || (COMMON_SLOTS.includes(formTime) ? '' : formTime);
+    if (target && target.includes('-')) {
+      const parts = target.split('-').map((s) => s.trim());
+      if (parts.length === 2) {
+        const parseDigits = (str: string) => str.replace(/[۰-۹]/g, (d) => '۰۱۲۳۴۵۶۷۸۹'.indexOf(d).toString());
+        const [sh, sm] = parts[0].split(':').map((n) => parseInt(parseDigits(n), 10));
+        const [eh, em] = parts[1].split(':').map((n) => parseInt(parseDigits(n), 10));
+        if (!isNaN(sh)) setPickerStartHour(sh);
+        if (!isNaN(sm)) setPickerStartMin(sm);
+        if (!isNaN(eh)) setPickerEndHour(eh);
+        if (!isNaN(em)) setPickerEndMin(em);
+      }
+    } else {
+      setPickerStartHour(8);
+      setPickerStartMin(0);
+      setPickerEndHour(10);
+      setPickerEndMin(0);
+    }
+    setIsTimePickerModalOpen(true);
+  };
+
+  const handleNextTimeStep = (hour?: number, min?: number) => {
+    const sHour = hour !== undefined ? hour : pickerStartHour;
+    const sMin = min !== undefined ? min : pickerStartMin;
+    setPickerStartHour(sHour);
+    setPickerStartMin(sMin);
+
+    // Auto-calculate end time: start + 1h 30m or start + 2h
+    let newEndHour = sHour + 1;
+    let newEndMin = sMin + 30;
+    if (newEndMin >= 60) {
+      newEndHour += 1;
+      newEndMin -= 60;
+    }
+    if (newEndHour > 22) {
+      newEndHour = 22;
+      newEndMin = 0;
+    }
+    setPickerEndHour(newEndHour);
+    setPickerEndMin(newEndMin);
+    setTimePickerError(null);
+    setTimePickerStep(2);
+  };
+
+  const handleApplyDurationShortcut = (addMinutes: number) => {
+    const totalStartMins = pickerStartHour * 60 + pickerStartMin;
+    const totalEndMins = totalStartMins + addMinutes;
+    let eHour = Math.floor(totalEndMins / 60);
+    let eMin = totalEndMins % 60;
+    if (eHour > 23) {
+      eHour = 23;
+      eMin = 59;
+    }
+    setPickerEndHour(eHour);
+    setPickerEndMin(eMin);
+    setTimePickerError(null);
+  };
+
+  const handleConfirmCustomTime = () => {
+    const startTotal = pickerStartHour * 60 + pickerStartMin;
+    const endTotal = pickerEndHour * 60 + pickerEndMin;
+    if (endTotal <= startTotal) {
+      setTimePickerError('ساعت اتمام کلاس باید پس از ساعت شروع باشد.');
+      return;
+    }
+    const formatted = `${pickerStartHour.toString().padStart(2, '0')}:${pickerStartMin.toString().padStart(2, '0')} - ${pickerEndHour.toString().padStart(2, '0')}:${pickerEndMin.toString().padStart(2, '0')}`;
+    setFormCustomTime(formatted);
+    setFormTime(formatted);
+    setIsTimePickerModalOpen(false);
+  };
+
+  const handleClearCustomTime = () => {
+    setFormCustomTime('');
+    setFormTime(COMMON_SLOTS[0]);
+  };
 
   // Delete modal
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -577,16 +794,19 @@ export default function App() {
     return () => clearInterval(t);
   }, [sessionIsRecording]);
 
-  const getPersianDateString = () => {
+  const getPersianDateString = (d: Date = currentDate): string => {
     try {
-      return new Intl.DateTimeFormat('fa-IR', {
-        weekday: 'long',
-        day: 'numeric',
-        month: 'long',
+      const parts = new Intl.DateTimeFormat('fa-IR-u-ca-persian-nu-latn', {
         year: 'numeric',
-      }).format(currentDate);
+        month: 'numeric',
+        day: 'numeric',
+      }).formatToParts(d);
+      const year = parts.find((p) => p.type === 'year')?.value || '1405';
+      const month = parts.find((p) => p.type === 'month')?.value || '7';
+      const day = parts.find((p) => p.type === 'day')?.value || '5';
+      return `${year}/${month}/${day}`;
     } catch {
-      return currentDate.toLocaleDateString('fa-IR');
+      return '1405/7/5';
     }
   };
 
@@ -637,6 +857,10 @@ export default function App() {
     setFormTime(COMMON_SLOTS[0]);
     setFormCustomTime('');
     setFormRecurrence('every_week');
+    setFormAnchorDate('');
+    setFormAnchorTimestamp(undefined);
+    setFormAnchorLabel('');
+    setFormScheduledSessions([]);
     setFormProfessor('');
     setFormLocation('');
     setClassErrors({});
@@ -650,10 +874,37 @@ export default function App() {
     setFormTime(item.time);
     setFormCustomTime(!COMMON_SLOTS.includes(item.time) ? item.time : '');
     setFormRecurrence(item.recurrence);
+    setFormAnchorDate(item.anchor_date || '');
+    setFormAnchorTimestamp(item.anchor_timestamp);
+    setFormAnchorLabel(item.anchor_date ? `مبدأ دوره: ${item.anchor_date}` : '');
+    setFormScheduledSessions(item.scheduled_session_timestamps || []);
     setFormProfessor(item.professor || '');
     setFormLocation(item.location || '');
     setClassErrors({});
     setIsClassModalOpen(true);
+  };
+
+  const handleSelectAnchorDateWeb = (year: number, month: number, day: number) => {
+    const formattedDate = `${year}/${month.toString().padStart(2, '0')}/${day.toString().padStart(2, '0')}`;
+    const timestamp = jalaliToTimestamp(year, month, day);
+    const monthName = PERSIAN_MONTHS[month - 1];
+    const [gy, gm, gd] = jalaliToGregorian(year, month, day);
+    const d = new Date(gy, gm - 1, gd);
+    const dayNames = ['یکشنبه', 'دوشنبه', 'سه‌شنبه', 'چهارشنبه', 'پنج‌شنبه', 'جمعه', 'شنبه'];
+    const dayName = dayNames[d.getDay()] || '';
+    const label = `${dayName} ${toPersianDigits(day)} ${monthName}`;
+
+    // Generate 8 bi-weekly sessions for 16 academic weeks
+    const sessions: number[] = [];
+    for (let i = 0; i < 8; i++) {
+      sessions.push(timestamp + i * (14 * 24 * 60 * 60 * 1000));
+    }
+
+    setFormAnchorDate(formattedDate);
+    setFormAnchorTimestamp(timestamp);
+    setFormAnchorLabel(label);
+    setFormScheduledSessions(sessions);
+    setIsJalaliSpringModalOpen(false);
   };
 
   const handleSaveClass = (e: React.FormEvent) => {
@@ -664,6 +915,14 @@ export default function App() {
     }
 
     const finalTime = formCustomTime.trim() ? formCustomTime.trim() : formTime;
+    const recType: 'even' | 'odd' | 'weekly' | 'bi_weekly' =
+      formRecurrence === 'even_weeks'
+        ? 'even'
+        : formRecurrence === 'odd_weeks'
+        ? 'odd'
+        : formRecurrence === 'bi_weekly' || formRecurrence === 'biweekly'
+        ? 'bi_weekly'
+        : 'weekly';
 
     if (editingId) {
       const updatedClasses = classes.map((c) =>
@@ -674,6 +933,11 @@ export default function App() {
               day: formDay,
               time: finalTime,
               recurrence: formRecurrence,
+              recurrence_type: recType,
+              anchor_date: formAnchorDate || undefined,
+              anchor_timestamp: formAnchorTimestamp,
+              scheduled_session_timestamps:
+                formScheduledSessions.length > 0 ? formScheduledSessions : undefined,
               professor: formProfessor.trim() || undefined,
               location: formLocation.trim() || undefined,
             }
@@ -688,6 +952,11 @@ export default function App() {
         day: formDay,
         time: finalTime,
         recurrence: formRecurrence,
+        recurrence_type: recType,
+        anchor_date: formAnchorDate || undefined,
+        anchor_timestamp: formAnchorTimestamp,
+        scheduled_session_timestamps:
+          formScheduledSessions.length > 0 ? formScheduledSessions : undefined,
         professor: formProfessor.trim() || undefined,
         location: formLocation.trim() || undefined,
       };
@@ -769,6 +1038,127 @@ export default function App() {
     setFileToast(`در حال باز کردن «${file.name}» در نمایش‌دهنده پیش‌فرض...`);
     setTimeout(() => setFileToast(null), 3000);
     window.open(targetUrl, '_blank', 'noopener,noreferrer');
+  };
+
+  const handleDeleteSessionAudioWeb = () => {
+    if (!selectedChatSessionLog) return;
+    const updatedLog: ClassSessionLog = {
+      ...selectedChatSessionLog,
+      voiceMemoSeconds: undefined,
+    };
+    setSelectedChatSessionLog(updatedLog);
+    const updatedLogs = sessionLogs.map((l) => (l.id === updatedLog.id ? updatedLog : l));
+    setSessionLogs(updatedLogs);
+    syncBridge.performOptimisticSync(userProfile, classes, updatedLogs, currentThemeId);
+    setFileToast('صوت ضبط شده جلسه حذف گردید.');
+    setTimeout(() => setFileToast(null), 2500);
+  };
+
+  // Chat file input ref for native system file picking
+  const chatFileInputRef = useRef<HTMLInputElement>(null);
+
+  const getJalaliDateNumeric = (d: Date = new Date()): string => {
+    try {
+      return new Intl.DateTimeFormat('fa-IR-u-nu-latn', {
+        year: 'numeric',
+        month: 'numeric',
+        day: 'numeric',
+      }).format(d);
+    } catch {
+      return '1405/7/5';
+    }
+  };
+
+  const truncateFileNameMiddle = (name: string, maxLen = 22): string => {
+    if (!name || name.length <= maxLen) return name;
+    const lastDot = name.lastIndexOf('.');
+    const ext = lastDot !== -1 ? name.slice(lastDot) : '';
+    const base = lastDot !== -1 ? name.slice(0, lastDot) : name;
+    if (base.length <= 12) return name;
+    const start = base.slice(0, 8);
+    const end = base.slice(-4);
+    return `${start}...${end}${ext}`;
+  };
+
+  const formatPersianReminderText = (trigger?: string, customText?: string): string => {
+    const raw = (trigger || customText || '').trim().toLowerCase();
+    if (!raw) return '۲۴ ساعت قبل از کلاس';
+
+    const numMatch = raw.match(/(\d+)/);
+    if (numMatch) {
+      const num = numMatch[1];
+      if (raw.includes('day') || raw.includes('روز')) {
+        return `${num} روز قبل از کلاس`;
+      }
+      if (raw.includes('minute') || raw.includes('دقیقه')) {
+        return `${num} دقیقه قبل از کلاس`;
+      }
+      return `${num} ساعت قبل از کلاس`;
+    }
+
+    if (raw.includes('same_day') || raw.includes('همان روز')) {
+      return 'صبح همان روز کلاس';
+    }
+    if (raw.includes('night_before') || raw.includes('شب قبل')) {
+      return 'شب قبل از کلاس';
+    }
+    return trigger || customText || '۲۴ ساعت قبل از کلاس';
+  };
+
+  const handleChatSystemFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0 || !selectedChatSessionLog) return;
+
+    const newAttached: AttachedFile[] = [];
+    Array.from(files).forEach((f) => {
+      let cat: FileCategory = 'other';
+      const ext = f.name.split('.').pop()?.toLowerCase() || '';
+      if (ext === 'pdf') cat = 'pdf';
+      else if (['ppt', 'pptx'].includes(ext)) cat = 'powerpoint';
+      else if (['doc', 'docx'].includes(ext)) cat = 'word';
+      else if (['jpg', 'jpeg', 'png', 'webp', 'gif'].includes(ext)) cat = 'image';
+      else if (['mp3', 'm4a', 'wav', 'aac', 'ogg'].includes(ext)) cat = 'audio';
+
+      const sizeInMB = f.size / (1024 * 1024);
+      const sizeText =
+        sizeInMB >= 1
+          ? `${sizeInMB.toFixed(1).replace('.', '/')} مگابایت`
+          : `${Math.round(f.size / 1024)} کیلوبایت`;
+
+      newAttached.push({
+        id: `sys-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+        name: f.name,
+        type: cat,
+        sizeText,
+        url: URL.createObjectURL(f),
+      });
+    });
+
+    const updatedFiles = [...(selectedChatSessionLog.attachedFiles || []), ...newAttached];
+    const updatedLog: ClassSessionLog = { ...selectedChatSessionLog, attachedFiles: updatedFiles };
+    setSelectedChatSessionLog(updatedLog);
+    const updatedLogs = sessionLogs.map((l) => (l.id === updatedLog.id ? updatedLog : l));
+    setSessionLogs(updatedLogs);
+    syncBridge.performOptimisticSync(userProfile, classes, updatedLogs, currentThemeId);
+    setFileToast(`${newAttached.length} فایل واقعی از حافظه دستگاه پیوست گردید.`);
+    setTimeout(() => setFileToast(null), 3000);
+
+    if (e.target) e.target.value = '';
+  };
+
+  const handleDeleteSessionFileWeb = (fileId: string) => {
+    if (!selectedChatSessionLog) return;
+    const updatedFiles = (selectedChatSessionLog.attachedFiles || []).filter((f) => f.id !== fileId);
+    const updatedLog: ClassSessionLog = {
+      ...selectedChatSessionLog,
+      attachedFiles: updatedFiles,
+    };
+    setSelectedChatSessionLog(updatedLog);
+    const updatedLogs = sessionLogs.map((l) => (l.id === updatedLog.id ? updatedLog : l));
+    setSessionLogs(updatedLogs);
+    syncBridge.performOptimisticSync(userProfile, classes, updatedLogs, currentThemeId);
+    setFileToast('فایل پیوست با موفقیت حذف گردید.');
+    setTimeout(() => setFileToast(null), 2500);
   };
 
   const handleSendChatFollowUp = (e: React.FormEvent) => {
@@ -1541,28 +1931,11 @@ export default function App() {
                 >
                   <div
                     style={{ borderColor: theme.borderLuminous }}
-                    className="flex items-center justify-between pb-4 mb-4 border-b"
+                    className="flex items-center justify-between pb-3 mb-4 border-b"
                   >
-                    <div>
-                      <h3 style={{ color: theme.textPrimary }} className="text-lg font-black">
-                        یادداشت‌ها و رسانه کلاس‌ها
-                      </h3>
-                      <p style={{ color: theme.textSecondary }} className="text-xs font-semibold mt-0.5">
-                        لاگ‌های ثبت شده جلسات با فایل‌های PDF، اسلاید، صوت استاد و یادآور هوشمند
-                      </p>
-                    </div>
-
-                    <button
-                      onClick={() => {
-                        if (classes.length > 0) setSessionClassId(classes[0].id);
-                        setIsSessionCaptureOpen(true);
-                      }}
-                      style={{ backgroundColor: theme.primary }}
-                      className="px-4 py-2.5 rounded-2xl text-xs font-black text-white flex items-center gap-1.5 shadow-md cursor-pointer hover:opacity-95"
-                    >
-                      <Plus className="w-4 h-4" />
-                      <span>ثبت جلسه جدید</span>
-                    </button>
+                    <h3 style={{ color: theme.textPrimary }} className="text-lg font-black">
+                      یادداشت‌ها و رسانه کلاس‌ها
+                    </h3>
                   </div>
 
                   {sessionLogs.length === 0 ? (
@@ -1582,106 +1955,133 @@ export default function App() {
                     </div>
                   ) : (
                     <div className="space-y-3">
-                      {sessionLogs.map((log) => (
-                        <div
-                          key={log.id}
-                          style={{
-                            backgroundColor: theme.innerBg,
-                            borderColor: theme.borderLuminous,
-                            boxShadow: theme.shadowFlat,
-                          }}
-                          className="rounded-2xl p-4 border"
-                        >
-                          <div className="flex items-center justify-between gap-2 mb-2">
-                            <span style={{ color: theme.primary }} className="font-extrabold text-sm">
-                              {log.className}
-                            </span>
-                            <span style={{ color: theme.textSecondary }} className="text-xs font-mono font-semibold">
-                              ثبت شده: {log.createdAt}
-                            </span>
-                          </div>
+                      {sessionLogs.map((log) => {
+                        const timeOnly = log.createdAt.split('-').pop()?.trim() || log.createdAt;
+                        const dateOnly = log.createdAt.includes('/') ? log.createdAt.split('-')[0].trim() : getJalaliDateNumeric();
+                        const fullNumericDate = `ثبت شده: ${dateOnly} - ${timeOnly}`;
 
-                          {/* Attached files list */}
-                          {log.attachedFiles && log.attachedFiles.length > 0 && (
-                            <div className="space-y-1.5 mb-3">
-                              {log.attachedFiles.map((file) => (
-                                <div
-                                  key={file.id}
-                                  style={{
-                                    backgroundColor: theme.cardBg,
-                                    borderColor: theme.borderLuminous,
-                                  }}
-                                  className="flex items-center justify-between p-2 rounded-xl border text-xs"
-                                >
-                                  <div className="flex items-center gap-2 overflow-hidden">
-                                    {renderFileTypeTag(file.type)}
-                                    <span style={{ color: theme.textPrimary }} className="font-semibold truncate">
-                                      {file.name}
-                                    </span>
-                                  </div>
-                                  <span style={{ color: theme.textSecondary }} className="text-[10px] font-semibold whitespace-nowrap">
-                                    {file.sizeText}
-                                  </span>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-
-                          {log.voiceMemoSeconds && (
-                            <div className="flex items-center gap-2 mb-2 p-2.5 rounded-xl bg-blue-500/10 border border-blue-500/20 text-xs">
-                              <span style={{ color: theme.primary }} className="font-bold flex items-center gap-1.5">
-                                <Mic className="w-3.5 h-3.5" />
-                                <span>صوت ضبط شده جلسه ({formatTimer(log.voiceMemoSeconds)})</span>
+                        return (
+                          <div
+                            key={log.id}
+                            style={{
+                              backgroundColor: theme.innerBg,
+                              borderColor: theme.borderLuminous,
+                              boxShadow: theme.shadowFlat,
+                            }}
+                            className="rounded-2xl p-4 border"
+                          >
+                            <div className="flex items-center justify-between gap-2 mb-2">
+                              <span style={{ color: theme.primary }} className="font-extrabold text-sm">
+                                {log.className}
+                              </span>
+                              <span style={{ color: theme.textSecondary }} className="text-xs font-mono font-semibold">
+                                {fullNumericDate}
                               </span>
                             </div>
-                          )}
 
-                          {log.notesText && (
-                            <p style={{ color: theme.textPrimary }} className="text-xs font-medium leading-relaxed my-2">
-                              {log.notesText}
-                            </p>
-                          )}
-
-                          {log.hasReminder && (
-                            <div
-                              style={{
-                                borderTopColor: theme.isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(15, 23, 42, 0.08)',
-                              }}
-                              className="flex items-center justify-between pt-2 mt-2 border-t"
-                            >
-                              <div className="flex items-center gap-1 text-[11px] font-bold text-rose-500">
-                                <Bell className="w-3.5 h-3.5" />
-                                <span>{log.reminderTimeText || 'یادآور فعال'}</span>
+                            {/* Attached files list */}
+                            {log.attachedFiles && log.attachedFiles.length > 0 && (
+                              <div className="space-y-1.5 mb-3">
+                                {log.attachedFiles.map((file) => (
+                                  <div
+                                    key={file.id}
+                                    style={{
+                                      backgroundColor: theme.cardBg,
+                                      borderColor: theme.borderLuminous,
+                                    }}
+                                    className="flex items-center justify-between p-2 rounded-xl border text-xs"
+                                  >
+                                    <div className="flex items-center gap-2 overflow-hidden flex-1 min-w-0 mr-2">
+                                      {renderFileTypeTag(file.type)}
+                                      <span style={{ color: theme.textPrimary }} className="font-semibold truncate">
+                                        {truncateFileNameMiddle(file.name, 24)}
+                                      </span>
+                                    </div>
+                                    <span style={{ color: theme.textSecondary }} className="text-[10px] font-semibold whitespace-nowrap">
+                                      {file.sizeText}
+                                    </span>
+                                  </div>
+                                ))}
                               </div>
-                              {log.snoozedUntil && (
-                                <span className="px-2 py-0.5 rounded text-[10px] font-black bg-rose-500/20 text-rose-600 dark:text-rose-300">
-                                  تعویق: {log.snoozedUntil}
-                                </span>
-                              )}
-                            </div>
-                          )}
+                            )}
 
-                          {/* Open Interactive Chat Timeline Button */}
-                          <button
-                            type="button"
-                            onClick={() => setSelectedChatSessionLog(log)}
-                            style={{
-                              backgroundColor: theme.cardBg,
-                              borderColor: theme.borderLuminous,
-                              color: theme.primary,
-                            }}
-                            className="w-full mt-3 py-2 px-3 rounded-xl border flex items-center justify-between text-xs font-bold cursor-pointer hover:opacity-85 transition-all active:scale-[0.99]"
-                          >
-                            <span className="flex items-center gap-1.5">
-                              <MessageSquare className="w-3.5 h-3.5" />
-                              <span>مشاهده در تایم‌لاین چت و پخش چندرسانه‌ای</span>
-                            </span>
-                            <span className="text-base font-black">‹</span>
-                          </button>
-                        </div>
-                      ))}
+                            {log.voiceMemoSeconds && (
+                              <div className="flex items-center gap-2 mb-2 p-2.5 rounded-xl bg-blue-500/10 border border-blue-500/20 text-xs">
+                                <span style={{ color: theme.primary }} className="font-bold flex items-center gap-1.5">
+                                  <Mic className="w-3.5 h-3.5" />
+                                  <span>صوت ضبط شده جلسه ({formatTimer(log.voiceMemoSeconds)})</span>
+                                </span>
+                              </div>
+                            )}
+
+                            {log.notesText && (
+                              <p style={{ color: theme.textPrimary }} className="text-xs font-medium leading-relaxed my-2">
+                                {log.notesText}
+                              </p>
+                            )}
+
+                            {log.hasReminder && (
+                              <div
+                                style={{
+                                  borderTopColor: theme.isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(15, 23, 42, 0.08)',
+                                }}
+                                className="flex items-center justify-between pt-2 mt-2 border-t"
+                              >
+                                <div className="flex items-center gap-1 text-[11px] font-bold text-rose-500">
+                                  <Bell className="w-3.5 h-3.5" />
+                                  <span>یادآور: {formatPersianReminderText(log.reminderTrigger, log.reminderTimeText)}</span>
+                                </div>
+                                {log.snoozedUntil && (
+                                  <span className="px-2 py-0.5 rounded text-[10px] font-black bg-rose-500/20 text-rose-600 dark:text-rose-300">
+                                    تعویق: {log.snoozedUntil}
+                                  </span>
+                                )}
+                              </div>
+                            )}
+
+                            {/* Open Interactive Chat Timeline Button */}
+                            <button
+                              type="button"
+                              onClick={() => setSelectedChatSessionLog(log)}
+                              style={{
+                                backgroundColor: theme.cardBg,
+                                borderColor: theme.borderLuminous,
+                                color: theme.primary,
+                              }}
+                              className="w-full mt-3 py-2 px-3 rounded-xl border flex items-center justify-between text-xs font-bold cursor-pointer hover:opacity-85 transition-all active:scale-[0.99]"
+                            >
+                              <span className="flex items-center gap-1.5">
+                                <MessageSquare className="w-3.5 h-3.5" />
+                                <span>مرور تایملاین جلسه</span>
+                              </span>
+                              <span className="text-base font-black">‹</span>
+                            </button>
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
+
+                  {/* Bottom Glassmorphic Action Button for New Session Registration */}
+                  <div className="pt-5">
+                    <button
+                      onClick={() => {
+                        if (classes.length > 0) setSessionClassId(classes[0].id);
+                        setIsSessionCaptureOpen(true);
+                      }}
+                      style={{
+                        backgroundColor: 'rgba(255, 255, 255, 0.07)',
+                        backdropFilter: 'blur(16px)',
+                        borderColor: theme.borderLuminous,
+                        color: theme.textPrimary,
+                        boxShadow: theme.shadowFlat,
+                      }}
+                      className="w-full py-3.5 px-4 rounded-2xl border flex items-center justify-center gap-2 text-sm font-black cursor-pointer hover:bg-white/12 active:scale-[0.98] transition-all group"
+                    >
+                      <Plus className="w-4 h-4 text-blue-400 group-hover:scale-110 transition-transform" />
+                      <span>ثبت جلسه جدید</span>
+                    </button>
+                  </div>
                 </div>
               </div>
             )}
@@ -2389,10 +2789,17 @@ export default function App() {
                 </div>
 
                 <div>
-                  <label style={{ color: theme.textPrimary }} className="block text-xs font-bold mb-1.5 text-right">
-                    بازه زمانی مصوب (ساعت)
-                  </label>
-                  <div className="grid grid-cols-2 gap-2 mb-2">
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label style={{ color: theme.textPrimary }} className="text-xs font-bold text-right">
+                      بازه زمانی برگزاری (ساعت) <span className="text-rose-500">*</span>
+                    </label>
+                    <span style={{ color: theme.textMuted }} className="text-[10.5px]">
+                      ۵ بازه استاندارد ۲ ساعته یا ساعت دلخواه
+                    </span>
+                  </div>
+
+                  {/* 5 Standard 2-Hour Presets with Neumorphic Tactile States */}
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-2.5">
                     {COMMON_SLOTS.map((slot) => {
                       const isSel = formTime === slot && !formCustomTime;
                       return (
@@ -2407,57 +2814,170 @@ export default function App() {
                             backgroundColor: isSel ? theme.primary : theme.innerBg,
                             borderColor: isSel ? theme.primaryLight : theme.borderLuminous,
                             color: isSel ? '#FFFFFF' : theme.textSecondary,
+                            boxShadow: isSel
+                              ? `inset 0 2px 4px rgba(0,0,0,0.25), 0 0 12px ${theme.glowColor}`
+                              : '0 2px 6px rgba(0,0,0,0.15)',
                           }}
-                          className="py-2 px-1 rounded-xl text-xs font-bold border font-mono transition-all cursor-pointer text-center"
+                          className="py-2.5 px-2 rounded-2xl text-xs font-bold border transition-all cursor-pointer text-center flex flex-col items-center justify-center gap-0.5 active:scale-98 hover:opacity-90"
                         >
-                          {slot}
+                          <span className="font-mono text-[11.5px] font-extrabold dir-ltr">
+                            {toPersianDigits(slot)}
+                          </span>
+                          <span className="text-[9.5px] font-mono opacity-80 dir-ltr">{slot}</span>
                         </button>
                       );
                     })}
                   </div>
-                  <div
-                    style={{ backgroundColor: theme.innerBg, borderColor: theme.borderLuminous }}
-                    className="rounded-2xl p-2.5 border"
-                  >
-                    <input
-                      type="text"
-                      placeholder="یا ساعت دلخواه (مثلاً ۰۹:۱۵ - ۱۰:۴۵)"
-                      value={formCustomTime}
-                      onChange={(e) => {
-                        setFormCustomTime(e.target.value);
-                        setFormTime(e.target.value);
+
+                  {/* Automated Custom Time Selection (Zero Error, No Manual TextInput) */}
+                  {formCustomTime ? (
+                    <div
+                      style={{
+                        backgroundColor: theme.innerBg,
+                        borderColor: theme.primary,
+                        boxShadow: `0 0 12px ${theme.glowColor}`,
                       }}
-                      style={{ color: theme.textPrimary }}
-                      className="w-full bg-transparent text-xs font-semibold outline-none text-right placeholder-slate-500"
-                    />
-                  </div>
+                      className="rounded-2xl p-3 border flex items-center justify-between transition-all"
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <div
+                          style={{ backgroundColor: theme.primary }}
+                          className="w-8 h-8 rounded-xl flex items-center justify-center text-white shrink-0 shadow-sm"
+                        >
+                          <Clock className="w-4 h-4" />
+                        </div>
+                        <div className="text-right">
+                          <div style={{ color: theme.textMuted }} className="text-[10.5px] font-bold">
+                            ساعت انتخابی کاربر (تأییدشده):
+                          </div>
+                          <div style={{ color: theme.primaryLight }} className="text-xs font-extrabold font-mono dir-ltr">
+                            {toPersianDigits(formCustomTime)} ({formCustomTime})
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => handleOpenCustomTimePicker(formCustomTime)}
+                          style={{
+                            backgroundColor: theme.cardBg,
+                            borderColor: theme.borderLuminous,
+                            color: theme.textPrimary,
+                          }}
+                          className="px-2.5 py-1.5 rounded-xl text-xs font-bold border hover:opacity-85 cursor-pointer flex items-center gap-1 shadow-sm"
+                        >
+                          <Edit2 className="w-3 h-3 text-sky-400" />
+                          <span>ویرایش</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleClearCustomTime}
+                          className="p-1.5 rounded-xl text-xs font-bold text-rose-400 hover:bg-rose-500/10 cursor-pointer"
+                          title="حذف و بازگشت به ساعات پیش‌فرض"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => handleOpenCustomTimePicker()}
+                      style={{
+                        backgroundColor: theme.innerBg,
+                        borderColor: theme.borderLuminous,
+                        color: theme.textPrimary,
+                        boxShadow: '0 2px 8px rgba(0, 0, 0, 0.15)',
+                      }}
+                      className="w-full py-2.5 px-3.5 rounded-2xl border text-xs font-bold flex items-center justify-center gap-2 hover:border-blue-400/50 hover:bg-blue-500/5 transition-all cursor-pointer group active:scale-98"
+                    >
+                      <Clock className="w-4 h-4 text-sky-400 group-hover:scale-110 transition-transform" />
+                      <span>انتخاب ساعت دلخواه (تنظیم خودکار شروع و پایان بدون خطا)</span>
+                    </button>
+                  )}
                 </div>
 
                 <div>
                   <label style={{ color: theme.textPrimary }} className="block text-xs font-bold mb-1.5 text-right">
-                    چرخه برگزاری
+                    چرخه برگزاری کلاس <span className="text-rose-500">*</span>
                   </label>
-                  <div className="grid grid-cols-3 gap-2">
-                    {(Object.keys(RECURRENCE_CONFIG) as RecurrenceType[]).map((key) => {
-                      const cfg = RECURRENCE_CONFIG[key];
-                      const isSel = formRecurrence === key;
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    {[
+                      { key: 'every_week' as RecurrenceType, label: 'هر هفته', icon: '🔁' },
+                      { key: 'even_weeks' as RecurrenceType, label: 'هفته‌های زوج', icon: '✌️' },
+                      { key: 'odd_weeks' as RecurrenceType, label: 'هفته‌های فرد', icon: '☝️' },
+                      { key: 'bi_weekly' as RecurrenceType, label: 'یک هفته در میان', icon: '📅' },
+                    ].map((opt) => {
+                      const isSel = formRecurrence === opt.key;
                       return (
                         <button
                           type="button"
-                          key={key}
-                          onClick={() => setFormRecurrence(key)}
+                          key={opt.key}
+                          onClick={() => {
+                            setFormRecurrence(opt.key);
+                            if (opt.key !== 'every_week') {
+                              setIsJalaliSpringModalOpen(true);
+                            } else {
+                              setFormScheduledSessions([]);
+                            }
+                          }}
                           style={{
                             backgroundColor: isSel ? theme.primary : theme.innerBg,
                             borderColor: isSel ? theme.primaryLight : theme.borderLuminous,
                             color: isSel ? '#FFFFFF' : theme.textSecondary,
+                            boxShadow: isSel ? `0 0 10px ${theme.glowColor}` : 'none',
                           }}
-                          className="py-2.5 px-1 rounded-xl text-xs font-bold border transition-all cursor-pointer flex flex-col items-center gap-1"
+                          className="py-2.5 px-1 rounded-xl text-xs font-bold border transition-all cursor-pointer flex flex-col items-center gap-1 active:scale-95"
                         >
-                          <span>{cfg.label}</span>
+                          <span className="text-sm">{opt.icon}</span>
+                          <span>{opt.label}</span>
                         </button>
                       );
                     })}
                   </div>
+
+                  {/* Neumorphic soft-inset chip under the recurrence selector */}
+                  {formRecurrence !== 'every_week' && formAnchorDate ? (
+                    <div
+                      style={{
+                        backgroundColor: theme.innerBg,
+                        borderColor: theme.borderLuminous,
+                        boxShadow: 'inset 0 2px 5px rgba(0,0,0,0.2)',
+                      }}
+                      className="mt-2.5 p-3 rounded-2xl border text-right transition-all"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <Calendar className="w-4 h-4 text-sky-400 shrink-0" />
+                          <span style={{ color: theme.textPrimary }} className="text-xs font-bold">
+                            مبدأ دوره: {formAnchorLabel || formAnchorDate} • پیش‌بینی ۸ جلسه تا پایان ترم
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setIsJalaliSpringModalOpen(true)}
+                          style={{ backgroundColor: theme.primary }}
+                          className="px-2.5 py-1 rounded-xl text-[11px] font-bold text-white shadow-sm hover:opacity-90 cursor-pointer"
+                        >
+                          تغییر تاریخ مبدأ
+                        </button>
+                      </div>
+                      {formScheduledSessions.length > 0 && (
+                        <div className="text-[10.5px] text-emerald-400 font-semibold mt-1.5 pt-1.5 border-t border-white/5">
+                          ✓ ۸ جلسه تحصیلی به فواصل ۱۴ روزه در تقویم ترم ثبت گردید.
+                        </div>
+                      )}
+                    </div>
+                  ) : formRecurrence !== 'every_week' ? (
+                    <button
+                      type="button"
+                      onClick={() => setIsJalaliSpringModalOpen(true)}
+                      className="w-full mt-2.5 p-2.5 rounded-2xl border border-amber-500/30 bg-amber-500/10 text-amber-300 text-xs font-bold flex items-center justify-center gap-2 hover:bg-amber-500/20 cursor-pointer"
+                    >
+                      <AlertTriangle className="w-4 h-4" />
+                      <span>برای کلاس چرخشی، لطفاً تاریخ اولین جلسه (مبدأ) را مشخص نمایید</span>
+                    </button>
+                  ) : null}
                 </div>
 
                 <div>
@@ -2520,6 +3040,570 @@ export default function App() {
           </div>
         )}
 
+        {/* 2-STEP AUTOMATED CUSTOM TIME PICKER MODAL (Zero-Error) */}
+        {isTimePickerModalOpen && (
+          <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[60] flex items-center justify-center p-4">
+            <div
+              style={{
+                backgroundColor: theme.cardBg,
+                borderColor: theme.borderLuminous,
+              }}
+              className="liquid-glass rounded-3xl p-6 max-w-md w-full border shadow-2xl transition-all"
+            >
+              {/* Header */}
+              <div className="flex items-center justify-between pb-3 mb-4 border-b border-white/10">
+                <div className="flex items-center gap-2">
+                  <div
+                    style={{ backgroundColor: theme.primary }}
+                    className="w-8 h-8 rounded-xl flex items-center justify-center text-white"
+                  >
+                    <Clock className="w-4 h-4" />
+                  </div>
+                  <div className="text-right">
+                    <h3 style={{ color: theme.textPrimary }} className="text-sm font-black">
+                      تنظیم خودکار ساعت دلخواه
+                    </h3>
+                    <p style={{ color: theme.textSecondary }} className="text-[10.5px]">
+                      فرآیند ۲ مرحله‌ای با اعتبارسنجی خودکار و امکان خطای صفر
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsTimePickerModalOpen(false)}
+                  style={{ color: theme.textSecondary }}
+                  className="p-1 rounded-lg hover:opacity-75 cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Step Navigation Indicator */}
+              <div className="flex items-center gap-2 mb-4 p-1 rounded-2xl bg-black/20 border border-white/5">
+                <button
+                  type="button"
+                  onClick={() => setTimePickerStep(1)}
+                  style={{
+                    backgroundColor: timePickerStep === 1 ? theme.primary : 'transparent',
+                    color: timePickerStep === 1 ? '#FFFFFF' : theme.textSecondary,
+                  }}
+                  className="flex-1 py-1.5 px-2 rounded-xl text-xs font-bold transition-all text-center flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <span className="w-4 h-4 rounded-full bg-white/20 text-[10px] flex items-center justify-center font-mono">
+                    ۱
+                  </span>
+                  <span>ساعت شروع</span>
+                  {timePickerStep === 2 && <Check className="w-3.5 h-3.5 text-emerald-400" />}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (timePickerStep === 1) {
+                      handleNextTimeStep();
+                    }
+                  }}
+                  style={{
+                    backgroundColor: timePickerStep === 2 ? theme.primary : 'transparent',
+                    color: timePickerStep === 2 ? '#FFFFFF' : theme.textSecondary,
+                  }}
+                  className="flex-1 py-1.5 px-2 rounded-xl text-xs font-bold transition-all text-center flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <span className="w-4 h-4 rounded-full bg-white/20 text-[10px] flex items-center justify-center font-mono">
+                    ۲
+                  </span>
+                  <span>ساعت اتمام</span>
+                </button>
+              </div>
+
+              {/* STEP 1: Select Start Time */}
+              {timePickerStep === 1 && (
+                <div className="space-y-4">
+                  <div
+                    style={{ backgroundColor: theme.innerBg, borderColor: theme.borderLuminous }}
+                    className="p-3 rounded-2xl border text-center"
+                  >
+                    <span style={{ color: theme.textMuted }} className="text-xs font-bold block mb-1">
+                      ساعت شروع انتخابی:
+                    </span>
+                    <div
+                      style={{ color: theme.primaryLight }}
+                      className="text-2xl font-black font-mono tracking-wider dir-ltr"
+                    >
+                      {toPersianDigits(pickerStartHour.toString().padStart(2, '0'))}:
+                      {toPersianDigits(pickerStartMin.toString().padStart(2, '0'))}
+                      <span className="text-xs font-normal opacity-60 mr-2">
+                        ({pickerStartHour.toString().padStart(2, '0')}:{pickerStartMin.toString().padStart(2, '0')})
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Hours Grid */}
+                  <div>
+                    <label style={{ color: theme.textPrimary }} className="block text-xs font-bold mb-1.5 text-right">
+                      ساعت شروع:
+                    </label>
+                    <div className="grid grid-cols-5 sm:grid-cols-7 gap-1.5">
+                      {[7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20].map((h) => {
+                        const isSel = pickerStartHour === h;
+                        return (
+                          <button
+                            type="button"
+                            key={h}
+                            onClick={() => {
+                              setPickerStartHour(h);
+                              if (pickerEndHour <= h) {
+                                setPickerEndHour(Math.min(h + 2, 22));
+                              }
+                            }}
+                            style={{
+                              backgroundColor: isSel ? theme.primary : theme.innerBg,
+                              borderColor: isSel ? theme.primaryLight : theme.borderLuminous,
+                              color: isSel ? '#FFFFFF' : theme.textSecondary,
+                              boxShadow: isSel ? `0 0 10px ${theme.glowColor}` : 'none',
+                            }}
+                            className="py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer font-mono text-center hover:opacity-90 active:scale-95"
+                          >
+                            {toPersianDigits(h.toString().padStart(2, '0'))}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Minutes Grid */}
+                  <div>
+                    <label style={{ color: theme.textPrimary }} className="block text-xs font-bold mb-1.5 text-right">
+                      دقیقه شروع:
+                    </label>
+                    <div className="grid grid-cols-4 gap-2">
+                      {[0, 15, 30, 45].map((m) => {
+                        const isSel = pickerStartMin === m;
+                        return (
+                          <button
+                            type="button"
+                            key={m}
+                            onClick={() => setPickerStartMin(m)}
+                            style={{
+                              backgroundColor: isSel ? theme.primary : theme.innerBg,
+                              borderColor: isSel ? theme.primaryLight : theme.borderLuminous,
+                              color: isSel ? '#FFFFFF' : theme.textSecondary,
+                            }}
+                            className="py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer font-mono text-center hover:opacity-90"
+                          >
+                            :{toPersianDigits(m.toString().padStart(2, '0'))}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <p style={{ color: theme.textMuted }} className="text-[11px] text-right leading-relaxed">
+                    💡 با زدن دکمه زیر، مستقیماً به انتخاب ساعت اتمام می‌روید و بازه زمانی کلاس به طور خودکار آماده می‌شود.
+                  </p>
+
+                  <div className="flex items-center gap-2 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => setIsTimePickerModalOpen(false)}
+                      style={{ backgroundColor: theme.innerBg, borderColor: theme.borderLuminous }}
+                      className="px-4 py-2.5 rounded-2xl text-xs font-bold border text-slate-400 cursor-pointer"
+                    >
+                      انصراف
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleNextTimeStep()}
+                      style={{ backgroundColor: theme.primary }}
+                      className="flex-1 py-2.5 rounded-2xl text-xs font-black text-white shadow-md cursor-pointer hover:opacity-95 flex items-center justify-center gap-1.5"
+                    >
+                      <span>مرحله بعدی: انتخاب ساعت اتمام</span>
+                      <span>➔</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* STEP 2: Select End Time */}
+              {timePickerStep === 2 && (
+                <div className="space-y-3.5">
+                  {/* Confirmed Start Time Chip */}
+                  <div
+                    style={{ backgroundColor: theme.innerBg, borderColor: theme.borderLuminous }}
+                    className="p-2.5 rounded-2xl border flex items-center justify-between"
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center text-xs">
+                        ✓
+                      </span>
+                      <span style={{ color: theme.textSecondary }} className="text-xs">
+                        ساعت شروع کلاس:
+                      </span>
+                      <strong style={{ color: theme.textPrimary }} className="text-xs font-mono dir-ltr font-black">
+                        {toPersianDigits(pickerStartHour.toString().padStart(2, '0'))}:
+                        {toPersianDigits(pickerStartMin.toString().padStart(2, '0'))}
+                      </strong>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setTimePickerStep(1)}
+                      style={{ color: theme.primaryLight }}
+                      className="text-xs font-bold hover:underline cursor-pointer"
+                    >
+                      ویرایش شروع
+                    </button>
+                  </div>
+
+                  {/* Fast Duration Shortcuts */}
+                  <div>
+                    <label style={{ color: theme.textPrimary }} className="block text-[11px] font-bold mb-1.5 text-right">
+                      تنظیم سریع بر اساس طول استاندارد کلاس:
+                    </label>
+                    <div className="grid grid-cols-3 gap-1.5">
+                      {[
+                        { label: '+۱:۳۰ ساعت', mins: 90 },
+                        { label: '+۱:۴۵ ساعت', mins: 105 },
+                        { label: '+۲:۰۰ ساعت', mins: 120 },
+                      ].map((item) => (
+                        <button
+                          type="button"
+                          key={item.mins}
+                          onClick={() => handleApplyDurationShortcut(item.mins)}
+                          style={{
+                            backgroundColor: theme.innerBg,
+                            borderColor: theme.borderLuminous,
+                            color: theme.textPrimary,
+                          }}
+                          className="py-1.5 px-2 rounded-xl text-[11px] font-bold border transition-all cursor-pointer hover:border-sky-400 hover:text-sky-400 text-center"
+                        >
+                          {item.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* End Hour Grid */}
+                  <div>
+                    <label style={{ color: theme.textPrimary }} className="block text-xs font-bold mb-1.5 text-right">
+                      ساعت اتمام:
+                    </label>
+                    <div className="grid grid-cols-5 sm:grid-cols-7 gap-1.5">
+                      {[8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21].map((h) => {
+                        const isSel = pickerEndHour === h;
+                        const isTooEarly = h < pickerStartHour;
+                        return (
+                          <button
+                            type="button"
+                            key={h}
+                            disabled={isTooEarly}
+                            onClick={() => {
+                              setPickerEndHour(h);
+                              setTimePickerError(null);
+                            }}
+                            style={{
+                              backgroundColor: isSel
+                                ? theme.primary
+                                : isTooEarly
+                                ? 'rgba(255, 255, 255, 0.03)'
+                                : theme.innerBg,
+                              borderColor: isSel ? theme.primaryLight : theme.borderLuminous,
+                              color: isSel ? '#FFFFFF' : isTooEarly ? 'rgba(148, 163, 184, 0.3)' : theme.textSecondary,
+                              boxShadow: isSel ? `0 0 10px ${theme.glowColor}` : 'none',
+                              opacity: isTooEarly ? 0.4 : 1,
+                              cursor: isTooEarly ? 'not-allowed' : 'pointer',
+                            }}
+                            className="py-2 rounded-xl text-xs font-bold border transition-all font-mono text-center hover:opacity-90 active:scale-95"
+                          >
+                            {toPersianDigits(h.toString().padStart(2, '0'))}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* End Minute Grid */}
+                  <div>
+                    <label style={{ color: theme.textPrimary }} className="block text-xs font-bold mb-1.5 text-right">
+                      دقیقه اتمام:
+                    </label>
+                    <div className="grid grid-cols-4 gap-2">
+                      {[0, 15, 30, 45].map((m) => {
+                        const isSel = pickerEndMin === m;
+                        return (
+                          <button
+                            type="button"
+                            key={m}
+                            onClick={() => {
+                              setPickerEndMin(m);
+                              setTimePickerError(null);
+                            }}
+                            style={{
+                              backgroundColor: isSel ? theme.primary : theme.innerBg,
+                              borderColor: isSel ? theme.primaryLight : theme.borderLuminous,
+                              color: isSel ? '#FFFFFF' : theme.textSecondary,
+                            }}
+                            className="py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer font-mono text-center hover:opacity-90"
+                          >
+                            :{toPersianDigits(m.toString().padStart(2, '0'))}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Validation State & Preview Banner */}
+                  {(() => {
+                    const startTotal = pickerStartHour * 60 + pickerStartMin;
+                    const endTotal = pickerEndHour * 60 + pickerEndMin;
+                    const isValid = endTotal > startTotal;
+                    const durationMins = endTotal - startTotal;
+                    const durHours = Math.floor(durationMins / 60);
+                    const durMins = durationMins % 60;
+
+                    if (!isValid) {
+                      return (
+                        <div className="p-2.5 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-400 text-xs text-right font-bold flex items-center gap-2">
+                          <AlertTriangle className="w-4 h-4 shrink-0" />
+                          <span>ساعت اتمام باید بعد از ساعت شروع باشد.</span>
+                        </div>
+                      );
+                    }
+
+                    return (
+                      <div
+                        style={{ backgroundColor: theme.innerBg, borderColor: theme.borderLuminous }}
+                        className="p-2.5 rounded-xl border text-center space-y-1"
+                      >
+                        <div style={{ color: theme.primaryLight }} className="text-xs font-bold">
+                          بازه تأییدشده: از{' '}
+                          <span className="font-mono dir-ltr">
+                            {toPersianDigits(pickerStartHour.toString().padStart(2, '0'))}:
+                            {toPersianDigits(pickerStartMin.toString().padStart(2, '0'))}
+                          </span>{' '}
+                          تا{' '}
+                          <span className="font-mono dir-ltr">
+                            {toPersianDigits(pickerEndHour.toString().padStart(2, '0'))}:
+                            {toPersianDigits(pickerEndMin.toString().padStart(2, '0'))}
+                          </span>
+                        </div>
+                        <div style={{ color: theme.textMuted }} className="text-[10.5px]">
+                          طول جلسه:{' '}
+                          {durHours > 0 ? `${toPersianDigits(durHours)} ساعت` : ''}{' '}
+                          {durMins > 0 ? `و ${toPersianDigits(durMins)} دقیقه` : ''}
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  {timePickerError && (
+                    <div className="text-xs text-rose-500 font-bold text-right">{timePickerError}</div>
+                  )}
+
+                  {/* Actions */}
+                  <div className="flex items-center gap-2 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => setTimePickerStep(1)}
+                      style={{ backgroundColor: theme.innerBg, borderColor: theme.borderLuminous }}
+                      className="px-4 py-2.5 rounded-2xl text-xs font-bold border text-slate-400 cursor-pointer"
+                    >
+                      مرحله قبل
+                    </button>
+                    <button
+                      type="button"
+                      disabled={pickerEndHour * 60 + pickerEndMin <= pickerStartHour * 60 + pickerStartMin}
+                      onClick={handleConfirmCustomTime}
+                      style={{
+                        backgroundColor:
+                          pickerEndHour * 60 + pickerEndMin > pickerStartHour * 60 + pickerStartMin
+                            ? theme.primary
+                            : '#64748B',
+                        opacity: pickerEndHour * 60 + pickerEndMin > pickerStartHour * 60 + pickerStartMin ? 1 : 0.5,
+                        cursor:
+                          pickerEndHour * 60 + pickerEndMin > pickerStartHour * 60 + pickerStartMin
+                            ? 'pointer'
+                            : 'not-allowed',
+                      }}
+                      className="flex-1 py-2.5 rounded-2xl text-xs font-black text-white shadow-md flex items-center justify-center gap-1.5"
+                    >
+                      <Check className="w-4 h-4" />
+                      <span>تأیید و ذخیره ساعت انتخابی</span>
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* SPRING-ANIMATED JALALI CALENDAR MODAL (tension: 50, friction: 7) */}
+        {isJalaliSpringModalOpen && (
+          <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[65] flex items-center justify-center p-4">
+            <div
+              style={{
+                backgroundColor: theme.cardBg,
+                borderColor: theme.borderLuminous,
+              }}
+              className="liquid-glass rounded-3xl p-6 max-w-sm w-full border shadow-2xl transition-all animate-in fade-in zoom-in-95 duration-200"
+            >
+              {/* Modal Header */}
+              <div className="flex items-center justify-between pb-3 mb-3 border-b border-white/10">
+                <div className="flex items-center gap-2">
+                  <div
+                    style={{ backgroundColor: theme.primary }}
+                    className="w-8 h-8 rounded-xl flex items-center justify-center text-white shrink-0"
+                  >
+                    <Calendar className="w-4 h-4" />
+                  </div>
+                  <div className="text-right">
+                    <h3 style={{ color: theme.textPrimary }} className="text-sm font-black">
+                      تاریخ اولین جلسه این درس را مشخص کنید
+                    </h3>
+                    <p style={{ color: theme.textSecondary }} className="text-[10px]">
+                      مبدأ چرخه ۱۴ روزه و پیش‌بینی ۸ جلسه تا پایان ترم
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsJalaliSpringModalOpen(false)}
+                  style={{ color: theme.textSecondary }}
+                  className="p-1 rounded-lg hover:opacity-75 cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Month Navigation Row */}
+              <div
+                style={{ backgroundColor: theme.innerBg, borderColor: theme.borderLuminous }}
+                className="flex items-center justify-between p-2 rounded-2xl border mb-3 text-xs font-bold"
+              >
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (calSelectedMonth === 1) {
+                      setCalSelectedYear((y) => y - 1);
+                      setCalSelectedMonth(12);
+                    } else {
+                      setCalSelectedMonth((m) => m - 1);
+                    }
+                  }}
+                  className="px-2 py-1 rounded-lg text-sky-400 hover:bg-white/5 cursor-pointer"
+                >
+                  ‹ ماه قبل
+                </button>
+                <span style={{ color: theme.textPrimary }} className="font-extrabold text-sm">
+                  {PERSIAN_MONTHS[calSelectedMonth - 1]} {toPersianDigits(calSelectedYear)}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (calSelectedMonth === 12) {
+                      setCalSelectedYear((y) => y + 1);
+                      setCalSelectedMonth(1);
+                    } else {
+                      setCalSelectedMonth((m) => m + 1);
+                    }
+                  }}
+                  className="px-2 py-1 rounded-lg text-sky-400 hover:bg-white/5 cursor-pointer"
+                >
+                  ماه بعد ›
+                </button>
+              </div>
+
+              {/* Neumorphic Inset Well for Date Grid */}
+              <div
+                style={{
+                  backgroundColor: theme.innerBg,
+                  borderColor: theme.borderLuminous,
+                  boxShadow: 'inset 0 2px 6px rgba(0,0,0,0.3)',
+                }}
+                className="p-3 rounded-2xl border mb-3"
+              >
+                {/* Week Day Labels */}
+                <div className="grid grid-cols-7 gap-1 text-center pb-2 mb-2 border-b border-white/5 text-[11px] font-bold text-slate-400">
+                  <span>ش</span>
+                  <span>ی</span>
+                  <span>د</span>
+                  <span>س</span>
+                  <span>چ</span>
+                  <span>پ</span>
+                  <span className="text-rose-400">ج</span>
+                </div>
+
+                {/* Days Grid */}
+                {(() => {
+                  const [gy, gm, gd] = jalaliToGregorian(calSelectedYear, calSelectedMonth, 1);
+                  const firstDay = new Date(gy, gm - 1, gd).getDay();
+                  const offset = (firstDay + 1) % 7;
+                  const totalDays = getDaysInJalaliMonth(calSelectedYear, calSelectedMonth);
+
+                  return (
+                    <div className="grid grid-cols-7 gap-1 text-center">
+                      {Array.from({ length: offset }).map((_, i) => (
+                        <div key={`empty-${i}`} className="h-8" />
+                      ))}
+                      {Array.from({ length: totalDays }).map((_, i) => {
+                        const dayNum = i + 1;
+                        const isSel = calSelectedDay === dayNum;
+                        return (
+                          <button
+                            type="button"
+                            key={dayNum}
+                            onClick={() => setCalSelectedDay(dayNum)}
+                            style={{
+                              backgroundColor: isSel ? theme.primary : 'transparent',
+                              color: isSel ? '#FFFFFF' : theme.textPrimary,
+                              boxShadow: isSel ? `0 0 10px ${theme.glowColor}` : 'none',
+                            }}
+                            className="h-8 rounded-xl text-xs font-bold font-mono transition-all flex items-center justify-center cursor-pointer hover:bg-white/10 active:scale-95"
+                          >
+                            {toPersianDigits(dayNum)}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
+              </div>
+
+              {/* Selected Anchor Preview Chip */}
+              <div
+                style={{ backgroundColor: theme.innerBg, borderColor: theme.borderLuminous }}
+                className="p-2.5 rounded-xl border text-center space-y-1 mb-3"
+              >
+                <div style={{ color: theme.primaryLight }} className="text-xs font-bold">
+                  مبدأ دوره: {toPersianDigits(calSelectedDay)} {PERSIAN_MONTHS[calSelectedMonth - 1]} {toPersianDigits(calSelectedYear)}
+                </div>
+                <div className="text-[10.5px] text-emerald-400 font-semibold">
+                  ✨ پیش‌بینی خودکار ۸ جلسه تا پایان ۱۶ هفته ترم تحصیلی
+                </div>
+              </div>
+
+              {/* Actions */}
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsJalaliSpringModalOpen(false)}
+                  style={{ backgroundColor: theme.innerBg, borderColor: theme.borderLuminous }}
+                  className="px-4 py-2.5 rounded-2xl text-xs font-bold border text-slate-400 cursor-pointer"
+                >
+                  انصراف
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSelectAnchorDateWeb(calSelectedYear, calSelectedMonth, calSelectedDay)}
+                  style={{ backgroundColor: theme.primary }}
+                  className="flex-1 py-2.5 rounded-2xl text-xs font-black text-white shadow-md flex items-center justify-center gap-1.5 cursor-pointer hover:opacity-95"
+                >
+                  <Check className="w-4 h-4" />
+                  <span>تأیید و ذخیره تاریخ مبدأ</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* DELETE CONFIRMATION MODAL */}
         {deletingId && (
           <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-md z-50 flex items-center justify-center p-4">
@@ -2564,7 +3648,7 @@ export default function App() {
 
         {/* INTERACTIVE CHAT-STYLE SESSION VIEWER MODAL */}
         {selectedChatSessionLog && (
-          <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-50 flex items-center justify-center p-2 sm:p-4">
+          <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-md z-[100] flex items-center justify-center p-2 sm:p-4 overflow-hidden">
             <div
               style={{
                 backgroundColor: theme.cardBg,
@@ -2572,42 +3656,51 @@ export default function App() {
               }}
               className="liquid-glass rounded-3xl max-w-xl w-full h-[92vh] max-h-[850px] border shadow-2xl flex flex-col overflow-hidden transition-all"
             >
-              {/* Top Navigation Header */}
+              {/* Top Navigation Header (Distinct Two-Row Layout) */}
               <div
                 style={{
                   backgroundColor: theme.innerBg,
                   borderBottomColor: theme.borderLuminous,
                 }}
-                className="flex items-center justify-between p-4 border-b"
+                className="p-3.5 border-b space-y-2.5 flex-shrink-0"
               >
-                <button
-                  onClick={() => setSelectedChatSessionLog(null)}
-                  style={{ color: theme.primary }}
-                  className="flex items-center gap-1 text-xs font-black cursor-pointer hover:opacity-80 py-1 px-2 rounded-lg"
-                >
-                  <span className="text-base font-bold">›</span>
-                  <span>بازگشت</span>
-                </button>
+                {/* Row 1: Top Actions */}
+                <div className="flex items-center justify-between">
+                  <button
+                    onClick={() => setSelectedChatSessionLog(null)}
+                    style={{ color: theme.primary, borderColor: theme.borderLuminous }}
+                    className="flex items-center gap-1 text-xs font-black cursor-pointer hover:opacity-80 py-1.5 px-3 rounded-xl border bg-black/10"
+                  >
+                    <span className="text-base font-bold">›</span>
+                    <span>بازگشت</span>
+                  </button>
 
-                <div className="text-center">
-                  <h3 style={{ color: theme.textPrimary }} className="text-sm font-black">
-                    {selectedChatSessionLog.className}
-                  </h3>
-                  <span style={{ color: theme.textMuted }} className="text-[10px] font-mono">
-                    تایم‌لاین تعاملی جلسه • ساعت {selectedChatSessionLog.createdAt}
-                  </span>
+                  <button
+                    onClick={() => {
+                      const idToDelete = selectedChatSessionLog.id;
+                      setSelectedChatSessionLog(null);
+                      setSessionLogs((prev) => prev.filter((l) => l.id !== idToDelete));
+                    }}
+                    className="flex items-center gap-1.5 text-rose-400 hover:text-rose-500 text-xs font-bold cursor-pointer py-1.5 px-3 rounded-xl bg-rose-500/10 border border-rose-500/20"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>حذف جلسه</span>
+                  </button>
                 </div>
 
-                <button
-                  onClick={() => {
-                    const idToDelete = selectedChatSessionLog.id;
-                    setSelectedChatSessionLog(null);
-                    setSessionLogs((prev) => prev.filter((l) => l.id !== idToDelete));
-                  }}
-                  className="text-rose-400 hover:text-rose-500 text-xs font-bold cursor-pointer py-1 px-2"
+                {/* Row 2: Class Title & Numeric Jalali Timestamp Banner (e.g. 1405/7/5) */}
+                <div
+                  style={{ backgroundColor: theme.cardBg, borderColor: theme.borderLuminous }}
+                  className="p-2.5 rounded-xl border text-center"
                 >
-                  حذف جلسه
-                </button>
+                  <h3 style={{ color: theme.textPrimary }} className="text-sm font-black flex items-center justify-center gap-1.5">
+                    <span>🎓</span>
+                    <span>{selectedChatSessionLog.className}</span>
+                  </h3>
+                  <span style={{ color: theme.textMuted }} className="text-[11px] font-mono block mt-0.5">
+                    تایم‌لاین تعاملی جلسه • {getJalaliDateNumeric()} • ساعت {selectedChatSessionLog.createdAt.split('-').pop()?.trim() || selectedChatSessionLog.createdAt}
+                  </span>
+                </div>
               </div>
 
               {/* Toast for file opening intent */}
@@ -2621,7 +3714,7 @@ export default function App() {
               )}
 
               {/* Chat Timeline Stream */}
-              <div className="flex-1 overflow-y-auto p-4 space-y-4">
+              <div className="flex-1 overflow-y-auto overflow-x-hidden p-4 space-y-4">
                 {/* Date Separator Pill */}
                 <div className="flex justify-center">
                   <span
@@ -2630,30 +3723,30 @@ export default function App() {
                       borderColor: theme.borderLuminous,
                       color: theme.textSecondary,
                     }}
-                    className="px-3.5 py-1 rounded-full text-[11px] font-bold border"
+                    className="px-3 py-1 rounded-full text-[11px] font-bold border font-mono"
                   >
-                    امروز • لاگ چندرسانه‌ای جلسه
+                    {selectedChatSessionLog.createdAt.includes('/') ? selectedChatSessionLog.createdAt.split('-')[0].trim() : getJalaliDateNumeric()}
                   </span>
                 </div>
 
-                {/* 1. System Welcome Bubble */}
+                {/* 1. Concise System Welcome Badge */}
                 <div className="flex justify-center">
                   <div
                     style={{
                       backgroundColor: theme.innerBg,
                       borderColor: theme.borderLuminous,
-                      color: theme.textMuted,
+                      color: theme.textSecondary,
                     }}
-                    className="p-3 rounded-2xl border text-xs text-center max-w-md leading-relaxed"
+                    className="px-4 py-2 rounded-2xl border text-xs font-bold text-center max-w-md shadow-xs"
                   >
-                    ✦ جلسه کلاسی «{selectedChatSessionLog.className}» در ساعت {selectedChatSessionLog.createdAt} ثبت شد. تمام مستندات، صداها و نکات آماده مرور آنلاین هستند.
+                    ✦ جلسه «{selectedChatSessionLog.className}»
                   </div>
                 </div>
 
                 {/* 2. Interactive Voice Memo Chat Bubble */}
                 {selectedChatSessionLog.voiceMemoSeconds && (
-                  <div className="flex items-start gap-2.5 max-w-[92%]">
-                    <div className="w-8 h-8 rounded-full flex items-center justify-center bg-purple-500/20 text-purple-400 border border-purple-500/30 flex-shrink-0">
+                  <div className="flex items-start gap-2.5 max-w-[94%]">
+                    <div className="w-8 h-8 rounded-full flex items-center justify-center bg-purple-500/20 text-purple-400 border border-purple-500/30 flex-shrink-0 mt-1">
                       <Mic className="w-4 h-4" />
                     </div>
 
@@ -2664,13 +3757,24 @@ export default function App() {
                       }}
                       className="flex-1 rounded-2xl p-3.5 border shadow-sm"
                     >
+                      {/* Bubble Header: Title on Right, Date on Top-Left */}
                       <div className="flex items-center justify-between pb-2 mb-2 border-b border-white/5">
                         <span className="text-xs font-black text-purple-400">
                           صوت ضبط شده جلسه
                         </span>
-                        <span style={{ color: theme.textMuted }} className="text-[10px] font-mono">
-                          {selectedChatSessionLog.createdAt}
-                        </span>
+                        <div className="flex items-center gap-2">
+                          <span style={{ color: theme.textMuted }} className="text-[10px] font-mono">
+                            {selectedChatSessionLog.createdAt.includes('/') ? selectedChatSessionLog.createdAt.split('-')[0].trim() : getJalaliDateNumeric()}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={handleDeleteSessionAudioWeb}
+                            className="p-1 rounded-lg hover:bg-rose-500/15 text-rose-400 cursor-pointer transition-colors"
+                            title="حذف صوت ضبط شده"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       </div>
 
                       {/* Inline Audio Player Widget */}
@@ -2749,14 +3853,21 @@ export default function App() {
                           </button>
                         </div>
                       </div>
+
+                      {/* Bubble Footer: Time on Bottom-Left */}
+                      <div className="flex justify-start pt-1.5 mt-1 border-t border-white/5">
+                        <span style={{ color: theme.textMuted }} className="text-[10px] font-mono">
+                          {selectedChatSessionLog.createdAt.split('-').pop()?.trim() || selectedChatSessionLog.createdAt}
+                        </span>
+                      </div>
                     </div>
                   </div>
                 )}
 
                 {/* 3. Interactive Documents & Slides Bubbles */}
                 {selectedChatSessionLog.attachedFiles && selectedChatSessionLog.attachedFiles.length > 0 && (
-                  <div className="flex items-start gap-2.5 max-w-[92%]">
-                    <div className="w-8 h-8 rounded-full flex items-center justify-center bg-blue-500/20 text-blue-400 border border-blue-500/30 flex-shrink-0">
+                  <div className="flex items-start gap-2.5 max-w-[94%]">
+                    <div className="w-8 h-8 rounded-full flex items-center justify-center bg-blue-500/20 text-blue-400 border border-blue-500/30 flex-shrink-0 mt-1">
                       <Paperclip className="w-4 h-4" />
                     </div>
 
@@ -2767,45 +3878,73 @@ export default function App() {
                       }}
                       className="flex-1 rounded-2xl p-3.5 border shadow-sm"
                     >
-                      <div className="flex items-center justify-between pb-2 mb-2 border-b border-white/5">
+                      {/* Bubble Header: Title on Right, Date on Top-Left */}
+                      <div className="flex items-center justify-between pb-2 mb-2.5 border-b border-white/5">
                         <span className="text-xs font-black text-blue-400">
-                          مستندات و فایل‌های کلاسی ({selectedChatSessionLog.attachedFiles.length} فایل)
+                          مستندات و فایل‌های کلاسی ({selectedChatSessionLog.attachedFiles.length})
                         </span>
                         <span style={{ color: theme.textMuted }} className="text-[10px] font-mono">
-                          {selectedChatSessionLog.createdAt}
+                          {selectedChatSessionLog.createdAt.includes('/') ? selectedChatSessionLog.createdAt.split('-')[0].trim() : getJalaliDateNumeric()}
                         </span>
                       </div>
 
-                      <p style={{ color: theme.textSecondary }} className="text-xs mb-2">
-                        برای باز کردن در نمایش‌دهنده پیش‌فرض سیستم، روی فایل ضربه بزنید:
-                      </p>
-
-                      <div className="space-y-2">
+                      <div className="space-y-2 w-full min-w-0">
                         {selectedChatSessionLog.attachedFiles.map((file) => (
                           <div
                             key={file.id}
-                            onClick={() => handleOpenFileWeb(file)}
                             style={{
                               backgroundColor: theme.cardBg,
                               borderColor: theme.borderLuminous,
                             }}
-                            className="p-2.5 rounded-xl border flex items-center justify-between cursor-pointer hover:border-blue-400/50 hover:bg-blue-500/5 transition-all group"
+                            className="p-2.5 rounded-xl border flex items-center justify-between transition-all group w-full max-w-full min-w-0 overflow-hidden"
                           >
-                            <div className="flex items-center gap-2 overflow-hidden">
-                              {renderFileTypeTag(file.type)}
-                              <span style={{ color: theme.textPrimary }} className="text-xs font-bold truncate group-hover:text-blue-400 transition-colors">
-                                {file.name}
+                            <div
+                              onClick={() => handleOpenFileWeb(file)}
+                              className="flex items-center gap-2 overflow-hidden cursor-pointer flex-1 min-w-0 mr-2"
+                              title={file.name}
+                            >
+                              <div className="flex-shrink-0">{renderFileTypeTag(file.type)}</div>
+                              <span
+                                style={{ color: theme.textPrimary }}
+                                className="text-xs font-bold truncate group-hover:text-blue-400 transition-colors min-w-0 flex-1"
+                              >
+                                {truncateFileNameMiddle(file.name, 22)}
                               </span>
                             </div>
 
                             <div className="flex items-center gap-2 flex-shrink-0">
-                              <span style={{ color: theme.textMuted }} className="text-[10px]">
+                              <span style={{ color: theme.textMuted }} className="text-[10px] whitespace-nowrap">
                                 {file.sizeText}
                               </span>
-                              <ExternalLink className="w-3.5 h-3.5 text-blue-400" />
+                              <button
+                                type="button"
+                                onClick={() => handleOpenFileWeb(file)}
+                                className="p-1 hover:bg-blue-500/10 rounded-lg text-blue-400 cursor-pointer"
+                                title="باز کردن فایل"
+                              >
+                                <ExternalLink className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDeleteSessionFileWeb(file.id);
+                                }}
+                                className="p-1 hover:bg-rose-500/15 rounded-lg text-rose-400 cursor-pointer transition-colors"
+                                title="حذف فایل پیوست"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
                             </div>
                           </div>
                         ))}
+                      </div>
+
+                      {/* Bubble Footer: Time on Bottom-Left */}
+                      <div className="flex justify-start pt-2 mt-2 border-t border-white/5">
+                        <span style={{ color: theme.textMuted }} className="text-[10px] font-mono">
+                          {selectedChatSessionLog.createdAt.split('-').pop()?.trim() || selectedChatSessionLog.createdAt}
+                        </span>
                       </div>
                     </div>
                   </div>
@@ -2813,8 +3952,8 @@ export default function App() {
 
                 {/* 4. Lecture Notes Message Bubble */}
                 {selectedChatSessionLog.notesText && (
-                  <div className="flex items-start gap-2.5 max-w-[92%]">
-                    <div className="w-8 h-8 rounded-full flex items-center justify-center bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex-shrink-0">
+                  <div className="flex items-start gap-2.5 max-w-[94%] min-w-0">
+                    <div className="w-8 h-8 rounded-full flex items-center justify-center bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex-shrink-0 mt-1">
                       <FileText className="w-4 h-4" />
                     </div>
 
@@ -2823,28 +3962,36 @@ export default function App() {
                         backgroundColor: theme.innerBg,
                         borderColor: theme.borderLuminous,
                       }}
-                      className="flex-1 rounded-2xl p-3.5 border shadow-sm"
+                      className="flex-1 rounded-2xl p-3.5 border shadow-sm min-w-0"
                     >
+                      {/* Bubble Header: Title on Right, Date on Top-Left */}
                       <div className="flex items-center justify-between pb-2 mb-2 border-b border-white/5">
                         <span className="text-xs font-black text-emerald-400">
                           نکات و خلاصه تدریس استاد
                         </span>
                         <span style={{ color: theme.textMuted }} className="text-[10px] font-mono">
-                          {selectedChatSessionLog.createdAt}
+                          {selectedChatSessionLog.createdAt.includes('/') ? selectedChatSessionLog.createdAt.split('-')[0].trim() : getJalaliDateNumeric()}
                         </span>
                       </div>
 
-                      <p style={{ color: theme.textPrimary }} className="text-xs leading-relaxed">
+                      <p style={{ color: theme.textPrimary }} className="text-xs leading-relaxed break-words py-1">
                         {selectedChatSessionLog.notesText}
                       </p>
+
+                      {/* Bubble Footer: Time on Bottom-Left */}
+                      <div className="flex justify-start pt-1.5 mt-1 border-t border-white/5">
+                        <span style={{ color: theme.textMuted }} className="text-[10px] font-mono">
+                          {selectedChatSessionLog.createdAt.split('-').pop()?.trim() || selectedChatSessionLog.createdAt}
+                        </span>
+                      </div>
                     </div>
                   </div>
                 )}
 
-                {/* 5. Smart Reminder Bubble */}
+                {/* 5. Smart Reminder Bubble (Persian Translation Fixed) */}
                 {selectedChatSessionLog.hasReminder && (
-                  <div className="flex items-start gap-2.5 max-w-[92%]">
-                    <div className="w-8 h-8 rounded-full flex items-center justify-center bg-rose-500/20 text-rose-400 border border-rose-500/30 flex-shrink-0">
+                  <div className="flex items-start gap-2.5 max-w-[94%] min-w-0">
+                    <div className="w-8 h-8 rounded-full flex items-center justify-center bg-rose-500/20 text-rose-400 border border-rose-500/30 flex-shrink-0 mt-1">
                       <Bell className="w-4 h-4" />
                     </div>
 
@@ -2853,26 +4000,34 @@ export default function App() {
                         backgroundColor: theme.innerBg,
                         borderColor: 'rgba(244, 63, 94, 0.3)',
                       }}
-                      className="flex-1 rounded-2xl p-3.5 border shadow-sm"
+                      className="flex-1 rounded-2xl p-3.5 border shadow-sm min-w-0"
                     >
+                      {/* Bubble Header: Title on Right, Date on Top-Left */}
                       <div className="flex items-center justify-between pb-2 mb-2 border-b border-white/5">
                         <span className="text-xs font-black text-rose-400">
-                          یادآور هوشمند فعال
+                          یادآور فعال
                         </span>
                         <span style={{ color: theme.textMuted }} className="text-[10px] font-mono">
-                          {selectedChatSessionLog.createdAt}
+                          {selectedChatSessionLog.createdAt.includes('/') ? selectedChatSessionLog.createdAt.split('-')[0].trim() : getJalaliDateNumeric()}
                         </span>
                       </div>
 
-                      <p style={{ color: theme.textPrimary }} className="text-xs font-bold">
-                        زمان مرور: {selectedChatSessionLog.reminderTimeText || selectedChatSessionLog.reminderTrigger || '۲۴ ساعت قبل از کلاس'}
+                      <p style={{ color: theme.textPrimary }} className="text-xs font-bold py-1">
+                        زمان مرور: یادآور {formatPersianReminderText(selectedChatSessionLog.reminderTrigger, selectedChatSessionLog.reminderTimeText)}
                       </p>
 
                       {selectedChatSessionLog.snoozedUntil && (
-                        <div className="mt-2 inline-block px-2.5 py-1 rounded-md bg-rose-500/15 text-rose-300 text-[10px] font-bold">
+                        <div className="mt-1.5 inline-block px-2.5 py-1 rounded-md bg-rose-500/15 text-rose-300 text-[10px] font-bold">
                           وضعیت تعویق: فعال ({selectedChatSessionLog.snoozedUntil})
                         </div>
                       )}
+
+                      {/* Bubble Footer: Time on Bottom-Left */}
+                      <div className="flex justify-start pt-1.5 mt-1 border-t border-white/5">
+                        <span style={{ color: theme.textMuted }} className="text-[10px] font-mono">
+                          {selectedChatSessionLog.createdAt.split('-').pop()?.trim() || selectedChatSessionLog.createdAt}
+                        </span>
+                      </div>
                     </div>
                   </div>
                 )}
@@ -2882,31 +4037,63 @@ export default function App() {
                   <div key={msg.id} className="flex justify-end">
                     <div
                       style={{ backgroundColor: theme.primary }}
-                      className="rounded-2xl rounded-br-sm p-3 text-white max-w-[85%] shadow-md"
+                      className="rounded-2xl rounded-br-sm p-3 text-white max-w-[85%] shadow-md space-y-1.5"
                     >
-                      <p className="text-xs leading-relaxed">{msg.text}</p>
-                      <span className="block text-[9px] text-white/70 text-left mt-1 font-mono">
-                        {msg.time}
-                      </span>
+                      <div className="flex items-center justify-between gap-4 border-b border-white/10 pb-1">
+                        <span className="text-[10px] font-bold text-white/80">شما</span>
+                        <span className="text-[9px] text-white/70 font-mono">
+                          {getJalaliDateNumeric()}
+                        </span>
+                      </div>
+                      <p className="text-xs leading-relaxed break-words">{msg.text}</p>
+                      <div className="flex justify-start pt-0.5">
+                        <span className="text-[9px] text-white/70 font-mono">
+                          {msg.time}
+                        </span>
+                      </div>
                     </div>
                   </div>
                 ))}
               </div>
 
-              {/* Bottom Interactive Message Bar */}
+              {/* Hidden Native Operating System File Picker */}
+              <input
+                type="file"
+                ref={chatFileInputRef}
+                onChange={handleChatSystemFileUpload}
+                multiple
+                className="hidden"
+                accept="*/*"
+              />
+
+              {/* Bottom Interactive Message Bar (With Real System File Picker) */}
               <form
                 onSubmit={handleSendChatFollowUp}
                 style={{
                   backgroundColor: theme.innerBg,
                   borderTopColor: theme.borderLuminous,
                 }}
-                className="p-3 border-t flex items-center gap-2"
+                className="p-3 border-t flex items-center gap-2 flex-shrink-0"
               >
+                <button
+                  type="button"
+                  onClick={() => chatFileInputRef.current?.click()}
+                  style={{
+                    backgroundColor: theme.cardBg,
+                    borderColor: theme.borderLuminous,
+                    color: theme.primary,
+                  }}
+                  className="w-9 h-9 rounded-xl border flex items-center justify-center cursor-pointer hover:opacity-80 shadow-sm flex-shrink-0"
+                  title="انتخاب و پیوست فایل واقعی از حافظه دستگاه"
+                >
+                  <Paperclip className="w-4 h-4" />
+                </button>
+
                 <button
                   type="submit"
                   disabled={!chatInputText.trim()}
                   style={{ backgroundColor: chatInputText.trim() ? theme.primary : 'transparent' }}
-                  className={`w-9 h-9 rounded-xl flex items-center justify-center text-white transition-opacity ${
+                  className={`w-9 h-9 rounded-xl flex items-center justify-center text-white transition-opacity flex-shrink-0 ${
                     chatInputText.trim() ? 'cursor-pointer hover:opacity-90 shadow-sm' : 'opacity-40 cursor-not-allowed'
                   }`}
                 >
@@ -2923,7 +4110,7 @@ export default function App() {
                     borderColor: theme.borderLuminous,
                     color: theme.textPrimary,
                   }}
-                  className="flex-1 py-2 px-3.5 rounded-xl border text-xs focus:outline-none text-right"
+                  className="flex-1 py-2 px-3.5 rounded-xl border text-xs focus:outline-none text-right min-w-0"
                 />
               </form>
             </div>
@@ -2931,19 +4118,21 @@ export default function App() {
         )}
       </main>
 
-      {/* FLOATING CIRCULAR RADIAL MENU (CIRCLE MENU) */}
-      {/* Backdrop blur dismiss layer */}
-      {isRadialOpen && (
-        <div
-          onClick={() => setIsRadialOpen(false)}
-          className={`fixed inset-0 z-40 transition-opacity ${
-            theme.isDark ? 'bg-black/60 backdrop-blur-md' : 'bg-slate-900/25 backdrop-blur-sm'
-          }`}
-        />
-      )}
+      {/* FLOATING CIRCULAR RADIAL MENU (CIRCLE MENU) - Hidden when modal is active */}
+      {!selectedChatSessionLog && !isSessionCaptureOpen && !isClassModalOpen && !isEditingProfile && !deletingId && (
+        <>
+          {/* Backdrop blur dismiss layer */}
+          {isRadialOpen && (
+            <div
+              onClick={() => setIsRadialOpen(false)}
+              className={`fixed inset-0 z-40 transition-opacity ${
+                theme.isDark ? 'bg-black/60 backdrop-blur-md' : 'bg-slate-900/25 backdrop-blur-sm'
+              }`}
+            />
+          )}
 
-      {/* Anchored Floating Radial Circle Orb at bottom-center */}
-      <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center justify-center pointer-events-auto">
+          {/* Anchored Floating Radial Circle Orb at bottom-center */}
+          <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 flex items-center justify-center pointer-events-auto">
         {/* Fan-Out Child Circular Glassmorphic Vector Icon Nodes (180° to 0° Arc Upward) */}
         {RADIAL_ITEMS.map((item, index) => {
           const angleDeg = 180 - index * (180 / (RADIAL_ITEMS.length - 1));
@@ -3021,34 +4210,36 @@ export default function App() {
           />
         )}
 
-        {/* Central Orb Trigger Button */}
-        <button
-          onClick={() => setIsRadialOpen(!isRadialOpen)}
-          style={{
-            backgroundColor: theme.isDark ? theme.cardBg : '#FFFFFF',
-            borderColor: isRadialOpen ? theme.primary : theme.borderLuminous,
-            boxShadow: theme.isDark
-              ? `0 12px 32px rgba(0, 0, 0, 0.6), 0 0 24px ${theme.glowColor}`
-              : `0 10px 28px rgba(0, 0, 0, 0.12), 0 0 16px ${theme.glowColor}`,
-            color: isRadialOpen ? (theme.isDark ? '#FFFFFF' : theme.textPrimary) : theme.primary,
-          }}
-          className="w-16 h-16 rounded-full flex items-center justify-center border-2 backdrop-blur-2xl cursor-pointer transition-all hover:scale-105 active:scale-95 relative group"
-          aria-label={isRadialOpen ? 'بستن منوی شعاعی' : 'باز کردن منوی ناوبری شعاعی'}
-        >
-          {isRadialOpen ? (
-            <X className="w-6 h-6" style={{ color: theme.isDark ? '#FFFFFF' : theme.textPrimary }} />
-          ) : (
-            RADIAL_ITEMS.find((r) => r.id === activeTab)?.icon || <Home className="w-6 h-6" />
-          )}
+          {/* Central Orb Trigger Button */}
+          <button
+            onClick={() => setIsRadialOpen(!isRadialOpen)}
+            style={{
+              backgroundColor: theme.isDark ? theme.cardBg : '#FFFFFF',
+              borderColor: isRadialOpen ? theme.primary : theme.borderLuminous,
+              boxShadow: theme.isDark
+                ? `0 12px 32px rgba(0, 0, 0, 0.6), 0 0 24px ${theme.glowColor}`
+                : `0 10px 28px rgba(0, 0, 0, 0.12), 0 0 16px ${theme.glowColor}`,
+              color: isRadialOpen ? (theme.isDark ? '#FFFFFF' : theme.textPrimary) : theme.primary,
+            }}
+            className="w-16 h-16 rounded-full flex items-center justify-center border-2 backdrop-blur-2xl cursor-pointer transition-all hover:scale-105 active:scale-95 relative group"
+            aria-label={isRadialOpen ? 'بستن منوی شعاعی' : 'باز کردن منوی ناوبری شعاعی'}
+          >
+            {isRadialOpen ? (
+              <X className="w-6 h-6" style={{ color: theme.isDark ? '#FFFFFF' : theme.textPrimary }} />
+            ) : (
+              RADIAL_ITEMS.find((r) => r.id === activeTab)?.icon || <Home className="w-6 h-6" />
+            )}
 
-          {!isRadialOpen && (
-            <span
-              style={{ backgroundColor: theme.primary }}
-              className="absolute bottom-1.5 w-1.5 h-1.5 rounded-full"
-            />
-          )}
-        </button>
-      </div>
+            {!isRadialOpen && (
+              <span
+                style={{ backgroundColor: theme.primary }}
+                className="absolute bottom-1.5 w-1.5 h-1.5 rounded-full"
+              />
+            )}
+          </button>
+        </div>
+      </>
+    )}
     </div>
   );
 }

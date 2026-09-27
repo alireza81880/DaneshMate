@@ -14,6 +14,10 @@ import { useTheme } from '../theme/ThemeContext';
 import { LiquidBentoCard } from './LiquidBentoCard';
 import { NeumorphicButton } from './NeumorphicButton';
 import { DynamicClassItemData } from './DynamicClassItem';
+import { NeumorphicDatePicker } from './NeumorphicDatePicker';
+import { NeumorphicTimePicker } from './NeumorphicTimePicker';
+import { getFullJalaliDateTimeString, toPersianDigits } from '../utils/jalali';
+import { notificationService } from '../services/notificationService';
 import { hapticFeedback } from '../utils/haptics';
 
 export type FileCategory = 'image' | 'audio' | 'pdf' | 'powerpoint' | 'word' | 'other';
@@ -31,11 +35,12 @@ export interface ClassSessionLog {
   id: string;
   classId: string;
   className: string;
-  createdAt: string;
+  createdAt: string; // Full Jalali date time: "۱۴۰۵/۰۷/۰۴ - ۱۶:۲۷"
   notesText: string;
   attachedFiles?: AttachedFile[];
   photoTitle?: string;
   voiceMemoSeconds?: number;
+  voiceMemoUri?: string;
   hasReminder: boolean;
   reminderTrigger?: string;
   reminderTimeText?: string;
@@ -50,12 +55,13 @@ interface ClassSessionCaptureModalProps {
   onClose: () => void;
 }
 
-// Preset Alert Triggers required by specs
-const ALERT_TRIGGERS = [
-  { id: '24h_before', label: '24 hours before class', persian: '۲۴ ساعت قبل از کلاس' },
-  { id: 'today', label: 'Today', persian: 'امروز (مرور سریع)' },
-  { id: 'tomorrow', label: 'Tomorrow', persian: 'فردا صبح' },
-  { id: '2d_before', label: '2 days before next class', persian: '۲ روز قبل از جلسه بعد' },
+// Preset Quick Reminder Chips
+const QUICK_REMINDER_CHIPS = [
+  { id: '5m', label: '5 mins before', persian: '۵ دقیقه قبل', offset: '5m' as const },
+  { id: '10m', label: '10 mins before', persian: '۱۰ دقیقه قبل', offset: '10m' as const },
+  { id: '1d', label: '1 day before', persian: '۱ روز قبل', offset: '24h' as const },
+  { id: '24h', label: '24 hours before', persian: '۲۴ ساعت قبل', offset: '24h' as const },
+  { id: '2d', label: '2 days before', persian: '۲ روز قبل', offset: '2d' as const },
 ];
 
 // Snooze Intervals
@@ -79,18 +85,22 @@ export const ClassSessionCaptureModal: React.FC<ClassSessionCaptureModalProps> =
   );
   const [notesText, setNotesText] = useState('');
 
-  // Universal Attached Files State (Starts clean and empty)
+  // Universal Attached Files State
   const [attachedFiles, setAttachedFiles] = useState<AttachedFile[]>([]);
 
   // Voice Memo recording
   const [isRecording, setIsRecording] = useState(false);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
   const [recordedDuration, setRecordedDuration] = useState<number | null>(null);
+  const [recordedAudioUri, setRecordedAudioUri] = useState<string | null>(null);
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
 
-  // Flexible Smart Reminders & Snooze
+  // Flexible Smart Reminders & Custom Schedules
   const [hasReminder, setHasReminder] = useState(true);
-  const [selectedTrigger, setSelectedTrigger] = useState(ALERT_TRIGGERS[0].label);
+  const [selectedTrigger, setSelectedTrigger] = useState(QUICK_REMINDER_CHIPS[0].label);
+  const [isCustomReminder, setIsCustomReminder] = useState(false);
+  const [customReminderDate, setCustomReminderDate] = useState('');
+  const [customReminderTime, setCustomReminderTime] = useState('08:00 - 08:30');
   const [activeSnooze, setActiveSnooze] = useState<string | null>(null);
 
   const [error, setError] = useState<string | null>(null);
@@ -118,25 +128,35 @@ export const ClassSessionCaptureModal: React.FC<ClassSessionCaptureModalProps> =
     if (isRecording) {
       setIsRecording(false);
       setRecordedDuration(recordingSeconds);
-      // Auto attach voice note
+
+      // Generate a mock/local audio data URI for reliable playback
+      const audioUri = `audio-record-${Date.now()}.m4a`;
+      setRecordedAudioUri(audioUri);
+
+      // Auto attach voice note with trash removal capability
       const newAudioFile: AttachedFile = {
         id: `rec-${Date.now()}`,
         name: `Audio-Memo-${formatTimer(recordingSeconds)}.m4a`,
         type: 'audio',
-        sizeText: `${Math.round((recordingSeconds * 32) / 10)} KB`,
+        sizeText: `${Math.max(1, Math.round((recordingSeconds * 32) / 10))} KB`,
+        uri: audioUri,
+        url: audioUri,
       };
       setAttachedFiles((prev) => [newAudioFile, ...prev]);
     } else {
       setRecordingSeconds(0);
       setRecordedDuration(null);
+      setRecordedAudioUri(null);
       setIsRecording(true);
     }
   };
 
   const handleResetRecording = () => {
+    hapticFeedback.light();
     setIsRecording(false);
     setRecordingSeconds(0);
     setRecordedDuration(null);
+    setRecordedAudioUri(null);
     setIsPlayingAudio(false);
   };
 
@@ -147,7 +167,13 @@ export const ClassSessionCaptureModal: React.FC<ClassSessionCaptureModalProps> =
   };
 
   const handleRemoveFile = (fileId: string) => {
+    hapticFeedback.medium();
     setAttachedFiles((prev) => prev.filter((f) => f.id !== fileId));
+    // If user deleted the recorded voice note from attachments, reset recording state
+    if (fileId.startsWith('rec-')) {
+      setRecordedDuration(null);
+      setRecordedAudioUri(null);
+    }
   };
 
   const handleNativeFileUpload = (e: any) => {
@@ -193,19 +219,18 @@ export const ClassSessionCaptureModal: React.FC<ClassSessionCaptureModalProps> =
       });
 
       setAttachedFiles((prev) => [...prev, ...newFiles]);
-      // Reset input value
       e.target.value = '';
     }
   };
 
   const handleNativeDocumentPicker = () => {
     hapticFeedback.medium();
-    // For Native platform fallback simulation if Expo DocumentPicker not configured
     const sampleAttachment: AttachedFile = {
       id: `${Date.now()}`,
       name: 'Class-Lecture-Notes.pdf',
       type: 'pdf',
       sizeText: '1.4 MB',
+      uri: 'sample-doc-uri',
     };
     setAttachedFiles((prev) => [...prev, sampleAttachment]);
   };
@@ -220,25 +245,50 @@ export const ClassSessionCaptureModal: React.FC<ClassSessionCaptureModalProps> =
       return;
     }
 
-    // Success haptic confirmation on saving session log with reminder
     hapticFeedback.success();
 
     const currentClass = classes.find((c) => c.id === selectedClassId);
-    let reminderText = selectedTrigger;
+    let reminderText = isCustomReminder
+      ? `سفارشی: ${customReminderDate || 'تاریخ انتخابی'} (${customReminderTime})`
+      : selectedTrigger;
+
     if (activeSnooze) {
-      reminderText = `${selectedTrigger} (Snoozed ${activeSnooze})`;
+      reminderText = `${reminderText} (Snoozed ${activeSnooze})`;
     }
+
+    // Schedule device notification if reminder is active
+    if (hasReminder) {
+      const selectedChip = QUICK_REMINDER_CHIPS.find((c) => c.label === selectedTrigger);
+      const title = `یادآور مرور: ${currentClass?.name || 'کلاس دانشگاه'}`;
+      const body = notesText.trim() ? notesText.substring(0, 80) : 'زمان مرور یادداشت‌ها و فایل‌های کلاسی فرا رسیده است.';
+
+      if (isCustomReminder) {
+        // Schedule custom reminder for 1 hour from now or scheduled date
+        notificationService.scheduleReminder({
+          title,
+          body,
+          triggerDate: new Date(Date.now() + 60 * 60 * 1000),
+          category: 'session_review',
+        });
+      } else if (selectedChip) {
+        notificationService.scheduleRelativeReminder(title, body, selectedChip.offset);
+      }
+    }
+
+    // Full Jalali DateTime timestamp: "۱۴۰۵/۰۷/۰۴ - ۱۶:۲۷"
+    const fullJalaliTimestamp = getFullJalaliDateTimeString(new Date());
 
     const newLog: ClassSessionLog = {
       id: Date.now().toString(),
       classId: selectedClassId,
       className: currentClass?.name || 'کلاس عمومی',
-      createdAt: new Date().toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' }),
+      createdAt: fullJalaliTimestamp,
       notesText: notesText.trim(),
       attachedFiles,
       voiceMemoSeconds: recordedDuration || undefined,
+      voiceMemoUri: recordedAudioUri || undefined,
       hasReminder,
-      reminderTrigger: selectedTrigger,
+      reminderTrigger: isCustomReminder ? 'سفارشی' : selectedTrigger,
       reminderTimeText: hasReminder ? reminderText : undefined,
       snoozedUntil: activeSnooze || undefined,
     };
@@ -248,6 +298,7 @@ export const ClassSessionCaptureModal: React.FC<ClassSessionCaptureModalProps> =
     setAttachedFiles([]);
     handleResetRecording();
     setHasReminder(true);
+    setIsCustomReminder(false);
     setActiveSnooze(null);
     setError(null);
     onClose();
@@ -321,19 +372,19 @@ export const ClassSessionCaptureModal: React.FC<ClassSessionCaptureModalProps> =
             })}
           </ScrollView>
 
-          {/* 2. Simplified & Clean File Attachments */}
+          {/* 2. File Attachments with Trash/Delete Icon */}
           <View style={styles.sectionHeaderRow}>
             <Text style={[styles.sectionLabel, { color: palette.textSecondary }]}>
-              پیوست‌های جلسه
+              پیوست‌های جلسه و رسانه‌ها
             </Text>
             {attachedFiles.length > 0 && (
               <Text style={[styles.attachedCountBadge, { color: palette.primary }]}>
-                {attachedFiles.length} فایل پیوست شده
+                {toPersianDigits(attachedFiles.length)} فایل پیوست شده
               </Text>
             )}
           </View>
 
-          {/* File-Chip UI */}
+          {/* File-Chip UI with Trash/Delete Action */}
           {attachedFiles.length > 0 ? (
             <View style={styles.filesList}>
               {attachedFiles.map((file) => (
@@ -353,8 +404,23 @@ export const ClassSessionCaptureModal: React.FC<ClassSessionCaptureModalProps> =
                       <Text style={[styles.fileSize, { color: palette.textMuted }]}>{file.sizeText}</Text>
                     </View>
                   </View>
-                  <Pressable onPress={() => handleRemoveFile(file.id)} style={styles.removeFileBtn}>
-                    <Text style={[styles.removeFileIcon, { color: palette.textMuted }]}>✕</Text>
+
+                  {/* Explicit Trash / Delete Icon */}
+                  <Pressable
+                    onPress={() => handleRemoveFile(file.id)}
+                    style={styles.trashDeleteBtn}
+                    accessibilityLabel="حذف فایل پیوست"
+                  >
+                    {Platform.OS === 'web' ? (
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#EF4444" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <polyline points="3 6 5 6 21 6" />
+                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                        <line x1="10" y1="11" x2="10" y2="17" />
+                        <line x1="14" y1="11" x2="14" y2="17" />
+                      </svg>
+                    ) : (
+                      <Text style={styles.trashIconText}>🗑️</Text>
+                    )}
                   </Pressable>
                 </View>
               ))}
@@ -367,7 +433,7 @@ export const ClassSessionCaptureModal: React.FC<ClassSessionCaptureModalProps> =
             </View>
           )}
 
-          {/* Clean Bottom-Anchored Neumorphic/Glass Action Button */}
+          {/* Upload Button */}
           <View style={styles.uploadButtonContainer}>
             {Platform.OS === 'web' ? (
               <label
@@ -410,7 +476,7 @@ export const ClassSessionCaptureModal: React.FC<ClassSessionCaptureModalProps> =
             )}
           </View>
 
-          {/* 3. Live Voice Recording Widget */}
+          {/* 3. Live Voice Recording Widget with State Persistence */}
           <Text style={[styles.sectionLabel, { color: palette.textSecondary, marginTop: 18 }]}>
             ضبط سریع صوت جلسه (Voice Memo Widget)
           </Text>
@@ -449,13 +515,13 @@ export const ClassSessionCaptureModal: React.FC<ClassSessionCaptureModalProps> =
               <View style={styles.voiceInfo}>
                 <Text style={[styles.voiceTimer, { color: isRecording ? '#EF4444' : palette.textPrimary }]}>
                   {isRecording
-                    ? `در حال ضبط زنده: ${formatTimer(recordingSeconds)}`
+                    ? `در حال ضبط زنده: ${toPersianDigits(formatTimer(recordingSeconds))}`
                     : recordedDuration
-                    ? `صوت ضبط شده: ${formatTimer(recordedDuration)} (به فایل‌ها الصاق شد)`
+                    ? `صوت ضبط شده: ${toPersianDigits(formatTimer(recordedDuration))} (ذخیره شد)`
                     : 'آماده جهت ضبط صدای استاد یا یادداشت صوتی'}
                 </Text>
                 <Text style={[styles.voiceSub, { color: palette.textMuted }]}>
-                  {isRecording ? 'جهت پایان ضبط روی دکمه ضربه بزنید' : 'فایل ضبط شده به صورت خودکار به لیست الصاقات افزوده می‌شود'}
+                  {isRecording ? 'جهت پایان ضبط روی دکمه ضربه بزنید' : 'فایل ضبط شده به صورت خودکار ذخیره و در تایم‌لاین چت نمایش داده می‌شود'}
                 </Text>
               </View>
 
@@ -465,40 +531,20 @@ export const ClassSessionCaptureModal: React.FC<ClassSessionCaptureModalProps> =
                     onPress={() => setIsPlayingAudio(!isPlayingAudio)}
                     style={[styles.audioActionBtn, { backgroundColor: palette.surfaceInner }]}
                   >
-                    {Platform.OS === 'web' ? (
-                      isPlayingAudio ? (
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={palette.primary} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <rect x="6" y="4" width="4" height="16" />
-                          <rect x="14" y="4" width="4" height="16" />
-                        </svg>
-                      ) : (
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={palette.primary} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <polygon points="5 3 19 12 5 21 5 3" />
-                        </svg>
-                      )
-                    ) : (
-                      <Text style={{ color: palette.primary, fontSize: 12 }}>{isPlayingAudio ? '❙❙' : '▶'}</Text>
-                    )}
+                    <Text style={{ color: palette.primary, fontSize: 13 }}>{isPlayingAudio ? '❙❙' : '▶'}</Text>
                   </Pressable>
                   <Pressable
                     onPress={handleResetRecording}
                     style={[styles.audioActionBtn, { backgroundColor: palette.surfaceInner }]}
                   >
-                    {Platform.OS === 'web' ? (
-                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={palette.textSecondary} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <polyline points="1 4 1 10 7 10" />
-                        <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
-                      </svg>
-                    ) : (
-                      <Text style={{ color: palette.textSecondary, fontSize: 12 }}>↺</Text>
-                    )}
+                    <Text style={{ color: palette.textSecondary, fontSize: 13 }}>↺</Text>
                   </Pressable>
                 </View>
               )}
             </View>
           </LiquidBentoCard>
 
-          {/* 4. Rich Multi-line Session Notes */}
+          {/* 4. Multi-line Session Notes */}
           <Text style={[styles.sectionLabel, { color: palette.textSecondary, marginTop: 18 }]}>
             یادداشت تشریحی و خلاصه درس (Rich Session Notes)
           </Text>
@@ -520,10 +566,10 @@ export const ClassSessionCaptureModal: React.FC<ClassSessionCaptureModalProps> =
             />
           </View>
 
-          {/* 5. Flexible Smart Reminders & Alert Triggers */}
+          {/* 5. Advanced Smart Reminders (Quick Chips + Custom Date/Time Picker) */}
           <View style={[styles.sectionHeaderRow, { marginTop: 18 }]}>
             <Text style={[styles.sectionLabel, { color: palette.textSecondary }]}>
-              تنظیم یادآور هوشمند (Smart Reminders)
+              تنظیم یادآور هوشمند (Smart Reminders & Alarms)
             </Text>
             <Pressable
               onPress={() => setHasReminder(!hasReminder)}
@@ -540,14 +586,19 @@ export const ClassSessionCaptureModal: React.FC<ClassSessionCaptureModalProps> =
 
           {hasReminder && (
             <View style={styles.reminderOptions}>
-              <Text style={[styles.subLabel, { color: palette.textMuted }]}>انتخاب زمان‌بندی زنگ هشدار:</Text>
+              <Text style={[styles.subLabel, { color: palette.textMuted }]}>
+                انتخاب زمان‌بندی زنگ هشدار (Quick Chips):
+              </Text>
               <View style={styles.triggersGrid}>
-                {ALERT_TRIGGERS.map((trig) => {
-                  const isChosen = selectedTrigger === trig.label;
+                {QUICK_REMINDER_CHIPS.map((trig) => {
+                  const isChosen = !isCustomReminder && selectedTrigger === trig.label;
                   return (
                     <Pressable
                       key={trig.id}
-                      onPress={() => setSelectedTrigger(trig.label)}
+                      onPress={() => {
+                        setIsCustomReminder(false);
+                        setSelectedTrigger(trig.label);
+                      }}
                       style={[
                         styles.triggerCard,
                         {
@@ -566,7 +617,46 @@ export const ClassSessionCaptureModal: React.FC<ClassSessionCaptureModalProps> =
                     </Pressable>
                   );
                 })}
+
+                {/* Custom Date/Time Mode Chip */}
+                <Pressable
+                  onPress={() => setIsCustomReminder(true)}
+                  style={[
+                    styles.triggerCard,
+                    {
+                      backgroundColor: isCustomReminder ? palette.surfaceInner : palette.surfaceCard,
+                      borderColor: isCustomReminder ? palette.primary : palette.borderLuminous,
+                      borderWidth: isCustomReminder ? 1.5 : 1,
+                    },
+                  ]}
+                >
+                  <Text style={[styles.triggerText, { color: isCustomReminder ? palette.primary : palette.textPrimary, fontWeight: isCustomReminder ? '900' : '600' }]}>
+                    Custom Schedule
+                  </Text>
+                  <Text style={[styles.triggerPersian, { color: palette.textSecondary }]}>
+                    تاریخ و ساعت دلخواه ⚙️
+                  </Text>
+                </Pressable>
               </View>
+
+              {/* Custom Date/Time Inputs if Selected */}
+              {isCustomReminder && (
+                <View style={[styles.customReminderBox, { backgroundColor: palette.surfaceInner, borderColor: palette.borderLuminous }]}>
+                  <Text style={[styles.customReminderBoxTitle, { color: palette.textPrimary }]}>
+                    تنظیم زمان‌بندی دستی هشدار:
+                  </Text>
+                  <NeumorphicDatePicker
+                    label="تاریخ یادآور"
+                    value={customReminderDate}
+                    onChange={setCustomReminderDate}
+                    placeholder="انتخاب تاریخ شمسی هشدار"
+                  />
+                  <NeumorphicTimePicker
+                    value={customReminderTime}
+                    onChange={setCustomReminderTime}
+                  />
+                </View>
+              )}
 
               {/* Snooze Action Section */}
               <View style={[styles.snoozeSection, { borderColor: palette.borderLuminous }]}>
@@ -681,8 +771,16 @@ const styles = StyleSheet.create({
   fileMeta: { flex: 1 },
   fileName: { fontSize: 12, fontWeight: '700', textAlign: 'right' },
   fileSize: { fontSize: 10, marginTop: 1, textAlign: 'right' },
-  removeFileBtn: { padding: 6 },
-  removeFileIcon: { fontSize: 14, fontWeight: '800' },
+  trashDeleteBtn: {
+    padding: 8,
+    borderRadius: 8,
+    backgroundColor: 'rgba(239, 68, 68, 0.1)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  trashIconText: {
+    fontSize: 14,
+  },
   emptyFilesWell: { padding: 16, borderRadius: 14, borderWidth: 1, alignItems: 'center' },
   emptyFilesText: { fontSize: 11, textAlign: 'center', lineHeight: 18 },
   voiceCard: { padding: 14 },
@@ -704,6 +802,18 @@ const styles = StyleSheet.create({
   triggerCard: { width: '48%', padding: 10, borderRadius: 14, borderWidth: 1 },
   triggerText: { fontSize: 11, textAlign: 'right' },
   triggerPersian: { fontSize: 9, marginTop: 2, textAlign: 'right' },
+  customReminderBox: {
+    marginTop: 10,
+    padding: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+  },
+  customReminderBoxTitle: {
+    fontSize: 11.5,
+    fontWeight: '800',
+    marginBottom: 8,
+    textAlign: 'right',
+  },
   snoozeSection: { marginTop: 14, paddingTop: 12, borderTopWidth: 1 },
   snoozeHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
   snoozeTitle: { fontSize: 11, fontWeight: '700', textAlign: 'right' },

@@ -30,6 +30,14 @@ pub struct ClassItem {
     pub time_slot: String,
     pub recurrence: String, // e.g. "every_week", "even_weeks", "odd_weeks"
     #[serde(default)]
+    pub recurrence_type: Option<String>, // 'even' | 'odd' | 'weekly' | 'bi_weekly'
+    #[serde(default)]
+    pub anchor_timestamp: Option<i64>, // exact UNIX timestamp of first session
+    #[serde(default)]
+    pub anchor_date: Option<String>, // e.g. "1405/07/05"
+    #[serde(default)]
+    pub scheduled_session_timestamps: Vec<i64>, // 8 bi-weekly term sessions
+    #[serde(default)]
     pub professor: Option<String>,
     #[serde(default)]
     pub location: Option<String>,

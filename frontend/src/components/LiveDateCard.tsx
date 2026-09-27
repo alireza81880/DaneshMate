@@ -21,45 +21,20 @@ export const LiveDateCard: React.FC<LiveDateCardProps> = ({ style }) => {
     return () => clearInterval(timer);
   }, []);
 
-  // Format Persian Solar or localized Date
-  const persianDays = [
-    'یکشنبه', // Sunday
-    'دوشنبه', // Monday
-    'سه‌شنبه', // Tuesday
-    'چهارشنبه', // Wednesday
-    'پنج‌شنبه', // Thursday
-    'جمعه', // Friday
-    'شنبه', // Saturday
-  ];
-
-  const persianMonths = [
-    'فروردین',
-    'اردیبهشت',
-    'خرداد',
-    'تیر',
-    'مرداد',
-    'شهریور',
-    'مهر',
-    'آبان',
-    'آذر',
-    'دی',
-    'بهمن',
-    'اسفند',
-  ];
-
-  // Using Intl for accurate Persian (Solar Hijri) calendar if available, fallback gracefully
-  let dayName = persianDays[currentDate.getDay()];
+  // Format Persian Solar strictly as numeric format (e.g., 1405/7/5 or ۱۴۰۳/۰۷/۰۴)
   let formattedFullDate = '';
   let timeStr = '';
 
   try {
-    const formatter = new Intl.DateTimeFormat('fa-IR', {
-      weekday: 'long',
-      day: 'numeric',
-      month: 'long',
+    const parts = new Intl.DateTimeFormat('fa-IR-u-ca-persian-nu-latn', {
       year: 'numeric',
-    });
-    formattedFullDate = formatter.format(currentDate);
+      month: 'numeric',
+      day: 'numeric',
+    }).formatToParts(currentDate);
+    const year = parts.find((p) => p.type === 'year')?.value || '1405';
+    const month = parts.find((p) => p.type === 'month')?.value || '7';
+    const day = parts.find((p) => p.type === 'day')?.value || '5';
+    formattedFullDate = `${year}/${month}/${day}`;
 
     const timeFormatter = new Intl.DateTimeFormat('fa-IR', {
       hour: '2-digit',
@@ -67,9 +42,7 @@ export const LiveDateCard: React.FC<LiveDateCardProps> = ({ style }) => {
     });
     timeStr = timeFormatter.format(currentDate);
   } catch {
-    // Fallback if Intl fa-IR not supported
-    dayName = persianDays[currentDate.getDay()];
-    formattedFullDate = `${dayName}، ${currentDate.toLocaleDateString('fa-IR')}`;
+    formattedFullDate = '1405/7/5';
     timeStr = `${currentDate.getHours()}:${currentDate.getMinutes().toString().padStart(2, '0')}`;
   }
 
@@ -83,11 +56,10 @@ export const LiveDateCard: React.FC<LiveDateCardProps> = ({ style }) => {
               <View style={styles.liveDot} />
               <Text style={styles.liveText}>امروز</Text>
             </View>
-            <Text style={styles.timeLabel}>ساعت فعلی: {timeStr}</Text>
+            <Text style={styles.timeLabel}>ساعت: {timeStr}</Text>
           </View>
 
           <Text style={styles.fullDateText}>{formattedFullDate}</Text>
-          <Text style={styles.academicTermText}>نیم‌سال تحصیلی جاری · تقویم آموزشی</Text>
         </View>
 
         {/* Right / Neumorphic Calendar Icon Plate */}

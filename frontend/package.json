@@ -12,6 +12,7 @@
     "build:android:aab": "eas build --platform android --profile production",
     "prebuild": "expo prebuild --clean",
     "generate:assets": "node scripts/generate_assets.js",
+    "export:web": "expo export -p web",
     "export:release": "expo export --platform android"
   },
   "dependencies": {

@@ -112,8 +112,10 @@ export const AudioMemoBubble: React.FC<AudioMemoBubbleProps> = React.memo(
 
         <View style={gpuAcceleratedCardStyle}>
           <View style={styles.bubbleHeader}>
-            <Text style={styles.bubbleSender}>صوت زنده جلسه کلاسی</Text>
-            <Text style={[styles.bubbleTime, { color: palette.textMuted }]}>{time}</Text>
+            <Text style={styles.bubbleSender}>صوت ضبط شده جلسه</Text>
+            <Text style={[styles.bubbleTime, { color: palette.textMuted }]}>
+              {time.includes('-') ? time.split('-')[0].trim() : (time.includes('/') ? time : '1405/7/5')}
+            </Text>
           </View>
 
           {/* Inline Audio Player Widget */}
@@ -211,6 +213,13 @@ export const AudioMemoBubble: React.FC<AudioMemoBubbleProps> = React.memo(
                 </Text>
               </Pressable>
             </View>
+          </View>
+
+          {/* Bubble Footer: Time on Bottom-Left */}
+          <View style={{ flexDirection: 'row', justifyContent: 'flex-start', paddingTop: 6, marginTop: 4, borderTopWidth: 1, borderTopColor: 'rgba(255, 255, 255, 0.05)' }}>
+            <Text style={{ fontSize: 10, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace', color: palette.textMuted }}>
+              {time.includes('-') ? time.split('-').pop()?.trim() : time}
+            </Text>
           </View>
         </View>
       </View>
