@@ -2,11 +2,6 @@ name: Production Release Pipeline
 
 on:
   workflow_dispatch:
-    inputs:
-      release_tag:
-        description: 'Release Tag (leave empty for automatic v1.0.0-release)'
-        required: false
-        default: 'v1.0.0-release'
   push:
     branches:
       - main
@@ -261,9 +256,7 @@ EOF
       - name: 5. Determine or Generate Release Tag
         id: determine-tag
         run: |
-          if [ -n "${{ inputs.release_tag }}" ]; then
-            TAG="${{ inputs.release_tag }}"
-          elif [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
             TAG="${GITHUB_REF#refs/tags/}"
           else
             TAG="v1.0.0-release"
