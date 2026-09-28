@@ -9,6 +9,7 @@ import {
   TextInput,
   Pressable,
   Platform,
+  Alert,
 } from 'react-native';
 import { useTheme } from '../theme/ThemeContext';
 import { LiquidBentoCard } from './LiquidBentoCard';
@@ -19,6 +20,7 @@ import { NeumorphicTimePicker } from './NeumorphicTimePicker';
 import { getFullJalaliDateTimeString, toPersianDigits } from '../utils/jalali';
 import { notificationService } from '../services/notificationService';
 import { hapticFeedback } from '../utils/haptics';
+import { requestAudioRecordingPermission } from '../utils/permissions';
 
 export type FileCategory = 'image' | 'audio' | 'pdf' | 'powerpoint' | 'word' | 'other';
 
@@ -123,7 +125,7 @@ export const ClassSessionCaptureModal: React.FC<ClassSessionCaptureModalProps> =
     return () => clearInterval(timer);
   }, [isRecording]);
 
-  const handleToggleRecord = () => {
+  const handleToggleRecord = async () => {
     hapticFeedback.medium();
     if (isRecording) {
       setIsRecording(false);
@@ -144,6 +146,11 @@ export const ClassSessionCaptureModal: React.FC<ClassSessionCaptureModalProps> =
       };
       setAttachedFiles((prev) => [newAudioFile, ...prev]);
     } else {
+      const granted = await requestAudioRecordingPermission();
+      if (!granted) {
+        Alert.alert('خطای مجوز', 'برای ضبط صدای کلاس نیاز به دسترسی میکروفون است.');
+        return;
+      }
       setRecordingSeconds(0);
       setRecordedDuration(null);
       setRecordedAudioUri(null);

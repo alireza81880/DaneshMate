@@ -22,6 +22,7 @@ import { LectureNoteBubble } from '../components/LectureNoteBubble';
 import { ReminderBubble } from '../components/ReminderBubble';
 import { toPersianDigits, formatJalaliDate, getFullJalaliDateTimeString, toJalali } from '../utils/jalali';
 import { hapticFeedback } from '../utils/haptics';
+import { requestAudioRecordingPermission } from '../utils/permissions';
 
 export type ChatFeedItemType =
   | 'system_date'
@@ -269,7 +270,7 @@ export const ClassSessionChatViewerScreen: React.FC<ClassSessionChatViewerScreen
     }, [inputText, currentSessionLog, onUpdateLog]);
 
     // 4. Toggle Voice Recording directly inside timeline
-    const handleToggleVoiceRecord = useCallback(() => {
+    const handleToggleVoiceRecord = useCallback(async () => {
       hapticFeedback.medium();
 
       // Tactile spring feedback
@@ -279,6 +280,11 @@ export const ClassSessionChatViewerScreen: React.FC<ClassSessionChatViewerScreen
       ]).start();
 
       if (!isRecording) {
+        const granted = await requestAudioRecordingPermission();
+        if (!granted) {
+          showToast('برای ضبط صدا نیاز به دسترسی میکروفون است.');
+          return;
+        }
         setIsRecording(true);
         setRecordDuration(0);
         showToast('ضبط صدا آغاز شد...');

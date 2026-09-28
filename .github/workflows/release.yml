@@ -48,7 +48,7 @@ jobs:
 
       - name: 6. Install cargo-ndk
         run: |
-          cargo install cargo-ndk --locked || true
+          cargo install cargo-ndk --locked
 
       - name: 7. Install Dependencies
         run: |
@@ -60,12 +60,23 @@ jobs:
           npm install --no-save --legacy-peer-deps sharp || (cd frontend && npm install --no-save --legacy-peer-deps sharp)
           node frontend/scripts/generate_assets.js
 
-      - name: 9. Scaffold Native Android Project via Expo Prebuild
+      - name: 9. Set Android Version Code from GitHub Run Number
+        run: |
+          node -e "
+            const fs = require('fs');
+            const file = './frontend/app.json';
+            const app = JSON.parse(fs.readFileSync(file, 'utf8'));
+            app.expo.android.versionCode = Number('${{ github.run_number }}') || 1;
+            fs.writeFileSync(file, JSON.stringify(app, null, 2));
+            console.log('[✓] Set android.versionCode to:', app.expo.android.versionCode);
+          "
+
+      - name: 10. Scaffold Native Android Project via Expo Prebuild
         run: |
           cd frontend
           npx expo prebuild --clean --platform android --no-install
 
-      - name: 10. Configure Android Build Settings (Hermes, ProGuard & arm64-v8a Target)
+      - name: 11. Configure Android Build Settings (Hermes & arm64-v8a Architecture)
         run: |
           cd frontend/android
 
@@ -75,18 +86,6 @@ jobs:
           [ -f "app/src/main/java/com/daneshmate/app/DaneshMatePackage.java" ] && echo "[✓] DaneshMatePackage.java present"
           if grep -q "DaneshMatePackage" app/src/main/java/com/daneshmate/app/MainApplication.*; then
             echo "[✓] DaneshMatePackage registered in MainApplication"
-          fi
-
-          # 2. Configure app/build.gradle: enable R8/ProGuard shrinking, Hermes, and CPU architecture splits
-          if [ -f "app/build.gradle" ]; then
-            sed -i 's/def enableProguardInReleaseBuilds = false/def enableProguardInReleaseBuilds = true/g' app/build.gradle || true
-            sed -i 's/enableProguardInReleaseBuilds = false/enableProguardInReleaseBuilds = true/g' app/build.gradle || true
-            sed -i 's/enableHermes: false/enableHermes: true/g' app/build.gradle || true
-            sed -i 's/def enableHermes = false/def enableHermes = true/g' app/build.gradle || true
-            sed -i 's/def enableSeparateBuildPerCPUArchitecture = false/def enableSeparateBuildPerCPUArchitecture = true/g' app/build.gradle || true
-            sed -i 's/enableSeparateBuildPerCPUArchitecture = false/enableSeparateBuildPerCPUArchitecture = true/g' app/build.gradle || true
-            sed -i 's/signingConfig signingConfigs.release/signingConfig signingConfigs.debug/g' app/build.gradle || true
-            echo "[✓] Configured app/build.gradle (ProGuard=true, Hermes=true, CPU Arch splits)"
           fi
 
           # 2. Configure gradle.properties to enforce arm64-v8a only and enable Hermes
@@ -103,12 +102,13 @@ jobs:
             echo "[✓] Configured gradle.properties (reactNativeArchitectures=arm64-v8a, hermesEnabled=true)"
           fi
 
-      - name: 11. Cross-Compile & Strip Rust Native Library (libdaneshmate_core.so)
+      - name: 12. Cross-Compile & Strip Rust Native Library (libdaneshmate_core.so)
         env:
           ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
         run: |
           chmod +x backend/scripts/build_rust_mobile.sh
           ./backend/scripts/build_rust_mobile.sh
+          test -f frontend/android/app/src/main/jniLibs/arm64-v8a/libdaneshmate_core.so || exit 1
 
           # Remove non-64-bit architectures
           rm -rf frontend/android/app/src/main/jniLibs/armeabi-v7a
@@ -126,32 +126,39 @@ jobs:
           fi
 
           echo "=== Embedded 64-bit Android jniLibs ==="
-          ls -lh frontend/android/app/src/main/jniLibs/arm64-v8a/libdaneshmate_core.so || true
+          ls -lh frontend/android/app/src/main/jniLibs/arm64-v8a/libdaneshmate_core.so
 
-      - name: 12. Run Automated TypeScript FFI Smoke Tests
+      - name: 13. Run Automated TypeScript FFI Smoke Tests
         run: |
           npm run test:ffi
 
-      - name: 13. Bundle Offline React Native JavaScript & Assets
+      - name: 14. Configure Android Release Keystore
+        env:
+          RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
         run: |
-          cd frontend
-          mkdir -p android/app/src/main/assets
-          npx react-native bundle \
-            --platform android \
-            --dev false \
-            --entry-file index.js \
-            --bundle-output android/app/src/main/assets/index.android.bundle \
-            --assets-dest android/app/src/main/res \
-            --config metro.config.js
-          echo "[✓] Offline JS bundle successfully generated."
+          mkdir -p frontend/android/app
+          if [ -n "$RELEASE_KEYSTORE_BASE64" ]; then
+            echo "$RELEASE_KEYSTORE_BASE64" | base64 -d > frontend/android/app/release.keystore
+            echo "[✓] Release keystore successfully decoded from GitHub Secrets"
+          elif [ -f "frontend/credentials/daneshmate-release.keystore" ]; then
+            cp frontend/credentials/daneshmate-release.keystore frontend/android/app/release.keystore
+            echo "[✓] Used persistent repository release keystore"
+          else
+            echo "[-] Warning: No release keystore found, build will fallback to debug signing"
+          fi
 
-      - name: 14. Assemble Modern 64-bit Android Release APK
+      - name: 15. Assemble Modern 64-bit Android Release APK
+        env:
+          RELEASE_KEYSTORE_PATH: ${{ github.workspace }}/frontend/android/app/release.keystore
+          RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD || 'daneshmate_release_2026' }}
+          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS || 'daneshmate' }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD || 'daneshmate_release_2026' }}
         run: |
           mkdir -p "${GITHUB_WORKSPACE}/artifacts"
           cd frontend/android
           chmod +x gradlew
 
-          # Assemble release APK (strictly assembleRelease, no debug build)
+          # Assemble release APK (strictly assembleRelease, Hermes bundle built by Gradle)
           ./gradlew assembleRelease
 
           echo "=== Generated Android APKs ==="
@@ -181,7 +188,7 @@ jobs:
           echo "=== Android Artifacts Ready ==="
           ls -lh "${GITHUB_WORKSPACE}/artifacts"
 
-      - name: 15. Upload Android Artifacts
+      - name: 16. Upload Android Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: android-artifacts
@@ -270,12 +277,12 @@ jobs:
           if-no-files-found: error
 
   # ============================================================================
-  # JOB 3: Publish GitHub Release (With Flawless Bilingual User Guide)
+  # JOB 3: Publish GitHub Release (Strictly on tags v*.*.*)
   # ============================================================================
   release-publish:
     name: Consolidate & Publish GitHub Release
     needs: [build-android, build-ios]
-    if: startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -304,11 +311,7 @@ jobs:
       - name: 5. Determine or Generate Release Tag
         id: determine-tag
         run: |
-          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
-            TAG="${GITHUB_REF#refs/tags/}"
-          else
-            TAG="v1.0.0-release"
-          fi
+          TAG="${GITHUB_REF#refs/tags/}"
           echo "RELEASE_TAG=${TAG}" >> $GITHUB_ENV
           echo "Release tag set to: ${TAG}"
 

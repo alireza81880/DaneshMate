@@ -104,15 +104,23 @@ export const HomeScreen: React.FC = () => {
         const snapshot = await mobilePersistenceAdapter.loadAppSnapshot();
         if (isMounted) {
           if (snapshot) {
-            if (snapshot.studentProfile) {
+            if (snapshot.studentProfile !== undefined) {
               setUserProfile(snapshot.studentProfile);
             }
-            if (snapshot.classes && snapshot.classes.length > 0) {
+            if (snapshot.classes !== undefined) {
               setClasses(snapshot.classes as DynamicClassItemData[]);
             }
-            if (snapshot.sessionLogs && snapshot.sessionLogs.length > 0) {
+            if (snapshot.sessionLogs !== undefined) {
               setSessionLogs(snapshot.sessionLogs as ClassSessionLog[]);
             }
+
+            // Prime the Rust core in-memory cache with the snapshot loaded from AsyncStorage
+            mobileSyncBridge.pushLocalDeltas(
+              snapshot.studentProfile,
+              snapshot.classes || [],
+              snapshot.sessionLogs || [],
+              snapshot.activeThemeId
+            ).catch((err) => console.warn('[HomeScreen] Rust core cache priming error:', err));
           }
           const queued = await mobilePersistenceAdapter.getQueuedMutations();
           if (isMounted) setQueuedCount(queued.length);

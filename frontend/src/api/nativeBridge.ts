@@ -77,16 +77,16 @@ class DaneshMateNativeBridge {
 
     // 3. High-Speed In-Memory Local Emulation (Used in Web / Simulator / Dev Preview)
     if (payload) {
-      if (payload.student_profile) {
+      if (payload.student_profile !== undefined) {
         inMemoryFallbackStore.student_profile = payload.student_profile;
       }
-      if (payload.classes && payload.classes.length > 0) {
+      if (payload.classes !== undefined) {
         inMemoryFallbackStore.classes = payload.classes;
       }
-      if (payload.session_logs && payload.session_logs.length > 0) {
+      if (payload.session_logs !== undefined) {
         inMemoryFallbackStore.session_logs = payload.session_logs;
       }
-      if (payload.active_theme_id) {
+      if (payload.active_theme_id !== undefined) {
         inMemoryFallbackStore.active_theme_id = payload.active_theme_id;
       }
     }

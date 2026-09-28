@@ -1,4 +1,9 @@
-const { withMainApplication, withDangerousMod, createRunOncePlugin } = require('@expo/config-plugins');
+const {
+  withMainApplication,
+  withDangerousMod,
+  withAppBuildGradle,
+  createRunOncePlugin,
+} = require('@expo/config-plugins');
 const fs = require('fs');
 const path = require('path');
 
@@ -8,7 +13,7 @@ const pkg = {
 };
 
 /**
- * Copies native Java/C++ bridge source files from the persistent repository
+ * Copies native Java bridge source files from the persistent repository
  * location (frontend/native/android) into the scaffolded Android native project.
  */
 function withDaneshMateNativeFiles(config) {
@@ -80,11 +85,50 @@ function withDaneshMatePackageRegistration(config) {
 }
 
 /**
+ * Configures signingConfigs.release and links it to the release build type in app/build.gradle
+ */
+function withDaneshMateSigning(config) {
+  return withAppBuildGradle(config, (config) => {
+    let buildGradle = config.modResults.contents;
+
+    const releaseSigningBlock = `
+        release {
+            def keystorePath = System.getenv("RELEASE_KEYSTORE_PATH") ?: "release.keystore"
+            if (file(keystorePath).exists()) {
+                storeFile file(keystorePath)
+                storePassword System.getenv("RELEASE_KEYSTORE_PASSWORD") ?: "daneshmate_release_2026"
+                keyAlias System.getenv("RELEASE_KEY_ALIAS") ?: "daneshmate"
+                keyPassword System.getenv("RELEASE_KEY_PASSWORD") ?: "daneshmate_release_2026"
+            } else {
+                signingConfig signingConfigs.debug
+            }
+        }`;
+
+    if (!buildGradle.includes('System.getenv("RELEASE_KEYSTORE_PATH")')) {
+      buildGradle = buildGradle.replace(
+        /signingConfigs\s*\{/,
+        `signingConfigs {${releaseSigningBlock}`
+      );
+    }
+
+    // Ensure release build type uses signingConfigs.release
+    buildGradle = buildGradle.replace(
+      /release\s*\{(\s*)signingConfig\s+signingConfigs\.debug/,
+      'release {$1signingConfig signingConfigs.release'
+    );
+
+    config.modResults.contents = buildGradle;
+    return config;
+  });
+}
+
+/**
  * DaneshMate Expo Config Plugin
  */
 function withDaneshMate(config) {
   config = withDaneshMateNativeFiles(config);
   config = withDaneshMatePackageRegistration(config);
+  config = withDaneshMateSigning(config);
   return config;
 }
 

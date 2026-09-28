@@ -1,3 +1,4 @@
+const path = require('path');
 const { getDefaultConfig } = (() => {
   try {
     return require('expo/metro-config');
@@ -11,5 +12,9 @@ const { getDefaultConfig } = (() => {
 })();
 
 const config = getDefaultConfig(__dirname);
+
+// Enforce local node_modules only; disable hierarchical lookup to avoid bundling root web deps (React 19)
+config.resolver.nodeModulesPaths = [path.resolve(__dirname, 'node_modules')];
+config.resolver.disableHierarchicalLookup = true;
 
 module.exports = config;
