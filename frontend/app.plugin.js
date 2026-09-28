@@ -9,7 +9,7 @@ const path = require('path');
 
 const pkg = {
   name: 'daneshmate-native-core',
-  version: '1.0.0',
+  version: '1.0.1',
 };
 
 /**
@@ -27,22 +27,20 @@ function withDaneshMateNativeFiles(config) {
       const targetJavaDir = path.join(platformRoot, 'app', 'src', 'main', 'java', 'com', 'daneshmate', 'app');
 
       if (!fs.existsSync(sourceNativeDir)) {
-        console.warn(`[withDaneshMate] Source native directory not found: ${sourceNativeDir}`);
-        return config;
+        throw new Error(`[withDaneshMate] Source native directory not found: ${sourceNativeDir}`);
       }
 
-      // Ensure target Java directory exists
       fs.mkdirSync(targetJavaDir, { recursive: true });
 
-      // Copy Java native module and package
       const javaFiles = ['DaneshMateModule.java', 'DaneshMatePackage.java'];
       for (const file of javaFiles) {
         const srcFile = path.join(sourceNativeDir, file);
         const dstFile = path.join(targetJavaDir, file);
-        if (fs.existsSync(srcFile)) {
-          fs.copyFileSync(srcFile, dstFile);
-          console.log(`[withDaneshMate] Copied ${file} -> app/src/main/java/com/daneshmate/app/`);
+        if (!fs.existsSync(srcFile)) {
+          throw new Error(`[withDaneshMate] Missing native source: ${srcFile}`);
         }
+        fs.copyFileSync(srcFile, dstFile);
+        console.log(`[withDaneshMate] Copied ${file} -> app/src/main/java/com/daneshmate/app/`);
       }
 
       return config;
@@ -57,26 +55,24 @@ function withDaneshMatePackageRegistration(config) {
   return withMainApplication(config, (config) => {
     let contents = config.modResults.contents;
 
-    // Idempotency check: do not inject if already registered
     if (contents.includes('DaneshMatePackage')) {
       return config;
     }
 
-    // 1. Kotlin template (Expo SDK 51 default)
     if (contents.includes('PackageList(this).packages.apply {')) {
       contents = contents.replace(
         'PackageList(this).packages.apply {',
         'PackageList(this).packages.apply {\n              add(DaneshMatePackage())'
       );
       console.log('[withDaneshMate] Registered DaneshMatePackage() in MainApplication.kt');
-    }
-    // 2. Java template fallback
-    else if (contents.includes('new PackageList(this).getPackages();')) {
+    } else if (contents.includes('new PackageList(this).getPackages();')) {
       contents = contents.replace(
         'new PackageList(this).getPackages();',
         'List<ReactPackage> packages = new PackageList(this).getPackages();\n          packages.add(new DaneshMatePackage());\n          return packages;'
       );
       console.log('[withDaneshMate] Registered DaneshMatePackage() in MainApplication.java');
+    } else {
+      throw new Error('[withDaneshMate] Could not find PackageList in MainApplication to register DaneshMatePackage');
     }
 
     config.modResults.contents = contents;
@@ -85,46 +81,51 @@ function withDaneshMatePackageRegistration(config) {
 }
 
 /**
- * Configures signingConfigs.release and links it to the release build type in app/build.gradle
+ * Release signing.
+ *
+ * Appends a second `android {}` block at the END of app/build.gradle. It runs after the
+ * template has defined signingConfigs.debug and buildTypes.release, so it can safely
+ * override the release signing config ONLY when a real keystore file exists.
+ * If no keystore is provided, the template default (debug keystore) stays in place,
+ * so the build never breaks and the APK is always installable.
+ *
+ * NOTE: switching from debug-signed to release-signed APKs changes the signature.
+ * Users must uninstall the old APK once before installing the first release-signed one.
  */
 function withDaneshMateSigning(config) {
   return withAppBuildGradle(config, (config) => {
     let buildGradle = config.modResults.contents;
+    const marker = '// [DaneshMate] release signing';
 
-    const releaseSigningBlock = `
-        release {
-            def keystorePath = System.getenv("RELEASE_KEYSTORE_PATH") ?: "release.keystore"
-            if (file(keystorePath).exists()) {
-                storeFile file(keystorePath)
-                storePassword System.getenv("RELEASE_KEYSTORE_PASSWORD") ?: "daneshmate_release_2026"
-                keyAlias System.getenv("RELEASE_KEY_ALIAS") ?: "daneshmate"
-                keyPassword System.getenv("RELEASE_KEY_PASSWORD") ?: "daneshmate_release_2026"
-            } else {
-                signingConfig signingConfigs.debug
+    if (!buildGradle.includes(marker)) {
+      buildGradle += `
+
+${marker}
+android {
+    def dmStorePath = System.getenv("RELEASE_KEYSTORE_PATH")
+    if (dmStorePath != null && !dmStorePath.isEmpty() && file(dmStorePath).exists()) {
+        signingConfigs {
+            dmRelease {
+                storeFile file(dmStorePath)
+                storePassword System.getenv("RELEASE_KEYSTORE_PASSWORD")
+                keyAlias System.getenv("RELEASE_KEY_ALIAS")
+                keyPassword System.getenv("RELEASE_KEY_PASSWORD")
             }
-        }`;
-
-    if (!buildGradle.includes('System.getenv("RELEASE_KEYSTORE_PATH")')) {
-      buildGradle = buildGradle.replace(
-        /signingConfigs\s*\{/,
-        `signingConfigs {${releaseSigningBlock}`
-      );
+        }
+        buildTypes.release.signingConfig = signingConfigs.dmRelease
+        println "[DaneshMate] Using release keystore: " + dmStorePath
+    } else {
+        println "[DaneshMate] No release keystore found, release APK stays debug-signed"
     }
-
-    // Ensure release build type uses signingConfigs.release
-    buildGradle = buildGradle.replace(
-      /release\s*\{(\s*)signingConfig\s+signingConfigs\.debug/,
-      'release {$1signingConfig signingConfigs.release'
-    );
+}
+`;
+    }
 
     config.modResults.contents = buildGradle;
     return config;
   });
 }
 
-/**
- * DaneshMate Expo Config Plugin
- */
 function withDaneshMate(config) {
   config = withDaneshMateNativeFiles(config);
   config = withDaneshMatePackageRegistration(config);
