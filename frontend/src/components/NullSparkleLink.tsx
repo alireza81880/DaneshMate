@@ -9,15 +9,29 @@ interface NullSparkleLinkProps {
 export const NullSparkleLink: React.FC<NullSparkleLinkProps> = ({ style }) => {
   const { palette } = useTheme();
 
-  const handleOpenLink = () => {
+  const handleOpenLink = async () => {
     const url = 'https://alireza81880.github.io/';
     if (Platform.OS === 'web') {
       try {
-        window.open(url, '_blank', 'noopener,noreferrer');
-        return;
-      } catch {}
+        if (typeof window !== 'undefined') {
+          window.open(url, '_blank', 'noopener,noreferrer');
+        }
+      } catch (err) {
+        console.warn('Web link opening error', err);
+      }
+      return;
     }
-    Linking.openURL(url).catch(() => {});
+
+    try {
+      const canOpen = await Linking.canOpenURL(url);
+      if (canOpen) {
+        await Linking.openURL(url);
+      } else {
+        await Linking.openURL(url);
+      }
+    } catch (err) {
+      console.warn('Native Linking error', err);
+    }
   };
 
   return (
@@ -128,4 +142,3 @@ const styles = StyleSheet.create({
     textDecorationLine: 'underline',
   },
 });
-

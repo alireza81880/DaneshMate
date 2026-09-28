@@ -42,7 +42,7 @@
         "expo-build-properties",
         {
           "android": {
-            "enableProguardInReleaseBuilds": true,
+            "enableProguardInReleaseBuilds": false,
             "extraProguardRules": "-keep class com.daneshmate.app.** { *; }\n-keepclassmembers class * { native <methods>; @com.facebook.react.bridge.ReactMethod <methods>; }"
           }
         }

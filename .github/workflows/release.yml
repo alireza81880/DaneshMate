@@ -144,7 +144,14 @@ jobs:
             cp frontend/credentials/daneshmate-release.keystore frontend/android/app/release.keystore
             echo "[✓] Used persistent repository release keystore"
           else
-            echo "[-] Warning: No release keystore found, build will fallback to debug signing"
+            if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+              echo "[-] ERROR: Release keystore is required for tag releases ($GITHUB_REF) but not found!"
+              echo "[-] Please provide RELEASE_KEYSTORE_BASE64 in GitHub Secrets or commit frontend/credentials/daneshmate-release.keystore."
+              exit 1
+            else
+              echo "[-] WARNING: No release keystore found on branch build ($GITHUB_REF). Falling back to debug signing."
+              echo "[-] WARNING: Note that updates over a previous production install will fail due to a different signature!"
+            fi
           fi
 
       - name: 15. Assemble Modern 64-bit Android Release APK
@@ -158,8 +165,8 @@ jobs:
           cd frontend/android
           chmod +x gradlew
 
-          # Assemble release APK (strictly assembleRelease, Hermes bundle built by Gradle)
-          ./gradlew assembleRelease
+          # Assemble release APK (strictly assembleRelease with stacktrace, Hermes bundle built by Gradle)
+          ./gradlew assembleRelease --stacktrace
 
           echo "=== Generated Android APKs ==="
           find app/build/outputs/apk -type f -name "*.apk"
@@ -185,10 +192,48 @@ jobs:
             exit 1
           fi
 
+          echo "[+] Verifying required internal assets in APK..."
+          APK_ENTRIES=$(unzip -l "$FOUND_ARM64")
+
+          echo "$APK_ENTRIES" | grep -q "lib/arm64-v8a/libdaneshmate_core.so" || {
+            echo "[-] ERROR: Missing lib/arm64-v8a/libdaneshmate_core.so inside APK!"
+            exit 1
+          }
+          echo "[✓] Verified lib/arm64-v8a/libdaneshmate_core.so is present"
+
+          echo "$APK_ENTRIES" | grep -q "assets/index.android.bundle" || {
+            echo "[-] ERROR: Missing assets/index.android.bundle inside APK!"
+            exit 1
+          }
+          echo "[✓] Verified assets/index.android.bundle is present"
+
+          echo "$APK_ENTRIES" | grep -q "lib/arm64-v8a/libhermes.so" || {
+            echo "[-] ERROR: Missing lib/arm64-v8a/libhermes.so inside APK!"
+            exit 1
+          }
+          echo "[✓] Verified lib/arm64-v8a/libhermes.so is present"
+
+          echo "=== APK Signature & Certificate Verification ==="
+          APKSIGNER_BIN=$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -n 1)
+          if [ -n "$APKSIGNER_BIN" ]; then
+            "$APKSIGNER_BIN" verify --print-certs "$FOUND_ARM64"
+          else
+            apksigner verify --print-certs "$FOUND_ARM64"
+          fi
+          echo "==============================================="
+
           echo "=== Android Artifacts Ready ==="
           ls -lh "${GITHUB_WORKSPACE}/artifacts"
 
-      - name: 16. Upload Android Artifacts
+      - name: 16. Upload Gradle Build Failure Reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-build-reports
+          path: frontend/android/app/build/reports/
+          if-no-files-found: ignore
+
+      - name: 17. Upload Android Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: android-artifacts
@@ -329,12 +374,12 @@ jobs:
             <div dir="rtl" align="right">
 
             ### 📱 نسخه ویژه اندروید (مدرن و نسل جدید)
-            * **معماری بهینهشده:** فقط پردازندههای ۶۴ بیتی (`arm64-v8a`) با هسته فوقسریع Rust.
-            * **بهینهسازی حجم:** کاهش چشمگیر حجم اپلیکیشن با موتور کامپایلشده Hermes و حذف کدهای زائد.
+            * **معماری بهینه‌شده:** فقط پردازنده‌های ۶۴ بیتی (`arm64-v8a`) با هسته فوق‌سریع Rust.
+            * **بهینه‌سازی حجم:** کاهش چشمگیر حجم اپلیکیشن با موتور کامپایل‌شده Hermes و حذف کدهای زائد.
             * **کاملاً آفلاین:** بدون نیاز به ابزار جانبی یا سرور Metro؛ نصب و اجرای فوری.
 
             ### 🍏 نسخه آیفون و تحت وب (PWA)
-            * فایل زیپ را دانلود و میزبانی کنید، یا در مرورگر **Safari** لینک برنامه را باز کرده و با انتخاب گزینه **Add to Home Screen** مستقیماً بدون نیاز به اپاستور نصب فرمایید.
+            * فایل زیپ را دانلود و میزبانی کنید، یا در مرورگر **Safari** لینک برنامه را باز کرده و با انتخاب گزینه **Add to Home Screen** مستقیماً بدون نیاز به اپ‌استور نصب فرمایید.
 
             </div>
 

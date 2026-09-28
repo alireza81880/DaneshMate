@@ -91,7 +91,13 @@ function withDaneshMateSigning(config) {
   return withAppBuildGradle(config, (config) => {
     let buildGradle = config.modResults.contents;
 
+    // Idempotency check: do not inject if marker comment already present
+    if (buildGradle.includes('// daneshmate-signing')) {
+      return config;
+    }
+
     const releaseSigningBlock = `
+        // daneshmate-signing
         release {
             def keystorePath = System.getenv("RELEASE_KEYSTORE_PATH") ?: "release.keystore"
             if (file(keystorePath).exists()) {
@@ -99,22 +105,18 @@ function withDaneshMateSigning(config) {
                 storePassword System.getenv("RELEASE_KEYSTORE_PASSWORD") ?: "daneshmate_release_2026"
                 keyAlias System.getenv("RELEASE_KEY_ALIAS") ?: "daneshmate"
                 keyPassword System.getenv("RELEASE_KEY_PASSWORD") ?: "daneshmate_release_2026"
-            } else {
-                signingConfig signingConfigs.debug
             }
         }`;
 
-    if (!buildGradle.includes('System.getenv("RELEASE_KEYSTORE_PATH")')) {
-      buildGradle = buildGradle.replace(
-        /signingConfigs\s*\{/,
-        `signingConfigs {${releaseSigningBlock}`
-      );
-    }
+    buildGradle = buildGradle.replace(
+      /signingConfigs\s*\{/,
+      `signingConfigs {${releaseSigningBlock}`
+    );
 
-    // Ensure release build type uses signingConfigs.release
+    // Ensure release build type uses conditional signingConfig
     buildGradle = buildGradle.replace(
       /release\s*\{(\s*)signingConfig\s+signingConfigs\.debug/,
-      'release {$1signingConfig signingConfigs.release'
+      'release {$1signingConfig (file(System.getenv("RELEASE_KEYSTORE_PATH") ?: "release.keystore").exists() ? signingConfigs.release : signingConfigs.debug)'
     );
 
     config.modResults.contents = buildGradle;

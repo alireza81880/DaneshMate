@@ -69,6 +69,11 @@ export function gregorianToJalali(gy: number, gm: number, gd: number): [number, 
   return [jy, jm, jd];
 }
 
+/**
+ * Backward-compatible alias for gregorianToJalali
+ */
+export const toJalali = gregorianToJalali;
+
 export function jalaliToGregorian(jy: number, jm: number, jd: number): [number, number, number] {
   let gy: number;
   let days: number;

@@ -1,10 +1,84 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { View, Text, StyleSheet, Platform } from 'react-native';
 import { NeumorphicCard } from './NeumorphicCard';
 import { NeumorphicTheme } from '../theme/colors';
+import { gregorianToJalali, toPersianDigits } from '../utils/jalali';
 
 interface LiveDateCardProps {
   style?: object;
+}
+
+interface SafeDateInfo {
+  formattedFullDate: string;
+  timeStr: string;
+  dayNum: string;
+}
+
+/**
+ * Safe date and time formatter resilient against Hermes engine / Android ICU variations.
+ * Prefers offline mathematical Gregorian-to-Jalali conversion on native platforms.
+ */
+function getSafeDateDisplay(date: Date): SafeDateInfo {
+  try {
+    if (Platform.OS !== 'web') {
+      const [jy, jm, jd] = gregorianToJalali(date.getFullYear(), date.getMonth() + 1, date.getDate());
+      const formattedFullDate = `${jy}/${jm}/${jd}`;
+      const hours = date.getHours().toString().padStart(2, '0');
+      const minutes = date.getMinutes().toString().padStart(2, '0');
+      const timeStr = `${hours}:${minutes}`;
+      const dayNum = toPersianDigits(jd);
+      return { formattedFullDate, timeStr, dayNum };
+    }
+
+    // Web Platform: Attempt standard Intl formatting with complete fallback guard
+    let formattedFullDate = '1405/7/5';
+    let timeStr = `${date.getHours()}:${date.getMinutes().toString().padStart(2, '0')}`;
+    let dayNum = toPersianDigits(date.getDate());
+
+    try {
+      if (typeof Intl !== 'undefined' && Intl.DateTimeFormat) {
+        const parts = new Intl.DateTimeFormat('fa-IR-u-ca-persian-nu-latn', {
+          year: 'numeric',
+          month: 'numeric',
+          day: 'numeric',
+        }).formatToParts(date);
+        const year = parts.find((p) => p.type === 'year')?.value || '1405';
+        const month = parts.find((p) => p.type === 'month')?.value || '7';
+        const day = parts.find((p) => p.type === 'day')?.value || '5';
+        formattedFullDate = `${year}/${month}/${day}`;
+
+        const timeFormatter = new Intl.DateTimeFormat('fa-IR', {
+          hour: '2-digit',
+          minute: '2-digit',
+        });
+        timeStr = timeFormatter.format(date);
+
+        const dayFormatter = new Intl.DateTimeFormat('en-US-u-ca-persian', { day: 'numeric' });
+        const dayParsed = Number(dayFormatter.format(date)) || date.getDate();
+        if (typeof Intl.NumberFormat !== 'undefined') {
+          dayNum = new Intl.NumberFormat('fa-IR').format(dayParsed);
+        } else {
+          dayNum = toPersianDigits(dayParsed);
+        }
+      } else {
+        const [jy, jm, jd] = gregorianToJalali(date.getFullYear(), date.getMonth() + 1, date.getDate());
+        formattedFullDate = `${jy}/${jm}/${jd}`;
+        dayNum = toPersianDigits(jd);
+      }
+    } catch {
+      const [jy, jm, jd] = gregorianToJalali(date.getFullYear(), date.getMonth() + 1, date.getDate());
+      formattedFullDate = `${jy}/${jm}/${jd}`;
+      dayNum = toPersianDigits(jd);
+    }
+
+    return { formattedFullDate, timeStr, dayNum };
+  } catch {
+    return {
+      formattedFullDate: '1405/7/5',
+      timeStr: '12:00',
+      dayNum: '۵',
+    };
+  }
 }
 
 /**
@@ -21,30 +95,10 @@ export const LiveDateCard: React.FC<LiveDateCardProps> = ({ style }) => {
     return () => clearInterval(timer);
   }, []);
 
-  // Format Persian Solar strictly as numeric format (e.g., 1405/7/5 or ۱۴۰۳/۰۷/۰۴)
-  let formattedFullDate = '';
-  let timeStr = '';
-
-  try {
-    const parts = new Intl.DateTimeFormat('fa-IR-u-ca-persian-nu-latn', {
-      year: 'numeric',
-      month: 'numeric',
-      day: 'numeric',
-    }).formatToParts(currentDate);
-    const year = parts.find((p) => p.type === 'year')?.value || '1405';
-    const month = parts.find((p) => p.type === 'month')?.value || '7';
-    const day = parts.find((p) => p.type === 'day')?.value || '5';
-    formattedFullDate = `${year}/${month}/${day}`;
-
-    const timeFormatter = new Intl.DateTimeFormat('fa-IR', {
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-    timeStr = timeFormatter.format(currentDate);
-  } catch {
-    formattedFullDate = '1405/7/5';
-    timeStr = `${currentDate.getHours()}:${currentDate.getMinutes().toString().padStart(2, '0')}`;
-  }
+  const { formattedFullDate, timeStr, dayNum } = useMemo(
+    () => getSafeDateDisplay(currentDate),
+    [currentDate]
+  );
 
   return (
     <NeumorphicCard style={[styles.card, style]} borderRadius={24}>
@@ -66,11 +120,7 @@ export const LiveDateCard: React.FC<LiveDateCardProps> = ({ style }) => {
         <View style={styles.calendarPlate}>
           <View style={styles.calendarInner}>
             <Text style={styles.calendarTopBar}>🗓️</Text>
-            <Text style={styles.calendarDayNum}>
-              {new Intl.NumberFormat('fa-IR').format(
-                Number(new Intl.DateTimeFormat('en-US-u-ca-persian', { day: 'numeric' }).format(currentDate)) || currentDate.getDate()
-              )}
-            </Text>
+            <Text style={styles.calendarDayNum}>{dayNum}</Text>
           </View>
         </View>
       </View>

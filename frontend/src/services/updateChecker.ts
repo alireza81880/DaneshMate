@@ -4,6 +4,7 @@
  */
 
 import { Linking, Platform } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export interface GitHubReleaseAsset {
   id: number;
@@ -34,8 +35,8 @@ export interface UpdateCheckResult {
 }
 
 const STORAGE_KEY_UPDATE_SNOOZE = '@daneshmate/update_snooze_until';
-const DEFAULT_REPO_OWNER = 'alireza818800';
-const DEFAULT_REPO_NAME = 'daneshmate';
+const DEFAULT_REPO_OWNER = 'alireza81880';
+const DEFAULT_REPO_NAME = 'DaneshMate';
 export const CURRENT_APP_VERSION = '1.0.0';
 
 class UpdateCheckerService {
@@ -54,9 +55,11 @@ class UpdateCheckerService {
    * Helper: Check if connectivity is currently active before making HTTP calls
    */
   private isOnline(): boolean {
-    if (typeof navigator !== 'undefined' && 'onLine' in navigator) {
-      return navigator.onLine;
-    }
+    try {
+      if (typeof navigator !== 'undefined' && 'onLine' in navigator) {
+        return navigator.onLine;
+      }
+    } catch {}
     return true;
   }
 
@@ -66,8 +69,12 @@ class UpdateCheckerService {
   public async isSnoozed(): Promise<boolean> {
     try {
       let rawVal: string | null = null;
-      if (typeof window !== 'undefined' && window.localStorage) {
-        rawVal = window.localStorage.getItem(STORAGE_KEY_UPDATE_SNOOZE);
+      if (Platform.OS === 'web') {
+        if (typeof window !== 'undefined' && window.localStorage) {
+          rawVal = window.localStorage.getItem(STORAGE_KEY_UPDATE_SNOOZE);
+        }
+      } else {
+        rawVal = await AsyncStorage.getItem(STORAGE_KEY_UPDATE_SNOOZE);
       }
       if (!rawVal) return false;
 
@@ -84,8 +91,12 @@ class UpdateCheckerService {
   public async snooze(hours: number = 24): Promise<void> {
     try {
       const until = Date.now() + hours * 60 * 60 * 1000;
-      if (typeof window !== 'undefined' && window.localStorage) {
-        window.localStorage.setItem(STORAGE_KEY_UPDATE_SNOOZE, until.toString());
+      if (Platform.OS === 'web') {
+        if (typeof window !== 'undefined' && window.localStorage) {
+          window.localStorage.setItem(STORAGE_KEY_UPDATE_SNOOZE, until.toString());
+        }
+      } else {
+        await AsyncStorage.setItem(STORAGE_KEY_UPDATE_SNOOZE, until.toString());
       }
     } catch {
       // Graceful fallback
@@ -97,8 +108,12 @@ class UpdateCheckerService {
    */
   public async clearSnooze(): Promise<void> {
     try {
-      if (typeof window !== 'undefined' && window.localStorage) {
-        window.localStorage.removeItem(STORAGE_KEY_UPDATE_SNOOZE);
+      if (Platform.OS === 'web') {
+        if (typeof window !== 'undefined' && window.localStorage) {
+          window.localStorage.removeItem(STORAGE_KEY_UPDATE_SNOOZE);
+        }
+      } else {
+        await AsyncStorage.removeItem(STORAGE_KEY_UPDATE_SNOOZE);
       }
     } catch {
       // Graceful fallback
@@ -218,17 +233,26 @@ class UpdateCheckerService {
    */
   public async openDownloadUrl(url?: string): Promise<void> {
     if (!url) return;
+    if (Platform.OS === 'web') {
+      try {
+        if (typeof window !== 'undefined') {
+          window.open(url, '_blank', 'noopener,noreferrer');
+        }
+      } catch (err) {
+        console.warn('Web update link error', err);
+      }
+      return;
+    }
+
     try {
       const canOpen = await Linking.canOpenURL(url);
       if (canOpen) {
         await Linking.openURL(url);
-      } else if (Platform.OS === 'web' && typeof window !== 'undefined') {
-        window.open(url, '_blank', 'noopener,noreferrer');
+      } else {
+        await Linking.openURL(url);
       }
-    } catch {
-      if (Platform.OS === 'web' && typeof window !== 'undefined') {
-        window.open(url, '_blank', 'noopener,noreferrer');
-      }
+    } catch (err) {
+      console.warn('Native Linking error', err);
     }
   }
 }

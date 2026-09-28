@@ -11,15 +11,29 @@ export const DonationBadge: React.FC<DonationBadgeProps> = ({ style, compact = f
   const { palette } = useTheme();
   const [isHovered, setIsHovered] = useState(false);
 
-  const handleOpenDonation = () => {
+  const handleOpenDonation = async () => {
     const url = 'https://donofa.ir/alirezaz_dev';
     if (Platform.OS === 'web') {
       try {
-        window.open(url, '_blank', 'noopener,noreferrer');
-        return;
-      } catch {}
+        if (typeof window !== 'undefined') {
+          window.open(url, '_blank', 'noopener,noreferrer');
+        }
+      } catch (err) {
+        console.warn('Web donation link error', err);
+      }
+      return;
     }
-    Linking.openURL(url).catch(() => {});
+
+    try {
+      const canOpen = await Linking.canOpenURL(url);
+      if (canOpen) {
+        await Linking.openURL(url);
+      } else {
+        await Linking.openURL(url);
+      }
+    } catch (err) {
+      console.warn('Native Linking error', err);
+    }
   };
 
   const accentColor = palette.isDark ? '#FB7185' : '#E11D48'; // Rose accent with high contrast
