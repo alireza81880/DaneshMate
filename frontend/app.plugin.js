@@ -85,7 +85,7 @@ function withDaneshMatePackageRegistration(config) {
 }
 
 /**
- * Configures signingConfigs.release and links it to the release build type in app/build.gradle
+ * Configures signingConfigs.release and binds it strictly to the release build type in app/build.gradle
  */
 function withDaneshMateSigning(config) {
   return withAppBuildGradle(config, (config) => {
@@ -102,9 +102,9 @@ function withDaneshMateSigning(config) {
             def keystorePath = System.getenv("RELEASE_KEYSTORE_PATH") ?: "release.keystore"
             if (file(keystorePath).exists()) {
                 storeFile file(keystorePath)
-                storePassword System.getenv("RELEASE_KEYSTORE_PASSWORD") ?: "daneshmate_release_2026"
-                keyAlias System.getenv("RELEASE_KEY_ALIAS") ?: "daneshmate"
-                keyPassword System.getenv("RELEASE_KEY_PASSWORD") ?: "daneshmate_release_2026"
+                storePassword System.getenv("RELEASE_KEYSTORE_PASSWORD") ?: ""
+                keyAlias System.getenv("RELEASE_KEY_ALIAS") ?: ""
+                keyPassword System.getenv("RELEASE_KEY_PASSWORD") ?: ""
             }
         }`;
 
@@ -113,10 +113,10 @@ function withDaneshMateSigning(config) {
       `signingConfigs {${releaseSigningBlock}`
     );
 
-    // Ensure release build type uses conditional signingConfig
+    // Strictly enforce signingConfigs.release for release build type (never debug fallback for release)
     buildGradle = buildGradle.replace(
       /release\s*\{(\s*)signingConfig\s+signingConfigs\.debug/,
-      'release {$1signingConfig (file(System.getenv("RELEASE_KEYSTORE_PATH") ?: "release.keystore").exists() ? signingConfigs.release : signingConfigs.debug)'
+      'release {$1signingConfig signingConfigs.release'
     );
 
     config.modResults.contents = buildGradle;

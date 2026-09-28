@@ -214,12 +214,20 @@ jobs:
       - name: 14. Verify & Decode Production Release Keystore (Strict Production Security)
         env:
           RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+          RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
           IS_RELEASE_BUILD: ${{ needs.version-check.outputs.should_release }}
         run: |
-          mkdir -p frontend/android/app
-
           if [ "$IS_RELEASE_BUILD" = "true" ]; then
-            if [ -z "$RELEASE_KEYSTORE_BASE64" ]; then
+            # Verify that all 4 required secrets exist without printing values
+            MISSING_SECRETS=0
+            if [ -z "$RELEASE_KEYSTORE_BASE64" ]; then MISSING_SECRETS=1; fi
+            if [ -z "$RELEASE_KEYSTORE_PASSWORD" ]; then MISSING_SECRETS=1; fi
+            if [ -z "$RELEASE_KEY_ALIAS" ]; then MISSING_SECRETS=1; fi
+            if [ -z "$RELEASE_KEY_PASSWORD" ]; then MISSING_SECRETS=1; fi
+
+            if [ "$MISSING_SECRETS" -ne 0 ]; then
               echo "================================================================="
               echo "[-] ERROR: Release keystore is not configured."
               echo ""
@@ -231,18 +239,20 @@ jobs:
               echo "================================================================="
               exit 1
             fi
-            echo "$RELEASE_KEYSTORE_BASE64" | base64 -d > frontend/android/app/release.keystore
-            echo "[✓] Production release keystore successfully decoded from GitHub Secrets"
+
+            # Safely write temporary keystore outside repository tree
+            echo "$RELEASE_KEYSTORE_BASE64" | base64 -d > "${{ runner.temp }}/daneshmate-release.keystore"
+            echo "[✓] Production release keystore successfully decoded into ${{ runner.temp }}/daneshmate-release.keystore"
           else
-            echo "[i] PR / CI Build: Skipping production keystore decoding."
+            echo "[i] PR / CI Validation Build: Skipping production keystore decoding."
           fi
 
       - name: 15. Assemble Modern 64-bit Android Release APK
         env:
-          RELEASE_KEYSTORE_PATH: ${{ github.workspace }}/frontend/android/app/release.keystore
-          RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD || 'daneshmate_release_2026' }}
-          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS || 'daneshmate' }}
-          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD || 'daneshmate_release_2026' }}
+          RELEASE_KEYSTORE_PATH: ${{ runner.temp }}/daneshmate-release.keystore
+          RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
           APP_VERSION: ${{ needs.version-check.outputs.version }}
           IS_RELEASE_BUILD: ${{ needs.version-check.outputs.should_release }}
         run: |
@@ -251,7 +261,7 @@ jobs:
           chmod +x gradlew
 
           if [ "$IS_RELEASE_BUILD" = "true" ]; then
-            # Assemble production release APK
+            # Assemble production release APK (strictly assembleRelease)
             ./gradlew assembleRelease --stacktrace
 
             echo "=== Generated Android APKs ==="
@@ -330,6 +340,14 @@ jobs:
           name: android-artifacts
           path: artifacts/*
           if-no-files-found: error
+
+      - name: 18. Cleanup Temporary Release Keystore
+        if: always()
+        run: |
+          if [ -f "${{ runner.temp }}/daneshmate-release.keystore" ]; then
+            rm -f "${{ runner.temp }}/daneshmate-release.keystore"
+            echo "[✓] Temporary keystore file purged securely from runner."
+          fi
 
   # ============================================================================
   # JOB 3: iOS & Progressive Web App (PWA) Export
