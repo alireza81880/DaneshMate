@@ -435,7 +435,7 @@ export const NeumorphicTimePicker: React.FC<NeumorphicTimePickerProps> = ({
                         بازه تأییدشده: از{' '}
                         {toPersianDigits(`${startHour.toString().padStart(2, '0')}:${startMin.toString().padStart(2, '0')}`)}{' '}
                         تا{' '}
-                        {toPersianDigits(`${endHour.toString().padStart(2, '0')}:${endMin.toString().padStart(2, '0')}`}
+                        {toPersianDigits(`${endHour.toString().padStart(2, '0')}:${endMin.toString().padStart(2, '0')}`)}
                       </Text>
                     </View>
                   ) : (

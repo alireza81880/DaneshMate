@@ -484,7 +484,7 @@ export const HomeScreen: React.FC = () => {
                     style={{ marginTop: 14 }}
                   />
                 )}
-              </NeumorphicCard>
+              </LiquidBentoCard>
             ) : (
               <View style={styles.classesList}>
                 {filteredClasses.map((item) => (
