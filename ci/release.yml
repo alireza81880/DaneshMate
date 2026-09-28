@@ -1,0 +1,209 @@
+# Hardened release workflow. Move this file to .github/workflows/release.yml (replace the old one).
+name: Production Release Pipeline
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-android:
+    name: Build Android (arm64-v8a Release)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: 17
+
+      - name: Set Up Android NDK
+        id: setup-ndk
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r26b
+          add-to-path: true
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+
+      - name: Install cargo-ndk
+        run: cargo install cargo-ndk --locked
+
+      - name: Install Dependencies
+        run: |
+          npm install --no-audit --no-fund --legacy-peer-deps
+          cd frontend && npm install --no-audit --no-fund --legacy-peer-deps
+
+      - name: Generate Platform Assets
+        run: |
+          npm install --no-save --legacy-peer-deps sharp || (cd frontend && npm install --no-save --legacy-peer-deps sharp)
+          node frontend/scripts/generate_assets.js
+
+      - name: Set Version (versionCode = run number, version = tag)
+        run: |
+          node -e "
+            const fs = require('fs');
+            const file = './frontend/app.json';
+            const app = JSON.parse(fs.readFileSync(file, 'utf8'));
+            app.expo.android.versionCode = Number(process.env.GITHUB_RUN_NUMBER) || 1;
+            const ref = process.env.GITHUB_REF || '';
+            if (ref.startsWith('refs/tags/v')) {
+              app.expo.version = ref.replace('refs/tags/v', '').split('-')[0];
+            }
+            fs.writeFileSync(file, JSON.stringify(app, null, 2));
+            console.log('[OK] versionCode:', app.expo.android.versionCode, 'version:', app.expo.version);
+          "
+
+      - name: Expo Prebuild
+        run: |
+          cd frontend
+          npx expo prebuild --clean --platform android --no-install
+
+      - name: Verify Native Module & Configure Gradle
+        run: |
+          set -e
+          cd frontend/android
+          test -f app/src/main/java/com/daneshmate/app/DaneshMateModule.java
+          test -f app/src/main/java/com/daneshmate/app/DaneshMatePackage.java
+          grep -n "DaneshMatePackage" app/src/main/java/com/daneshmate/app/MainApplication.* || { echo "[-] DaneshMatePackage NOT registered"; exit 1; }
+          sed -i 's/hermesEnabled=false/hermesEnabled=true/g' gradle.properties
+          grep -q "hermesEnabled" gradle.properties || echo "hermesEnabled=true" >> gradle.properties
+          if grep -q "reactNativeArchitectures" gradle.properties; then
+            sed -i 's/reactNativeArchitectures=.*/reactNativeArchitectures=arm64-v8a/g' gradle.properties
+          else
+            echo "reactNativeArchitectures=arm64-v8a" >> gradle.properties
+          fi
+
+      - name: Build Rust Core (libdaneshmate_core.so)
+        env:
+          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+        run: |
+          set -e
+          chmod +x backend/scripts/build_rust_mobile.sh
+          ./backend/scripts/build_rust_mobile.sh
+          SO=frontend/android/app/src/main/jniLibs/arm64-v8a/libdaneshmate_core.so
+          test -f "$SO"
+          rm -rf frontend/android/app/src/main/jniLibs/armeabi-v7a frontend/android/app/src/main/jniLibs/x86 frontend/android/app/src/main/jniLibs/x86_64
+          BIN="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          [ -f "$BIN/llvm-strip" ] && "$BIN/llvm-strip" --strip-all "$SO"
+          if [ -f "$BIN/llvm-nm" ]; then
+            "$BIN/llvm-nm" -D --defined-only "$SO" | grep Java_com_daneshmate_app_DaneshMateModule_ || { echo "[-] JNI symbols missing"; exit 1; }
+          fi
+          ls -lh "$SO"
+
+      - name: FFI Smoke Tests
+        run: npm run test:ffi
+
+      - name: Release Keystore (optional)
+        env:
+          RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$RELEASE_KEYSTORE_BASE64" ]; then
+            echo "$RELEASE_KEYSTORE_BASE64" | base64 -d > frontend/android/app/release.keystore
+            echo "[OK] Release keystore decoded"
+          else
+            echo "[i] No keystore secret: APK will be debug-signed (installable)"
+          fi
+
+      - name: Assemble Release APK
+        env:
+          RELEASE_KEYSTORE_PATH: ${{ github.workspace }}/frontend/android/app/release.keystore
+          RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+        run: |
+          set -e
+          mkdir -p "${GITHUB_WORKSPACE}/artifacts"
+          cd frontend/android
+          chmod +x gradlew
+          ./gradlew assembleRelease --no-daemon
+          APK=$(find app/build/outputs/apk/release -type f -name "*.apk" | head -n 1)
+          test -n "$APK"
+          unzip -l "$APK" | grep -q "assets/index.android.bundle" || { echo "[-] JS bundle missing"; exit 1; }
+          unzip -l "$APK" | grep -q "lib/arm64-v8a/libdaneshmate_core.so" || { echo "[-] Rust core missing"; exit 1; }
+          cp -f "$APK" "${GITHUB_WORKSPACE}/artifacts/DaneshMate-Android-arm64-v8a-Release.apk"
+          ls -lh "${GITHUB_WORKSPACE}/artifacts"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-artifacts
+          path: artifacts/*
+          if-no-files-found: error
+
+  build-ios:
+    name: Build iOS PWA
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install Dependencies
+        run: |
+          npm install --no-audit --no-fund --legacy-peer-deps
+          cd frontend && npm install --no-audit --no-fund --legacy-peer-deps
+      - name: Generate Platform Assets
+        run: |
+          npm install --no-save --legacy-peer-deps sharp || (cd frontend && npm install --no-save --legacy-peer-deps sharp)
+          node frontend/scripts/generate_assets.js
+      - name: FFI Smoke Tests
+        run: npm run test:ffi
+      - name: Export Web/PWA
+        run: |
+          cd frontend
+          npx expo export -p web || true
+          if [ ! -d "dist" ]; then
+            cd .. && npm run build && mkdir -p frontend/dist && cp -r dist/* frontend/dist/ && cd frontend
+          fi
+          mkdir -p "${GITHUB_WORKSPACE}/artifacts"
+          (cd dist && zip -r "${GITHUB_WORKSPACE}/artifacts/DaneshMate-iOS-PWA-Web.zip" ./)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ios-artifacts
+          path: artifacts/*
+          if-no-files-found: error
+
+  release-publish:
+    name: Publish GitHub Release
+    needs: [build-android, build-ios]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: android-artifacts
+          path: release-artifacts
+      - uses: actions/download-artifact@v4
+        with:
+          name: ios-artifacts
+          path: release-artifacts
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: "DaneshMate ${{ github.ref_name }}"
+          body: |
+            <div dir="rtl" align="right">
+
+            ### 📱 اندروید (arm64-v8a)
+            اگر نسخه قبلی نصب است و نصب خطا داد، یک بار نسخه قبلی را حذف و دوباره نصب کنید.
+
+            ### 🍏 آیفون / وب (PWA)
+            در Safari گزینه Add to Home Screen را بزنید.
+
+            </div>
+          files: |
+            release-artifacts/DaneshMate-Android-arm64-v8a-Release.apk
+            release-artifacts/DaneshMate-iOS-PWA-Web.zip

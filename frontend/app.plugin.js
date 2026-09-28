@@ -50,31 +50,65 @@ function withDaneshMateNativeFiles(config) {
 
 /**
  * Registers DaneshMatePackage in MainApplication (Kotlin or Java) idempotently.
+ *
+ * Handles every known template shape:
+ *   Kotlin A: PackageList(this).packages.apply { ... }          (RN CLI / Expo SDK 52+)
+ *   Kotlin B: val packages = PackageList(this).packages          (some Expo templates)
+ *   Kotlin C: return PackageList(this).packages                  (Expo SDK 50/51)
+ *   Java   D: List<ReactPackage> packages = new PackageList(this).getPackages();
+ *   Java   E: return new PackageList(this).getPackages();
+ * Fails the prebuild loudly if none match, instead of silently shipping without the module.
  */
 function withDaneshMatePackageRegistration(config) {
   return withMainApplication(config, (config) => {
     let contents = config.modResults.contents;
+    const lang = config.modResults.language;
 
     if (contents.includes('DaneshMatePackage')) {
       return config;
     }
 
-    if (contents.includes('PackageList(this).packages.apply {')) {
-      contents = contents.replace(
-        'PackageList(this).packages.apply {',
-        'PackageList(this).packages.apply {\n              add(DaneshMatePackage())'
-      );
-      console.log('[withDaneshMate] Registered DaneshMatePackage() in MainApplication.kt');
-    } else if (contents.includes('new PackageList(this).getPackages();')) {
-      contents = contents.replace(
-        'new PackageList(this).getPackages();',
-        'List<ReactPackage> packages = new PackageList(this).getPackages();\n          packages.add(new DaneshMatePackage());\n          return packages;'
-      );
-      console.log('[withDaneshMate] Registered DaneshMatePackage() in MainApplication.java');
+    const before = contents;
+
+    if (lang === 'kt' || /\.kt$/.test(config.modResults.path || '')) {
+      if (/PackageList\(this\)\.packages\.apply\s*\{/.test(contents)) {
+        contents = contents.replace(
+          /PackageList\(this\)\.packages\.apply\s*\{/,
+          (m) => `${m}\n              add(DaneshMatePackage())`
+        );
+      } else if (/val\s+packages\s*=\s*PackageList\(this\)\.packages[^\n]*\n/.test(contents)) {
+        contents = contents.replace(
+          /val\s+packages\s*=\s*PackageList\(this\)\.packages[^\n]*\n/,
+          (m) => `${m}            packages.add(DaneshMatePackage())\n`
+        );
+      } else if (/return\s+PackageList\(this\)\.packages\b/.test(contents)) {
+        contents = contents.replace(
+          /return\s+PackageList\(this\)\.packages\b/,
+          'return PackageList(this).packages.apply { add(DaneshMatePackage()) }'
+        );
+      }
     } else {
-      throw new Error('[withDaneshMate] Could not find PackageList in MainApplication to register DaneshMatePackage');
+      if (/List<ReactPackage>\s+packages\s*=\s*new\s+PackageList\(this\)\.getPackages\(\);/.test(contents)) {
+        contents = contents.replace(
+          /List<ReactPackage>\s+packages\s*=\s*new\s+PackageList\(this\)\.getPackages\(\);/,
+          (m) => `${m}\n          packages.add(new DaneshMatePackage());`
+        );
+      } else if (/return\s+new\s+PackageList\(this\)\.getPackages\(\);/.test(contents)) {
+        contents = contents.replace(
+          /return\s+new\s+PackageList\(this\)\.getPackages\(\);/,
+          'List<ReactPackage> packages = new PackageList(this).getPackages();\n          packages.add(new DaneshMatePackage());\n          return packages;'
+        );
+      }
     }
 
+    if (contents === before) {
+      throw new Error(
+        '[withDaneshMate] Could not find PackageList in MainApplication to register DaneshMatePackage. ' +
+          'The native Rust bridge would be missing from the APK.'
+      );
+    }
+
+    console.log(`[withDaneshMate] Registered DaneshMatePackage in MainApplication (${lang})`);
     config.modResults.contents = contents;
     return config;
   });
