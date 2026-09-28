@@ -20,6 +20,13 @@ parking_lot = "0.12"
 # Time & Utilities
 chrono = { version = "0.4", features = ["serde"] }
 
+# Android Direct JNI Bindings (Replaces C++ JNI bridge and CMake)
+[target.'cfg(target_os = "android")'.dependencies]
+jni = { version = "0.21", default-features = false }
+
+[dev-dependencies]
+jni = { version = "0.21", default-features = false }
+
 # Production Release Compilation Optimizations
 [profile.release]
 opt-level = 3

@@ -13,6 +13,9 @@ use parking_lot::RwLock;
 pub mod models;
 use models::{ClassItem, SessionLog, StudentProfile, SyncPayload, SyncResponse};
 
+#[cfg(any(target_os = "android", test))]
+pub mod android;
+
 static INIT: Once = Once::new();
 static DATA_STORE: RwLock<Option<SyncPayload>> = RwLock::new(None);
 
@@ -75,6 +78,83 @@ pub extern "C" fn daneshmate_reset_store() {
     }));
 }
 
+/// Core logic for synchronization across C-ABI and Android JNI.
+pub(crate) fn sync_data_core(payload_str: Option<&str>) -> SyncResponse {
+    daneshmate_init_core();
+
+    let is_query_only = match payload_str {
+        None => true,
+        Some(s) => s.trim().is_empty(),
+    };
+
+    if is_query_only {
+        let store = DATA_STORE.read();
+        let current = store.as_ref().cloned().unwrap_or_else(|| SyncPayload {
+            student_profile: None,
+            classes: vec![],
+            session_logs: vec![],
+            active_theme_id: None,
+            client_timestamp: None,
+        });
+
+        SyncResponse {
+            success: true,
+            server_timestamp: Utc::now(),
+            student_profile: current.student_profile,
+            classes: current.classes,
+            session_logs: current.session_logs,
+            active_theme_id: current.active_theme_id,
+            message: "Fetched local in-memory snapshot via Native FFI".to_string(),
+        }
+    } else {
+        let json_str = payload_str.unwrap();
+        let payload: SyncPayload = match serde_json::from_str(json_str) {
+            Ok(p) => p,
+            Err(e) => {
+                return SyncResponse {
+                    success: false,
+                    server_timestamp: Utc::now(),
+                    student_profile: None,
+                    classes: vec![],
+                    session_logs: vec![],
+                    active_theme_id: None,
+                    message: format!("JSON Parse error: {}", e),
+                };
+            }
+        };
+
+        let mut store = DATA_STORE.write();
+        let current = store.get_or_insert_with(|| SyncPayload {
+            student_profile: None,
+            classes: vec![],
+            session_logs: vec![],
+            active_theme_id: None,
+            client_timestamp: None,
+        });
+
+        // Update in-memory state
+        if let Some(profile) = payload.student_profile {
+            current.student_profile = Some(profile);
+        }
+        current.classes = payload.classes;
+        current.session_logs = payload.session_logs;
+        if let Some(theme) = payload.active_theme_id {
+            current.active_theme_id = Some(theme);
+        }
+        current.client_timestamp = Some(Utc::now());
+
+        SyncResponse {
+            success: true,
+            server_timestamp: Utc::now(),
+            student_profile: current.student_profile.clone(),
+            classes: current.classes.clone(),
+            session_logs: current.session_logs.clone(),
+            active_theme_id: current.active_theme_id.clone(),
+            message: "Synchronized locally in-memory via Native FFI".to_string(),
+        }
+    }
+}
+
 /// Synchronizes data locally in-memory with zero network overhead.
 ///
 /// - If `payload_json` is NULL or empty string, it reads and returns the current state.
@@ -83,92 +163,19 @@ pub extern "C" fn daneshmate_reset_store() {
 #[no_mangle]
 pub extern "C" fn daneshmate_sync_data(payload_json: *const c_char) -> *mut c_char {
     let result = catch_unwind(AssertUnwindSafe(|| {
-        daneshmate_init_core();
-
-        // 1. Check if caller requested read-only query (null or empty string)
-        let is_query_only = if payload_json.is_null() {
-            true
+        let payload_str = if payload_json.is_null() {
+            None
         } else {
             match unsafe { CStr::from_ptr(payload_json) }.to_str() {
-                Ok(s) => s.trim().is_empty(),
+                Ok(s) => Some(s),
                 Err(_) => return error_json_ptr("Invalid UTF-8 in payload string"),
             }
         };
 
-        if is_query_only {
-            let store = DATA_STORE.read();
-            let current = store.as_ref().cloned().unwrap_or_else(|| SyncPayload {
-                student_profile: None,
-                classes: vec![],
-                session_logs: vec![],
-                active_theme_id: None,
-                client_timestamp: None,
-            });
-
-            let response = SyncResponse {
-                success: true,
-                server_timestamp: Utc::now(),
-                student_profile: current.student_profile,
-                classes: current.classes,
-                session_logs: current.session_logs,
-                active_theme_id: current.active_theme_id,
-                message: "Fetched local in-memory snapshot via Native FFI".to_string(),
-            };
-
-            match serde_json::to_string(&response) {
-                Ok(json_str) => string_to_c_char(json_str),
-                Err(e) => error_json_ptr(&format!("Serialization failed: {}", e)),
-            }
-        } else {
-            // 2. Parse mutations payload
-            let json_str = match unsafe { CStr::from_ptr(payload_json) }.to_str() {
-                Ok(s) => s,
-                Err(_) => return error_json_ptr("Invalid UTF-8 string encoding"),
-            };
-
-            let payload: SyncPayload = match serde_json::from_str(json_str) {
-                Ok(p) => p,
-                Err(e) => return error_json_ptr(&format!("JSON Parse error: {}", e)),
-            };
-
-            let mut store = DATA_STORE.write();
-            let current = store.get_or_insert_with(|| SyncPayload {
-                student_profile: None,
-                classes: vec![],
-                session_logs: vec![],
-                active_theme_id: None,
-                client_timestamp: None,
-            });
-
-            // Update in-memory state
-            if let Some(profile) = payload.student_profile {
-                current.student_profile = Some(profile);
-            }
-            if !payload.classes.is_empty() {
-                current.classes = payload.classes;
-            }
-            if !payload.session_logs.is_empty() {
-                current.session_logs = payload.session_logs;
-            }
-            if let Some(theme) = payload.active_theme_id {
-                current.active_theme_id = Some(theme);
-            }
-            current.client_timestamp = Some(Utc::now());
-
-            let response = SyncResponse {
-                success: true,
-                server_timestamp: Utc::now(),
-                student_profile: current.student_profile.clone(),
-                classes: current.classes.clone(),
-                session_logs: current.session_logs.clone(),
-                active_theme_id: current.active_theme_id.clone(),
-                message: "Synchronized locally in-memory via Native FFI".to_string(),
-            };
-
-            match serde_json::to_string(&response) {
-                Ok(res_json) => string_to_c_char(res_json),
-                Err(e) => error_json_ptr(&format!("Serialization error: {}", e)),
-            }
+        let response = sync_data_core(payload_str);
+        match serde_json::to_string(&response) {
+            Ok(res_json) => string_to_c_char(res_json),
+            Err(e) => error_json_ptr(&format!("Serialization error: {}", e)),
         }
     }));
 

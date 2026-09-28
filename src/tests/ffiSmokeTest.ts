@@ -164,6 +164,87 @@ export async function runFfiSmokeTests(): Promise<SmokeTestSuiteReport> {
     }
   }
 
+  // Test 5: Full Persian Student Dataset Round-Trip (علیرضا محمدزاده، ریاضی مهندسی، یادداشت جلسه اول)
+  {
+    const t0 = performance.now();
+    try {
+      const studentPayload = {
+        student_profile: {
+          first_name: 'علیرضا',
+          last_name: 'محمدزاده',
+          major: 'مهندسی کامپیوتر',
+          university: 'دانشگاه تهران',
+          current_term: 'ترم ۵',
+        },
+        classes: [
+          {
+            id: 'class-persian-real',
+            name: 'ریاضی مهندسی',
+            day: 'دوشنبه',
+            time_slot: '08:00 - 10:00',
+            recurrence: 'every_week',
+            professor: 'دکتر محمدی',
+          },
+        ],
+        session_logs: [
+          {
+            id: 'log-persian-real',
+            class_id: 'class-persian-real',
+            class_name: 'ریاضی مهندسی',
+            notes: 'یادداشت جلسه اول: بررسی سری فوریه و تبدیل لاپلاس',
+          },
+        ],
+      };
+
+      const res = await universalNativeBridge.syncData(studentPayload);
+      const passed =
+        res.success === true &&
+        res.student_profile?.first_name === 'علیرضا' &&
+        res.student_profile?.last_name === 'محمدزاده' &&
+        res.classes.some((c) => c.name === 'ریاضی مهندسی') &&
+        res.session_logs.some((l) => l.notes.includes('یادداشت جلسه اول'));
+
+      results.push({
+        name: 'Persian Real-World Dataset Integrity',
+        passed,
+        durationMs: Math.round(performance.now() - t0),
+        details: passed
+          ? 'Persian student profile, class name and session notes fully verified without corruption'
+          : 'Persian verification failed',
+      });
+    } catch (err: any) {
+      results.push({
+        name: 'Persian Real-World Dataset Integrity',
+        passed: false,
+        durationMs: Math.round(performance.now() - t0),
+        details: err?.message || String(err),
+      });
+    }
+  }
+
+  // Test 6: Delete all classes mutation (Empty array overwrites existing classes)
+  {
+    const t0 = performance.now();
+    try {
+      const res = await universalNativeBridge.syncData({ classes: [] });
+      const passed = res.success === true && Array.isArray(res.classes) && res.classes.length === 0;
+
+      results.push({
+        name: 'Delete All Classes (Zero Array Mutation)',
+        passed,
+        durationMs: Math.round(performance.now() - t0),
+        details: passed ? 'Successfully cleared all class records via empty array mutation' : 'Failed to clear classes',
+      });
+    } catch (err: any) {
+      results.push({
+        name: 'Delete All Classes (Zero Array Mutation)',
+        passed: false,
+        durationMs: Math.round(performance.now() - t0),
+        details: err?.message || String(err),
+      });
+    }
+  }
+
   const passedCount = results.filter((r) => r.passed).length;
   const failedCount = results.length - passedCount;
 

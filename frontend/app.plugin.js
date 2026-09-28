@@ -1,0 +1,91 @@
+const { withMainApplication, withDangerousMod, createRunOncePlugin } = require('@expo/config-plugins');
+const fs = require('fs');
+const path = require('path');
+
+const pkg = {
+  name: 'daneshmate-native-core',
+  version: '1.0.0',
+};
+
+/**
+ * Copies native Java/C++ bridge source files from the persistent repository
+ * location (frontend/native/android) into the scaffolded Android native project.
+ */
+function withDaneshMateNativeFiles(config) {
+  return withDangerousMod(config, [
+    'android',
+    async (config) => {
+      const projectRoot = config.modRequest.projectRoot;
+      const platformRoot = config.modRequest.platformProjectRoot;
+
+      const sourceNativeDir = path.join(projectRoot, 'native', 'android');
+      const targetJavaDir = path.join(platformRoot, 'app', 'src', 'main', 'java', 'com', 'daneshmate', 'app');
+
+      if (!fs.existsSync(sourceNativeDir)) {
+        console.warn(`[withDaneshMate] Source native directory not found: ${sourceNativeDir}`);
+        return config;
+      }
+
+      // Ensure target Java directory exists
+      fs.mkdirSync(targetJavaDir, { recursive: true });
+
+      // Copy Java native module and package
+      const javaFiles = ['DaneshMateModule.java', 'DaneshMatePackage.java'];
+      for (const file of javaFiles) {
+        const srcFile = path.join(sourceNativeDir, file);
+        const dstFile = path.join(targetJavaDir, file);
+        if (fs.existsSync(srcFile)) {
+          fs.copyFileSync(srcFile, dstFile);
+          console.log(`[withDaneshMate] Copied ${file} -> app/src/main/java/com/daneshmate/app/`);
+        }
+      }
+
+      return config;
+    },
+  ]);
+}
+
+/**
+ * Registers DaneshMatePackage in MainApplication (Kotlin or Java) idempotently.
+ */
+function withDaneshMatePackageRegistration(config) {
+  return withMainApplication(config, (config) => {
+    let contents = config.modResults.contents;
+
+    // Idempotency check: do not inject if already registered
+    if (contents.includes('DaneshMatePackage')) {
+      return config;
+    }
+
+    // 1. Kotlin template (Expo SDK 51 default)
+    if (contents.includes('PackageList(this).packages.apply {')) {
+      contents = contents.replace(
+        'PackageList(this).packages.apply {',
+        'PackageList(this).packages.apply {\n              add(DaneshMatePackage())'
+      );
+      console.log('[withDaneshMate] Registered DaneshMatePackage() in MainApplication.kt');
+    }
+    // 2. Java template fallback
+    else if (contents.includes('new PackageList(this).getPackages();')) {
+      contents = contents.replace(
+        'new PackageList(this).getPackages();',
+        'List<ReactPackage> packages = new PackageList(this).getPackages();\n          packages.add(new DaneshMatePackage());\n          return packages;'
+      );
+      console.log('[withDaneshMate] Registered DaneshMatePackage() in MainApplication.java');
+    }
+
+    config.modResults.contents = contents;
+    return config;
+  });
+}
+
+/**
+ * DaneshMate Expo Config Plugin
+ */
+function withDaneshMate(config) {
+  config = withDaneshMateNativeFiles(config);
+  config = withDaneshMatePackageRegistration(config);
+  return config;
+}
+
+module.exports = createRunOncePlugin(withDaneshMate, pkg.name, pkg.version);

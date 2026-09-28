@@ -1,8 +1,12 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Platform } from 'react-native';
+
 /**
  * DaneshMate Mobile Offline-First Persistence Adapter
  * 
- * Asynchronous storage engine with cross-environment resilience (React Native & MMKV/AsyncStorage).
- * Automatically caches student profiles, academic schedules, session logs, and themes.
+ * Asynchronous storage engine with cross-environment resilience:
+ * - Native (Android / iOS): @react-native-async-storage/async-storage for guaranteed disk persistence across restarts.
+ * - Web (Safari / Chrome PWA): window.localStorage.
  */
 
 export interface StudentProfileData {
@@ -16,7 +20,7 @@ export interface ClassItemData {
   name: string;
   day: string;
   time: string;
-  recurrence: 'every_week' | 'even_weeks' | 'odd_weeks';
+  recurrence: 'every_week' | 'even_weeks' | 'odd_weeks' | 'bi_weekly' | 'biweekly' | string;
   professor?: string;
   location?: string;
   midtermExamDate?: string;
@@ -73,39 +77,87 @@ const STORAGE_KEYS = {
 const memoryStore: Record<string, string> = {};
 
 class MobilePersistenceAdapter {
+  private isWebEnvironment(): boolean {
+    return Platform.OS === 'web' || (typeof window !== 'undefined' && !!window.localStorage && Platform.OS !== 'android' && Platform.OS !== 'ios');
+  }
+
   private async getRawItem(key: string): Promise<string | null> {
-    try {
-      if (typeof window !== 'undefined' && window.localStorage) {
-        return window.localStorage.getItem(key);
+    if (this.isWebEnvironment()) {
+      try {
+        if (typeof window !== 'undefined' && window.localStorage) {
+          const val = window.localStorage.getItem(key);
+          if (val !== null) memoryStore[key] = val;
+          return val;
+        }
+      } catch (err) {
+        console.warn(`[PersistenceAdapter] Web localStorage read warning for ${key}:`, err);
       }
       return memoryStore[key] ?? null;
-    } catch {
+    }
+
+    try {
+      const val = await AsyncStorage.getItem(key);
+      if (val !== null) {
+        memoryStore[key] = val;
+        return val;
+      }
+      return memoryStore[key] ?? null;
+    } catch (err) {
+      console.error(`[PersistenceAdapter] Native AsyncStorage read error for ${key}:`, err);
       return memoryStore[key] ?? null;
     }
   }
 
   private async setRawItem(key: string, value: string): Promise<void> {
-    try {
-      if (typeof window !== 'undefined' && window.localStorage) {
-        window.localStorage.setItem(key, value);
+    memoryStore[key] = value;
+
+    if (this.isWebEnvironment()) {
+      try {
+        if (typeof window !== 'undefined' && window.localStorage) {
+          window.localStorage.setItem(key, value);
+          return;
+        }
+      } catch (err) {
+        console.error(`[PersistenceAdapter] Web localStorage write error for ${key}:`, err);
+        throw err;
       }
-      memoryStore[key] = value;
-    } catch {
-      memoryStore[key] = value;
+      return;
+    }
+
+    try {
+      await AsyncStorage.setItem(key, value);
+    } catch (err) {
+      console.error(`[PersistenceAdapter] Native AsyncStorage write error for ${key}:`, err);
+      throw err;
     }
   }
 
   private async removeRawItem(key: string): Promise<void> {
-    try {
-      if (typeof window !== 'undefined' && window.localStorage) {
-        window.localStorage.removeItem(key);
+    delete memoryStore[key];
+
+    if (this.isWebEnvironment()) {
+      try {
+        if (typeof window !== 'undefined' && window.localStorage) {
+          window.localStorage.removeItem(key);
+        }
+      } catch (err) {
+        console.error(`[PersistenceAdapter] Web localStorage remove error for ${key}:`, err);
+        throw err;
       }
-      delete memoryStore[key];
-    } catch {
-      delete memoryStore[key];
+      return;
+    }
+
+    try {
+      await AsyncStorage.removeItem(key);
+    } catch (err) {
+      console.error(`[PersistenceAdapter] Native AsyncStorage remove error for ${key}:`, err);
+      throw err;
     }
   }
 
+  /**
+   * Load entire application snapshot from persistent storage
+   */
   async loadAppSnapshot(): Promise<AppSnapshot | null> {
     try {
       const [profileRaw, classesRaw, logsRaw, themeRaw] = await Promise.all([
@@ -126,9 +178,37 @@ class MobilePersistenceAdapter {
         activeThemeId: themeRaw ? JSON.parse(themeRaw) : 'clean-minimal',
         lastSavedAt: Date.now(),
       };
-    } catch {
+    } catch (err) {
+      console.error('[PersistenceAdapter] Failed to load application snapshot:', err);
       return null;
     }
+  }
+
+  /**
+   * Backward-compatible alias for loadAppSnapshot
+   */
+  async loadSnapshot(): Promise<AppSnapshot | null> {
+    return this.loadAppSnapshot();
+  }
+
+  /**
+   * Atomically save a full or partial application snapshot
+   */
+  async saveSnapshot(snapshot: Partial<AppSnapshot>): Promise<void> {
+    const promises: Promise<void>[] = [];
+    if (snapshot.studentProfile !== undefined) {
+      promises.push(this.saveStudentProfile(snapshot.studentProfile));
+    }
+    if (snapshot.classes !== undefined) {
+      promises.push(this.saveClasses(snapshot.classes));
+    }
+    if (snapshot.sessionLogs !== undefined) {
+      promises.push(this.saveSessionLogs(snapshot.sessionLogs));
+    }
+    if (snapshot.activeThemeId !== undefined) {
+      promises.push(this.saveActiveTheme(snapshot.activeThemeId));
+    }
+    await Promise.all(promises);
   }
 
   async saveStudentProfile(profile: StudentProfileData | null): Promise<void> {
@@ -183,6 +263,7 @@ class MobilePersistenceAdapter {
       this.removeRawItem(STORAGE_KEYS.PROFILE),
       this.removeRawItem(STORAGE_KEYS.CLASSES),
       this.removeRawItem(STORAGE_KEYS.LOGS),
+      this.removeRawItem(STORAGE_KEYS.THEME),
       this.removeRawItem(STORAGE_KEYS.MUTATION_QUEUE),
     ]);
   }

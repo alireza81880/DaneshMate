@@ -48,10 +48,10 @@ export const universalNativeBridge = {
     }
 
     if (payload) {
-      if (payload.student_profile) inMemoryStore.student_profile = payload.student_profile;
-      if (payload.classes && payload.classes.length > 0) inMemoryStore.classes = payload.classes;
-      if (payload.session_logs && payload.session_logs.length > 0) inMemoryStore.session_logs = payload.session_logs;
-      if (payload.active_theme_id) inMemoryStore.active_theme_id = payload.active_theme_id;
+      if (payload.student_profile !== undefined) inMemoryStore.student_profile = payload.student_profile;
+      if (Array.isArray(payload.classes)) inMemoryStore.classes = payload.classes;
+      if (Array.isArray(payload.session_logs)) inMemoryStore.session_logs = payload.session_logs;
+      if (payload.active_theme_id !== undefined) inMemoryStore.active_theme_id = payload.active_theme_id;
     }
 
     return {

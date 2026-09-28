@@ -10,6 +10,8 @@ import {
   Modal,
   Platform,
   Pressable,
+  ActivityIndicator,
+  TouchableOpacity,
 } from 'react-native';
 import { useTheme } from '../theme/ThemeContext';
 import { NeumorphicCard } from '../components/NeumorphicCard';
@@ -88,27 +90,39 @@ export const HomeScreen: React.FC = () => {
   const [updateInfo, setUpdateInfo] = useState<UpdateCheckResult | null>(null);
   const [isUpdateModalOpen, setIsUpdateModalOpen] = useState(false);
 
+  // Storage Hydration & Loading Gate
+  const [isStorageReady, setIsStorageReady] = useState(false);
+  const [storageLoadError, setStorageLoadError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
+
   // Load persistent snapshot on startup
   useEffect(() => {
     let isMounted = true;
     (async () => {
       try {
-        const snapshot = await mobilePersistenceAdapter.loadSnapshot();
-        if (isMounted && snapshot) {
-          if (snapshot.studentProfile && !userProfile) {
-            setUserProfile(snapshot.studentProfile);
+        setStorageLoadError(null);
+        const snapshot = await mobilePersistenceAdapter.loadAppSnapshot();
+        if (isMounted) {
+          if (snapshot) {
+            if (snapshot.studentProfile) {
+              setUserProfile(snapshot.studentProfile);
+            }
+            if (snapshot.classes && snapshot.classes.length > 0) {
+              setClasses(snapshot.classes as DynamicClassItemData[]);
+            }
+            if (snapshot.sessionLogs && snapshot.sessionLogs.length > 0) {
+              setSessionLogs(snapshot.sessionLogs as ClassSessionLog[]);
+            }
           }
-          if (snapshot.classes && snapshot.classes.length > 0 && classes.length === 0) {
-            setClasses(snapshot.classes as DynamicClassItemData[]);
-          }
-          if (snapshot.sessionLogs && snapshot.sessionLogs.length > 0 && sessionLogs.length === 0) {
-            setSessionLogs(snapshot.sessionLogs as ClassSessionLog[]);
-          }
+          const queued = await mobilePersistenceAdapter.getQueuedMutations();
+          if (isMounted) setQueuedCount(queued.length);
+          if (isMounted) setIsStorageReady(true);
         }
-        const queued = await mobilePersistenceAdapter.getQueuedMutations();
-        if (isMounted) setQueuedCount(queued.length);
-      } catch {
-        // Fallback gracefully
+      } catch (err: any) {
+        console.error('[HomeScreen] Startup snapshot loading error:', err);
+        if (isMounted) {
+          setStorageLoadError('خطا در دسترسی به حافظه دستگاه. جهت حفاظت از اطلاعات، بارگذاری متوقف شد.');
+        }
       }
     })();
 
@@ -140,9 +154,10 @@ export const HomeScreen: React.FC = () => {
       clearTimeout(updateTimer);
       unsubscribe();
     };
-  }, []);
+  }, [reloadKey]);
 
   const handleRetrySync = async () => {
+    if (!isStorageReady) return;
     const res = await mobileSyncBridge.pushLocalDeltas(userProfile, classes, sessionLogs);
     const queued = await mobilePersistenceAdapter.getQueuedMutations();
     setQueuedCount(queued.length);
@@ -156,12 +171,14 @@ export const HomeScreen: React.FC = () => {
   }, []);
 
   const handleOpenAddClass = () => {
+    if (!isStorageReady) return;
     hapticFeedback.light();
     setEditingClass(null);
     setIsClassModalOpen(true);
   };
 
   const handleOpenEditClass = (item: DynamicClassItemData) => {
+    if (!isStorageReady) return;
     hapticFeedback.light();
     setEditingClass({
       id: item.id,
@@ -178,6 +195,7 @@ export const HomeScreen: React.FC = () => {
   };
 
   const handleSaveClass = (formData: ClassFormData) => {
+    if (!isStorageReady) return;
     hapticFeedback.success();
     let updated: DynamicClassItemData[];
     if (editingClass) {
@@ -221,7 +239,7 @@ export const HomeScreen: React.FC = () => {
   };
 
   const handleConfirmDelete = () => {
-    if (!deletingClassId) return;
+    if (!isStorageReady || !deletingClassId) return;
     hapticFeedback.heavy();
     const updatedClasses = classes.filter((c) => c.id !== deletingClassId);
     const updatedLogs = sessionLogs.filter((l) => l.classId !== deletingClassId);
@@ -236,6 +254,7 @@ export const HomeScreen: React.FC = () => {
 
   // Add in-class multimodal session log
   const handleSaveSessionLog = (log: ClassSessionLog) => {
+    if (!isStorageReady) return;
     hapticFeedback.success();
     const updatedLogs = [log, ...sessionLogs];
     setSessionLogs(updatedLogs);
@@ -246,6 +265,7 @@ export const HomeScreen: React.FC = () => {
   };
 
   const handleDeleteSessionLog = (id: string) => {
+    if (!isStorageReady) return;
     hapticFeedback.heavy();
     const updatedLogs = sessionLogs.filter((l) => l.id !== id);
     setSessionLogs(updatedLogs);
@@ -256,6 +276,7 @@ export const HomeScreen: React.FC = () => {
   };
 
   const handleUpdateSessionLog = (updatedLog: ClassSessionLog) => {
+    if (!isStorageReady) return;
     const updatedLogs = sessionLogs.map((l) => (l.id === updatedLog.id ? updatedLog : l));
     setSessionLogs(updatedLogs);
 
@@ -270,11 +291,53 @@ export const HomeScreen: React.FC = () => {
     setActiveTab(tab);
   };
 
+  // 1. Storage Loading Error State: Block all interaction to prevent overwriting
+  if (storageLoadError) {
+    return (
+      <SafeAreaView style={[styles.safeArea, { backgroundColor: palette.background, justifyContent: 'center', alignItems: 'center', padding: 24 }]}>
+        <StatusBar barStyle={palette.isDark ? 'light-content' : 'dark-content'} backgroundColor={palette.background} />
+        <View style={{ alignItems: 'center', maxWidth: 320 }}>
+          <Text style={{ color: palette.danger || '#EF4444', fontSize: 16, fontWeight: '700', textAlign: 'center', marginBottom: 12 }}>
+            خطا در دسترسی به حافظه
+          </Text>
+          <Text style={{ color: palette.textSecondary, fontSize: 14, textAlign: 'center', marginBottom: 20, lineHeight: 22 }}>
+            {storageLoadError}
+          </Text>
+          <TouchableOpacity
+            onPress={() => {
+              setStorageLoadError(null);
+              setIsStorageReady(false);
+              setReloadKey((k) => k + 1);
+            }}
+            style={{ backgroundColor: palette.primary, paddingHorizontal: 24, paddingVertical: 12, borderRadius: 12 }}
+          >
+            <Text style={{ color: '#FFFFFF', fontWeight: '600' }}>تلاش مجدد</Text>
+          </TouchableOpacity>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  // 2. Storage Loading Gate: Render clean loading indicator until storage hydration finishes
+  if (!isStorageReady) {
+    return (
+      <SafeAreaView style={[styles.safeArea, { backgroundColor: palette.background, justifyContent: 'center', alignItems: 'center' }]}>
+        <StatusBar barStyle={palette.isDark ? 'light-content' : 'dark-content'} backgroundColor={palette.background} />
+        <ActivityIndicator size="large" color={palette.primary} />
+        <Text style={{ color: palette.textSecondary, fontSize: 14, marginTop: 16, fontWeight: '500' }}>
+          در حال بارگذاری اطلاعات...
+        </Text>
+      </SafeAreaView>
+    );
+  }
+
+  // 3. First-Time Setup Modal: Only displayed if storage is ready AND studentProfile is truly empty
   if (!userProfile) {
     return (
       <ProfileSetupModal
         isFirstTime={true}
         onSave={(data) => {
+          if (!isStorageReady) return;
           hapticFeedback.success();
           setUserProfile(data);
           mobileSyncBridge.performOptimisticSync(data, classes, sessionLogs);

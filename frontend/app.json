@@ -38,6 +38,9 @@
         "backgroundColor": "#090D16"
       }
     },
+    "plugins": [
+      "./app.plugin.js"
+    ],
     "web": {
       "bundler": "metro",
       "favicon": "./assets/favicon.png"
