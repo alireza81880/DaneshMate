@@ -1,22 +1,101 @@
 name: Production Release Pipeline
 
 on:
-  workflow_dispatch:
   push:
     branches:
       - main
-    tags:
-      - 'v*.*.*'
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      force_release:
+        description: 'Force re-running release even if Git tag already exists'
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: write
 
 jobs:
   # ============================================================================
-  # JOB 1: Ultra-Light Modern 64-bit Android Release (arm64-v8a + Rust Core + Hermes)
+  # JOB 1: Automatic Version & Git Tag Detection (Single Source of Truth)
+  # ============================================================================
+  version-check:
+    name: Detect Application Version & Git Tag
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.detect-version.outputs.version }}
+      tag: ${{ steps.detect-version.outputs.tag }}
+      should_release: ${{ steps.detect-version.outputs.should_release }}
+      is_pr: ${{ steps.detect-version.outputs.is_pr }}
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect Version from frontend/app.json
+        id: detect-version
+        run: |
+          # 1. Read Canonical Single Source of Truth from frontend/app.json
+          VERSION=$(node -e "
+            try {
+              const app = require('./frontend/app.json');
+              const ver = app.expo && app.expo.version ? String(app.expo.version).trim() : '';
+              if (!ver) process.exit(1);
+              console.log(ver);
+            } catch (e) {
+              process.exit(1);
+            }
+          ") || {
+            echo "[-] ERROR: Failed to extract canonical version from frontend/app.json"
+            exit 1
+          }
+
+          TAG="v${VERSION}"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+
+          echo "========================================================"
+          echo "[✓] Canonical App Version Detected: ${VERSION}"
+          echo "[✓] Target Git Release Tag:        ${TAG}"
+          echo "========================================================"
+
+          # 2. Check Event Type
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "is_pr=true" >> "$GITHUB_OUTPUT"
+            echo "should_release=false" >> "$GITHUB_OUTPUT"
+            echo "[i] Pull Request build detected. CI validation mode active (no release or tag creation)."
+            exit 0
+          fi
+
+          echo "is_pr=false" >> "$GITHUB_OUTPUT"
+
+          # 3. Check if Tag already exists on remote origin
+          git fetch --tags origin || true
+          if git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null 2>&1; then
+            echo "[!] Tag ${TAG} already exists in repository."
+            if [ "${{ github.event.inputs.force_release }}" = "true" ]; then
+              echo "[i] force_release is TRUE: Proceeding with release update."
+              echo "should_release=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "[i] Version ${VERSION} is already released. Skipping production release workflow cleanly."
+              echo "should_release=false" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            echo "[✓] New version ${VERSION} detected! Tag ${TAG} does not exist yet."
+            echo "should_release=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  # ============================================================================
+  # JOB 2: Ultra-Light Modern 64-bit Android Release (arm64-v8a + Rust Core + Hermes)
   # ============================================================================
   build-android:
-    name: Build Android (Modern 64-bit arm64-v8a Release)
+    name: Build Android (${{ needs.version-check.outputs.tag || 'CI' }})
+    needs: version-check
+    if: always() && !cancelled() && (needs.version-check.outputs.should_release == 'true' || needs.version-check.outputs.is_pr == 'true')
     runs-on: ubuntu-latest
     steps:
       - name: 1. Checkout Repository
@@ -40,7 +119,7 @@ jobs:
           ndk-version: r26b
           add-to-path: true
 
-      - name: 5. Set Up Rust Stable Toolchain (arm64-v8a Target Only)
+      - name: 5. Set Up Rust Toolchain (arm64-v8a Android Target)
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: |
@@ -53,7 +132,7 @@ jobs:
       - name: 7. Install Dependencies
         run: |
           npm install --no-audit --no-fund --legacy-peer-deps
-          cd frontend && (npm install --no-audit --no-fund --legacy-peer-deps)
+          cd frontend && npm install --no-audit --no-fund --legacy-peer-deps
 
       - name: 8. Generate Platform Assets from Source
         run: |
@@ -80,7 +159,7 @@ jobs:
         run: |
           cd frontend/android
 
-          # 1. Verify Expo Config Plugin successfully copied native sources and registered package
+          # 1. Verify Expo Config Plugin copied native sources and registered package
           echo "[+] Verifying Native Module integration generated by Expo Config Plugin..."
           [ -f "app/src/main/java/com/daneshmate/app/DaneshMateModule.java" ] && echo "[✓] DaneshMateModule.java present"
           [ -f "app/src/main/java/com/daneshmate/app/DaneshMatePackage.java" ] && echo "[✓] DaneshMatePackage.java present"
@@ -132,26 +211,30 @@ jobs:
         run: |
           npm run test:ffi
 
-      - name: 14. Configure Android Release Keystore
+      - name: 14. Verify & Decode Production Release Keystore (Strict Production Security)
         env:
           RELEASE_KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+          IS_RELEASE_BUILD: ${{ needs.version-check.outputs.should_release }}
         run: |
           mkdir -p frontend/android/app
-          if [ -n "$RELEASE_KEYSTORE_BASE64" ]; then
-            echo "$RELEASE_KEYSTORE_BASE64" | base64 -d > frontend/android/app/release.keystore
-            echo "[✓] Release keystore successfully decoded from GitHub Secrets"
-          elif [ -f "frontend/credentials/daneshmate-release.keystore" ]; then
-            cp frontend/credentials/daneshmate-release.keystore frontend/android/app/release.keystore
-            echo "[✓] Used persistent repository release keystore"
-          else
-            if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
-              echo "[-] ERROR: Release keystore is required for tag releases ($GITHUB_REF) but not found!"
-              echo "[-] Please provide RELEASE_KEYSTORE_BASE64 in GitHub Secrets or commit frontend/credentials/daneshmate-release.keystore."
+
+          if [ "$IS_RELEASE_BUILD" = "true" ]; then
+            if [ -z "$RELEASE_KEYSTORE_BASE64" ]; then
+              echo "================================================================="
+              echo "[-] ERROR: Release keystore is not configured."
+              echo ""
+              echo "Required GitHub Secrets:"
+              echo "- RELEASE_KEYSTORE_BASE64"
+              echo "- RELEASE_KEYSTORE_PASSWORD"
+              echo "- RELEASE_KEY_ALIAS"
+              echo "- RELEASE_KEY_PASSWORD"
+              echo "================================================================="
               exit 1
-            else
-              echo "[-] WARNING: No release keystore found on branch build ($GITHUB_REF). Falling back to debug signing."
-              echo "[-] WARNING: Note that updates over a previous production install will fail due to a different signature!"
             fi
+            echo "$RELEASE_KEYSTORE_BASE64" | base64 -d > frontend/android/app/release.keystore
+            echo "[✓] Production release keystore successfully decoded from GitHub Secrets"
+          else
+            echo "[i] PR / CI Build: Skipping production keystore decoding."
           fi
 
       - name: 15. Assemble Modern 64-bit Android Release APK
@@ -160,67 +243,75 @@ jobs:
           RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD || 'daneshmate_release_2026' }}
           RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS || 'daneshmate' }}
           RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD || 'daneshmate_release_2026' }}
+          APP_VERSION: ${{ needs.version-check.outputs.version }}
+          IS_RELEASE_BUILD: ${{ needs.version-check.outputs.should_release }}
         run: |
           mkdir -p "${GITHUB_WORKSPACE}/artifacts"
           cd frontend/android
           chmod +x gradlew
 
-          # Assemble release APK (strictly assembleRelease with stacktrace, Hermes bundle built by Gradle)
-          ./gradlew assembleRelease --stacktrace
+          if [ "$IS_RELEASE_BUILD" = "true" ]; then
+            # Assemble production release APK
+            ./gradlew assembleRelease --stacktrace
 
-          echo "=== Generated Android APKs ==="
-          find app/build/outputs/apk -type f -name "*.apk"
-          echo "=============================="
+            echo "=== Generated Android APKs ==="
+            find app/build/outputs/apk -type f -name "*.apk"
+            echo "=============================="
 
-          # Target strictly arm64-v8a modern 64-bit release APK
-          FOUND_ARM64=$(find app/build/outputs/apk -type f -name "*arm64-v8a*release*.apk" | head -n 1)
-          if [ -z "$FOUND_ARM64" ]; then
-            FOUND_ARM64=$(find app/build/outputs/apk -type f -name "*arm64-v8a*.apk" | head -n 1)
-          fi
-          if [ -z "$FOUND_ARM64" ]; then
-            FOUND_ARM64=$(find app/build/outputs/apk -type f -name "*release*.apk" | head -n 1)
-          fi
-          if [ -z "$FOUND_ARM64" ]; then
-            FOUND_ARM64=$(find app/build/outputs/apk -type f -name "*.apk" | head -n 1)
-          fi
+            FOUND_ARM64=$(find app/build/outputs/apk -type f -name "*arm64-v8a*release*.apk" | head -n 1)
+            if [ -z "$FOUND_ARM64" ]; then
+              FOUND_ARM64=$(find app/build/outputs/apk -type f -name "*arm64-v8a*.apk" | head -n 1)
+            fi
+            if [ -z "$FOUND_ARM64" ]; then
+              FOUND_ARM64=$(find app/build/outputs/apk -type f -name "*release*.apk" | head -n 1)
+            fi
+            if [ -z "$FOUND_ARM64" ]; then
+              FOUND_ARM64=$(find app/build/outputs/apk -type f -name "*.apk" | head -n 1)
+            fi
 
-          if [ -n "$FOUND_ARM64" ] && [ -f "$FOUND_ARM64" ]; then
-            echo "[✓] Located arm64-v8a Release APK: $FOUND_ARM64"
-            cp -f "$FOUND_ARM64" "${GITHUB_WORKSPACE}/artifacts/DaneshMate-Android-arm64-v8a-Release.apk"
+            if [ -n "$FOUND_ARM64" ] && [ -f "$FOUND_ARM64" ]; then
+              TARGET_NAME="DaneshMate-Android-v${APP_VERSION}-arm64.apk"
+              echo "[✓] Located arm64-v8a Release APK: $FOUND_ARM64 -> $TARGET_NAME"
+              cp -f "$FOUND_ARM64" "${GITHUB_WORKSPACE}/artifacts/${TARGET_NAME}"
+            else
+              echo "[-] Error: Release APK for arm64-v8a was not found!"
+              exit 1
+            fi
+
+            echo "[+] Verifying required internal assets in APK..."
+            APK_ENTRIES=$(unzip -l "$FOUND_ARM64")
+
+            echo "$APK_ENTRIES" | grep -q "lib/arm64-v8a/libdaneshmate_core.so" || {
+              echo "[-] ERROR: Missing lib/arm64-v8a/libdaneshmate_core.so inside APK!"
+              exit 1
+            }
+            echo "[✓] Verified lib/arm64-v8a/libdaneshmate_core.so is present"
+
+            echo "$APK_ENTRIES" | grep -q "assets/index.android.bundle" || {
+              echo "[-] ERROR: Missing assets/index.android.bundle inside APK!"
+              exit 1
+            }
+            echo "[✓] Verified assets/index.android.bundle is present"
+
+            echo "$APK_ENTRIES" | grep -q "lib/arm64-v8a/libhermes.so" || {
+              echo "[-] ERROR: Missing lib/arm64-v8a/libhermes.so inside APK!"
+              exit 1
+            }
+            echo "[✓] Verified lib/arm64-v8a/libhermes.so is present"
+
+            echo "=== APK Signature & Certificate Verification ==="
+            APKSIGNER_BIN=$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -n 1)
+            if [ -n "$APKSIGNER_BIN" ]; then
+              "$APKSIGNER_BIN" verify --print-certs "$FOUND_ARM64"
+            else
+              apksigner verify --print-certs "$FOUND_ARM64"
+            fi
+            echo "==============================================="
           else
-            echo "[-] Error: Release APK for arm64-v8a was not found!"
-            exit 1
+            echo "[i] PR Build: Assembling debug APK for verification..."
+            ./gradlew assembleDebug --stacktrace
+            cp -f $(find app/build/outputs/apk -type f -name "*.apk" | head -n 1) "${GITHUB_WORKSPACE}/artifacts/DaneshMate-Android-PR-Test.apk" || true
           fi
-
-          echo "[+] Verifying required internal assets in APK..."
-          APK_ENTRIES=$(unzip -l "$FOUND_ARM64")
-
-          echo "$APK_ENTRIES" | grep -q "lib/arm64-v8a/libdaneshmate_core.so" || {
-            echo "[-] ERROR: Missing lib/arm64-v8a/libdaneshmate_core.so inside APK!"
-            exit 1
-          }
-          echo "[✓] Verified lib/arm64-v8a/libdaneshmate_core.so is present"
-
-          echo "$APK_ENTRIES" | grep -q "assets/index.android.bundle" || {
-            echo "[-] ERROR: Missing assets/index.android.bundle inside APK!"
-            exit 1
-          }
-          echo "[✓] Verified assets/index.android.bundle is present"
-
-          echo "$APK_ENTRIES" | grep -q "lib/arm64-v8a/libhermes.so" || {
-            echo "[-] ERROR: Missing lib/arm64-v8a/libhermes.so inside APK!"
-            exit 1
-          }
-          echo "[✓] Verified lib/arm64-v8a/libhermes.so is present"
-
-          echo "=== APK Signature & Certificate Verification ==="
-          APKSIGNER_BIN=$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -n 1)
-          if [ -n "$APKSIGNER_BIN" ]; then
-            "$APKSIGNER_BIN" verify --print-certs "$FOUND_ARM64"
-          else
-            apksigner verify --print-certs "$FOUND_ARM64"
-          fi
-          echo "==============================================="
 
           echo "=== Android Artifacts Ready ==="
           ls -lh "${GITHUB_WORKSPACE}/artifacts"
@@ -241,10 +332,12 @@ jobs:
           if-no-files-found: error
 
   # ============================================================================
-  # JOB 2: iOS Target (Optimized PWA / Web Release with Service Worker)
+  # JOB 3: iOS & Progressive Web App (PWA) Export
   # ============================================================================
   build-ios:
-    name: Build iOS Distribution (Optimized PWA Web Release)
+    name: Build PWA / iOS Web Export (${{ needs.version-check.outputs.tag || 'CI' }})
+    needs: version-check
+    if: always() && !cancelled() && (needs.version-check.outputs.should_release == 'true' || needs.version-check.outputs.is_pr == 'true')
     runs-on: macos-14
     steps:
       - name: 1. Checkout Repository
@@ -255,7 +348,7 @@ jobs:
         with:
           node-version: 20
 
-      - name: 3. Set Up Rust Stable Toolchain
+      - name: 3. Set Up Rust Toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: |
@@ -266,7 +359,7 @@ jobs:
       - name: 4. Install Dependencies
         run: |
           npm install --no-audit --no-fund --legacy-peer-deps
-          cd frontend && (npm install --no-audit --no-fund --legacy-peer-deps)
+          cd frontend && npm install --no-audit --no-fund --legacy-peer-deps
 
       - name: 5. Generate Platform Assets from Source
         run: |
@@ -278,6 +371,8 @@ jobs:
           npm run test:ffi
 
       - name: 7. Export Production Web & PWA Bundle with Service Worker
+        env:
+          APP_VERSION: ${{ needs.version-check.outputs.version }}
         run: |
           cd frontend
           npx expo export -p web || npx expo export --platform web || true
@@ -309,10 +404,11 @@ jobs:
             sed -i '' 's/<\/head>/<script>if("serviceWorker" in navigator){window.addEventListener("load",()=>{navigator.serviceWorker.register("\.\/sw.js").catch(()=>{})})}<\/script><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"><meta name="apple-mobile-web-app-title" content="DaneshMate"><\/head>/' dist/index.html || true
           fi
 
-          # Compress production web assets into DaneshMate-iOS-PWA-Web.zip
+          # Compress production web assets into DaneshMate-v${VERSION}-PWA.zip
           mkdir -p "${GITHUB_WORKSPACE}/artifacts"
-          (cd dist && zip -r "${GITHUB_WORKSPACE}/artifacts/DaneshMate-iOS-PWA-Web.zip" ./)
-          echo "[✓] Successfully generated DaneshMate-iOS-PWA-Web.zip"
+          PWA_ZIP_NAME="DaneshMate-v${APP_VERSION:-1.0.0}-PWA.zip"
+          (cd dist && zip -r "${GITHUB_WORKSPACE}/artifacts/${PWA_ZIP_NAME}" ./)
+          echo "[✓] Successfully generated ${PWA_ZIP_NAME}"
 
       - name: 8. Upload iOS Web/PWA Artifact
         uses: actions/upload-artifact@v4
@@ -322,18 +418,20 @@ jobs:
           if-no-files-found: error
 
   # ============================================================================
-  # JOB 3: Publish GitHub Release (Strictly on tags v*.*.*)
+  # JOB 4: Create Git Tag & Publish Production GitHub Release (Automated)
   # ============================================================================
   release-publish:
-    name: Consolidate & Publish GitHub Release
-    needs: [build-android, build-ios]
-    if: startsWith(github.ref, 'refs/tags/v')
+    name: Publish Production GitHub Release (${{ needs.version-check.outputs.tag }})
+    needs: [version-check, build-android, build-ios]
+    if: needs.version-check.outputs.should_release == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - name: 1. Checkout Repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: 2. Download Android Artifacts
         uses: actions/download-artifact@v4
@@ -347,36 +445,48 @@ jobs:
           name: ios-artifacts
           path: release-artifacts
 
-      - name: 4. List Release Artifacts
+      - name: 4. Generate SHA-256 Checksums
         run: |
-          echo "=== Release Artifacts Ready for Publication ==="
-          ls -la release-artifacts/
-          echo "==============================================="
+          cd release-artifacts
+          sha256sum * > SHA256SUMS.txt
+          echo "=== Artifact SHA-256 Checksums ==="
+          cat SHA256SUMS.txt
+          echo "=================================="
 
-      - name: 5. Determine or Generate Release Tag
-        id: determine-tag
+      - name: 5. Create & Push Git Release Tag
+        env:
+          TAG: ${{ needs.version-check.outputs.tag }}
         run: |
-          TAG="${GITHUB_REF#refs/tags/}"
-          echo "RELEASE_TAG=${TAG}" >> $GITHUB_ENV
-          echo "Release tag set to: ${TAG}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          if ! git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null 2>&1; then
+            echo "[+] Creating Git Tag: ${TAG} on commit ${{ github.sha }}..."
+            git tag -a "${TAG}" -m "DaneshMate Production Release ${TAG}"
+            git push origin "${TAG}"
+            echo "[✓] Successfully pushed tag ${TAG} to repository."
+          else
+            echo "[i] Git Tag ${TAG} already exists on remote."
+          fi
 
       - name: 6. Publish GitHub Release with Bilingual User Guide
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ env.RELEASE_TAG }}
+          tag_name: ${{ needs.version-check.outputs.tag }}
           target_commitish: ${{ github.sha }}
-          name: "DaneshMate Production Release ${{ env.RELEASE_TAG }}"
+          name: "DaneshMate ${{ needs.version-check.outputs.tag }}"
           draft: false
           prerelease: false
           body: |
-            # 🎓 DaneshMate — Production Release
+            # 🎓 DaneshMate — Production Release ${{ needs.version-check.outputs.tag }}
 
             <div dir="rtl" align="right">
 
-            ### 📱 نسخه ویژه اندروید (مدرن و نسل جدید)
-            * **معماری بهینه‌شده:** فقط پردازنده‌های ۶۴ بیتی (`arm64-v8a`) با هسته فوق‌سریع Rust.
-            * **بهینه‌سازی حجم:** کاهش چشمگیر حجم اپلیکیشن با موتور کامپایل‌شده Hermes و حذف کدهای زائد.
-            * **کاملاً آفلاین:** بدون نیاز به ابزار جانبی یا سرور Metro؛ نصب و اجرای فوری.
+            ### 📱 نسخه ویژه اندروید (مدرن، ۶۴ بیتی با امضای رسمی)
+            * **معماری بهینه‌شده:** فقط پردازنده‌های ۶۴ بیتی (`arm64-v8a`) با هسته فوق‌سریع Rust C-ABI.
+            * **بهینه‌سازی حجم و سرعت:** کاهش چشمگیر حجم اپلیکیشن با موتور کامپایل‌شده Hermes و حذف کدهای زائد.
+            * **امنیت و امضا:** کامپایل‌شده با امضای رسمی Production Keystore بدون نیاز به سرور Metro.
+            * **کاملاً آفلاین:** عملکرد کامل و مستقل دیتابیس لوکال بدون نیاز به اینترنت یا ابزار جانبی.
 
             ### 🍏 نسخه آیفون و تحت وب (PWA)
             * فایل زیپ را دانلود و میزبانی کنید، یا در مرورگر **Safari** لینک برنامه را باز کرده و با انتخاب گزینه **Add to Home Screen** مستقیماً بدون نیاز به اپ‌استور نصب فرمایید.
@@ -386,11 +496,10 @@ jobs:
             ---
 
             ### 🌍 English Summary & Installation Guide
-            * **Android Release:** High-performance 64-bit build (`arm64-v8a`) powered by offline Rust core and Hermes engine. Stutter-free 60/120 FPS.
+            * **Android Release:** High-performance 64-bit build (`arm64-v8a`) signed with production release credentials and powered by offline Rust core and Hermes engine.
             * **iOS / Web Release:** Optimized Progressive Web App (PWA). Extract the archive and host, or open in Safari and select **Add to Home Screen**.
 
             ---
             *Built with ❤️ by null • Powered by React Native & Rust Core*
           files: |
-            release-artifacts/DaneshMate-Android-arm64-v8a-Release.apk
-            release-artifacts/DaneshMate-iOS-PWA-Web.zip
+            release-artifacts/*
