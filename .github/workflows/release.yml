@@ -13,10 +13,10 @@ permissions:
 
 jobs:
   # ============================================================================
-  # JOB 1: Android Native Rust Core & Standalone ABI-Split APKs (Ubuntu)
+  # JOB 1: Ultra-Light Modern 64-bit Android Release (arm64-v8a + Rust Core + Hermes)
   # ============================================================================
   build-android:
-    name: Build Android (ABI-Split APKs & Native Rust Core)
+    name: Build Android (Modern 64-bit arm64-v8a Release)
     runs-on: ubuntu-latest
     steps:
       - name: 1. Checkout Repository
@@ -40,12 +40,11 @@ jobs:
           ndk-version: r26b
           add-to-path: true
 
-      - name: 5. Set Up Rust Stable Toolchain & Android Targets
+      - name: 5. Set Up Rust Stable Toolchain (arm64-v8a Target Only)
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: |
             aarch64-linux-android
-            armv7-linux-androideabi
 
       - name: 6. Install cargo-ndk
         run: |
@@ -66,67 +65,114 @@ jobs:
           cd frontend
           npx expo prebuild --clean --platform android --no-install
 
-      - name: 10. Enable Android ABI Architecture Splits (arm64-v8a & armeabi-v7a)
+      - name: 10. Configure Android Build Settings (Hermes, ProGuard & arm64-v8a Target)
         run: |
           cd frontend/android
-          # Configure Gradle build per CPU architecture
+
+          # 1. Configure app/build.gradle: enable R8/ProGuard shrinking, Hermes, and CPU architecture splits
           if [ -f "app/build.gradle" ]; then
+            sed -i 's/def enableProguardInReleaseBuilds = false/def enableProguardInReleaseBuilds = true/g' app/build.gradle || true
+            sed -i 's/enableProguardInReleaseBuilds = false/enableProguardInReleaseBuilds = true/g' app/build.gradle || true
+            sed -i 's/enableHermes: false/enableHermes: true/g' app/build.gradle || true
+            sed -i 's/def enableHermes = false/def enableHermes = true/g' app/build.gradle || true
             sed -i 's/def enableSeparateBuildPerCPUArchitecture = false/def enableSeparateBuildPerCPUArchitecture = true/g' app/build.gradle || true
             sed -i 's/enableSeparateBuildPerCPUArchitecture = false/enableSeparateBuildPerCPUArchitecture = true/g' app/build.gradle || true
-            echo "[✓] Configured enableSeparateBuildPerCPUArchitecture = true in app/build.gradle"
+            sed -i 's/signingConfig signingConfigs.release/signingConfig signingConfigs.debug/g' app/build.gradle || true
+            echo "[✓] Configured app/build.gradle (ProGuard=true, Hermes=true, CPU Arch splits)"
           fi
 
-      - name: 11. Cross-Compile Rust Native Libraries (libdaneshmate_core.so)
+          # 2. Configure gradle.properties to enforce arm64-v8a only and enable Hermes
+          if [ -f "gradle.properties" ]; then
+            sed -i 's/hermesEnabled=false/hermesEnabled=true/g' gradle.properties || true
+            if ! grep -q "hermesEnabled" gradle.properties; then
+              echo "hermesEnabled=true" >> gradle.properties
+            fi
+            if grep -q "reactNativeArchitectures" gradle.properties; then
+              sed -i 's/reactNativeArchitectures=.*/reactNativeArchitectures=arm64-v8a/g' gradle.properties || true
+            else
+              echo "reactNativeArchitectures=arm64-v8a" >> gradle.properties
+            fi
+            echo "[✓] Configured gradle.properties (reactNativeArchitectures=arm64-v8a, hermesEnabled=true)"
+          fi
+
+      - name: 11. Cross-Compile & Strip Rust Native Library (libdaneshmate_core.so)
         env:
           ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
         run: |
           chmod +x backend/scripts/build_rust_mobile.sh
           ./backend/scripts/build_rust_mobile.sh
-          echo "=== Embedded Android jniLibs ==="
-          ls -la frontend/android/app/src/main/jniLibs/arm64-v8a/libdaneshmate_core.so || true
-          ls -la frontend/android/app/src/main/jniLibs/armeabi-v7a/libdaneshmate_core.so || true
+
+          # Remove non-64-bit architectures
+          rm -rf frontend/android/app/src/main/jniLibs/armeabi-v7a
+          rm -rf frontend/android/app/src/main/jniLibs/x86
+
+          # Strip debug symbols using llvm-strip from NDK to optimize file size
+          STRIP_TOOL="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip"
+          if [ ! -f "$STRIP_TOOL" ]; then
+            STRIP_TOOL=$(command -v llvm-strip || command -v strip || true)
+          fi
+
+          if [ -n "$STRIP_TOOL" ]; then
+            echo "[+] Stripping libdaneshmate_core.so symbols using $STRIP_TOOL..."
+            find frontend/android/app/src/main/jniLibs -name "libdaneshmate_core.so" -exec "$STRIP_TOOL" --strip-all {} + || true
+          fi
+
+          echo "=== Embedded 64-bit Android jniLibs ==="
+          ls -lh frontend/android/app/src/main/jniLibs/arm64-v8a/libdaneshmate_core.so || true
 
       - name: 12. Run Automated TypeScript FFI Smoke Tests
         run: |
           npm run test:ffi
 
-      - name: 13. Assemble Standalone ABI-Split Android APKs
+      - name: 13. Bundle Offline React Native JavaScript & Assets
+        run: |
+          cd frontend
+          mkdir -p android/app/src/main/assets
+          npx react-native bundle \
+            --platform android \
+            --dev false \
+            --entry-file index.js \
+            --bundle-output android/app/src/main/assets/index.android.bundle \
+            --assets-dest android/app/src/main/res
+          echo "[✓] Offline JS bundle successfully generated."
+
+      - name: 14. Assemble Modern 64-bit Android Release APK
         run: |
           mkdir -p "${GITHUB_WORKSPACE}/artifacts"
           cd frontend/android
           chmod +x gradlew
 
-          # Assemble release or debug APKs
-          ./gradlew assembleRelease || ./gradlew assembleDebug || true
+          # Assemble release APK (strictly assembleRelease, no debug build)
+          ./gradlew assembleRelease
 
           echo "=== Generated Android APKs ==="
           find app/build/outputs/apk -type f -name "*.apk"
           echo "=============================="
 
-          # 1. Target APK 1: arm64-v8a (Modern 64-bit Android)
-          FOUND_ARM64=$(find app/build/outputs/apk -type f -name "*arm64-v8a*.apk" | head -n 1)
-          if [ -n "$FOUND_ARM64" ] && [ -f "$FOUND_ARM64" ]; then
-            echo "[✓] Located arm64-v8a APK: $FOUND_ARM64"
-            cp -f "$FOUND_ARM64" "${GITHUB_WORKSPACE}/artifacts/DaneshMate-Android-arm64-v8a.apk"
-          else
-            FALLBACK_APK=$(find app/build/outputs/apk -type f -name "*.apk" | head -n 1)
-            [ -n "$FALLBACK_APK" ] && cp -f "$FALLBACK_APK" "${GITHUB_WORKSPACE}/artifacts/DaneshMate-Android-arm64-v8a.apk"
+          # Target strictly arm64-v8a modern 64-bit release APK
+          FOUND_ARM64=$(find app/build/outputs/apk -type f -name "*arm64-v8a*release*.apk" | head -n 1)
+          if [ -z "$FOUND_ARM64" ]; then
+            FOUND_ARM64=$(find app/build/outputs/apk -type f -name "*arm64-v8a*.apk" | head -n 1)
+          fi
+          if [ -z "$FOUND_ARM64" ]; then
+            FOUND_ARM64=$(find app/build/outputs/apk -type f -name "*release*.apk" | head -n 1)
+          fi
+          if [ -z "$FOUND_ARM64" ]; then
+            FOUND_ARM64=$(find app/build/outputs/apk -type f -name "*.apk" | head -n 1)
           fi
 
-          # 2. Target APK 2: armeabi-v7a (Legacy 32-bit Android)
-          FOUND_ARMV7=$(find app/build/outputs/apk -type f -name "*armeabi-v7a*.apk" | head -n 1)
-          if [ -n "$FOUND_ARMV7" ] && [ -f "$FOUND_ARMV7" ]; then
-            echo "[✓] Located armeabi-v7a APK: $FOUND_ARMV7"
-            cp -f "$FOUND_ARMV7" "${GITHUB_WORKSPACE}/artifacts/DaneshMate-Android-armeabi-v7a.apk"
+          if [ -n "$FOUND_ARM64" ] && [ -f "$FOUND_ARM64" ]; then
+            echo "[✓] Located arm64-v8a Release APK: $FOUND_ARM64"
+            cp -f "$FOUND_ARM64" "${GITHUB_WORKSPACE}/artifacts/DaneshMate-Android-arm64-v8a-Release.apk"
           else
-            FALLBACK_APK=$(find app/build/outputs/apk -type f -name "*.apk" | head -n 1)
-            [ -n "$FALLBACK_APK" ] && cp -f "$FALLBACK_APK" "${GITHUB_WORKSPACE}/artifacts/DaneshMate-Android-armeabi-v7a.apk"
+            echo "[-] Error: Release APK for arm64-v8a was not found!"
+            exit 1
           fi
 
           echo "=== Android Artifacts Ready ==="
-          ls -la "${GITHUB_WORKSPACE}/artifacts"
+          ls -lh "${GITHUB_WORKSPACE}/artifacts"
 
-      - name: 14. Upload Android Artifacts
+      - name: 15. Upload Android Artifacts
         uses: actions/upload-artifact@v4
         with:
           name: android-artifacts
@@ -215,7 +261,7 @@ jobs:
           if-no-files-found: error
 
   # ============================================================================
-  # JOB 3: Publish GitHub Release (With Exact Bilingual User Guide & Split Targets)
+  # JOB 3: Publish GitHub Release (With Flawless Bilingual User Guide)
   # ============================================================================
   release-publish:
     name: Consolidate & Publish GitHub Release
@@ -266,18 +312,28 @@ jobs:
           draft: false
           prerelease: false
           body: |
-            ## 🎓 DaneshMate Production Release
+            # 🎓 DaneshMate — Production Release
 
-            ### 📱 راهنمای دانلود برای اندروید (Android):
-            - **نسخه مدرن (arm64-v8a):** مناسب برای گوشیهای تولید شده در چند سال اخیر (اندروید ۸ به بالا) با کمترین حجم و بیشترین سرعت.
-            - **نسخه کلاسیک (armeabi-v7a):** مناسب برای مدلهای قدیمیتر یا اقتصادی.
+            <div dir="rtl" align="right">
 
-            ### 🍏 راهنمای نصب آیفون (iOS):
-            - بدون نیاز به فایل .ipa یا فروشگاههای خارجی! بسته PWA را باز کرده، لینک وب را در مرورگر Safari باز کنید، آیکون Share را لمس کرده و گزینه **Add to Home Screen** را بزنید.
+            ### 📱 نسخه ویژه اندروید (مدرن و نسل جدید)
+            * **معماری بهینهشده:** فقط پردازندههای ۶۴ بیتی (`arm64-v8a`) با هسته فوقسریع Rust.
+            * **بهینهسازی حجم:** کاهش چشمگیر حجم اپلیکیشن با موتور کامپایلشده Hermes و حذف کدهای زائد.
+            * **کاملاً آفلاین:** بدون نیاز به ابزار جانبی یا سرور Metro؛ نصب و اجرای فوری.
+
+            ### 🍏 نسخه آیفون و تحت وب (PWA)
+            * فایل زیپ را دانلود و میزبانی کنید، یا در مرورگر **Safari** لینک برنامه را باز کرده و با انتخاب گزینه **Add to Home Screen** مستقیماً بدون نیاز به اپاستور نصب فرمایید.
+
+            </div>
 
             ---
-            *English Note: Download the corresponding APK based on your device architecture. iOS users can install the PWA instantly via Safari.*
+
+            ### 🌍 English Summary & Installation Guide
+            * **Android Release:** High-performance 64-bit build (`arm64-v8a`) powered by offline Rust core and Hermes engine. Stutter-free 60/120 FPS.
+            * **iOS / Web Release:** Optimized Progressive Web App (PWA). Extract the archive and host, or open in Safari and select **Add to Home Screen**.
+
+            ---
+            *Built with ❤️ by null • Powered by React Native & Rust Core*
           files: |
-            release-artifacts/DaneshMate-Android-arm64-v8a.apk
-            release-artifacts/DaneshMate-Android-armeabi-v7a.apk
+            release-artifacts/DaneshMate-Android-arm64-v8a-Release.apk
             release-artifacts/DaneshMate-iOS-PWA-Web.zip

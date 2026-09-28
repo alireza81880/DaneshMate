@@ -57,8 +57,10 @@ if command -v cargo-ndk &> /dev/null && [ -n "${ANDROID_NDK_HOME:-}" ]; then
     echo "[+] Using cargo-ndk with NDK at: ${ANDROID_NDK_HOME}"
     
     cargo ndk -t arm64-v8a -o "${ANDROID_JNILIBS_DIR}" build --release
-    cargo ndk -t armeabi-v7a -o "${ANDROID_JNILIBS_DIR}" build --release
-    cargo ndk -t x86_64 -o "${ANDROID_JNILIBS_DIR}" build --release
+    if [ "${BUILD_ALL_ARCHS:-false}" = "true" ]; then
+        cargo ndk -t armeabi-v7a -o "${ANDROID_JNILIBS_DIR}" build --release || true
+        cargo ndk -t x86_64 -o "${ANDROID_JNILIBS_DIR}" build --release || true
+    fi
 else
     echo "[!] cargo-ndk not found or ANDROID_NDK_HOME not set."
     echo "[!] Performing standard cargo target builds (will output to target/):"
