@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, Platform } from 'react-native';
 import { NeumorphicCard } from './NeumorphicCard';
 import { NeumorphicTheme } from '../theme/colors';
+import { gregorianToJalali, toPersianDigits } from '../utils/jalali';
 
 interface LiveDateCardProps {
   style?: object;
@@ -9,47 +10,33 @@ interface LiveDateCardProps {
 
 /**
  * LiveDateCard Component
- * Prominently displays the current live day of week and formatted date
- * with Persian calendar support and real-time clock indicator.
+ * Displays the current Jalali date and time.
+ *
+ * Uses the pure-JS Jalali converter instead of Intl persian calendar:
+ * Hermes on Android has limited Intl calendar support, and a throw during render
+ * closes a release build immediately.
  */
 export const LiveDateCard: React.FC<LiveDateCardProps> = ({ style }) => {
   const [currentDate, setCurrentDate] = useState(new Date());
 
   useEffect(() => {
-    // Update date periodically
     const timer = setInterval(() => setCurrentDate(new Date()), 60000);
     return () => clearInterval(timer);
   }, []);
 
-  // Format Persian Solar strictly as numeric format (e.g., 1405/7/5 or ۱۴۰۳/۰۷/۰۴)
-  let formattedFullDate = '';
-  let timeStr = '';
-
-  try {
-    const parts = new Intl.DateTimeFormat('fa-IR-u-ca-persian-nu-latn', {
-      year: 'numeric',
-      month: 'numeric',
-      day: 'numeric',
-    }).formatToParts(currentDate);
-    const year = parts.find((p) => p.type === 'year')?.value || '1405';
-    const month = parts.find((p) => p.type === 'month')?.value || '7';
-    const day = parts.find((p) => p.type === 'day')?.value || '5';
-    formattedFullDate = `${year}/${month}/${day}`;
-
-    const timeFormatter = new Intl.DateTimeFormat('fa-IR', {
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-    timeStr = timeFormatter.format(currentDate);
-  } catch {
-    formattedFullDate = '1405/7/5';
-    timeStr = `${currentDate.getHours()}:${currentDate.getMinutes().toString().padStart(2, '0')}`;
-  }
+  const [jy, jm, jd] = gregorianToJalali(
+    currentDate.getFullYear(),
+    currentDate.getMonth() + 1,
+    currentDate.getDate()
+  );
+  const formattedFullDate = `${jy}/${jm}/${jd}`;
+  const hh = currentDate.getHours().toString().padStart(2, '0');
+  const mm = currentDate.getMinutes().toString().padStart(2, '0');
+  const timeStr = toPersianDigits(`${hh}:${mm}`);
 
   return (
     <NeumorphicCard style={[styles.card, style]} borderRadius={24}>
       <View style={styles.container}>
-        {/* Left / Date Text Info */}
         <View style={styles.textGroup}>
           <View style={styles.badgeRow}>
             <View style={styles.liveIndicator}>
@@ -62,15 +49,10 @@ export const LiveDateCard: React.FC<LiveDateCardProps> = ({ style }) => {
           <Text style={styles.fullDateText}>{formattedFullDate}</Text>
         </View>
 
-        {/* Right / Neumorphic Calendar Icon Plate */}
         <View style={styles.calendarPlate}>
           <View style={styles.calendarInner}>
             <Text style={styles.calendarTopBar}>🗓️</Text>
-            <Text style={styles.calendarDayNum}>
-              {new Intl.NumberFormat('fa-IR').format(
-                Number(new Intl.DateTimeFormat('en-US-u-ca-persian', { day: 'numeric' }).format(currentDate)) || currentDate.getDate()
-              )}
-            </Text>
+            <Text style={styles.calendarDayNum}>{toPersianDigits(jd)}</Text>
           </View>
         </View>
       </View>

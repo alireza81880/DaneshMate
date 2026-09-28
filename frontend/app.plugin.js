@@ -9,7 +9,7 @@ const path = require('path');
 
 const pkg = {
   name: 'daneshmate-native-core',
-  version: '1.0.0',
+  version: '1.0.1',
 };
 
 /**
@@ -27,22 +27,20 @@ function withDaneshMateNativeFiles(config) {
       const targetJavaDir = path.join(platformRoot, 'app', 'src', 'main', 'java', 'com', 'daneshmate', 'app');
 
       if (!fs.existsSync(sourceNativeDir)) {
-        console.warn(`[withDaneshMate] Source native directory not found: ${sourceNativeDir}`);
-        return config;
+        throw new Error(`[withDaneshMate] Source native directory not found: ${sourceNativeDir}`);
       }
 
-      // Ensure target Java directory exists
       fs.mkdirSync(targetJavaDir, { recursive: true });
 
-      // Copy Java native module and package
       const javaFiles = ['DaneshMateModule.java', 'DaneshMatePackage.java'];
       for (const file of javaFiles) {
         const srcFile = path.join(sourceNativeDir, file);
         const dstFile = path.join(targetJavaDir, file);
-        if (fs.existsSync(srcFile)) {
-          fs.copyFileSync(srcFile, dstFile);
-          console.log(`[withDaneshMate] Copied ${file} -> app/src/main/java/com/daneshmate/app/`);
+        if (!fs.existsSync(srcFile)) {
+          throw new Error(`[withDaneshMate] Missing native source: ${srcFile}`);
         }
+        fs.copyFileSync(srcFile, dstFile);
+        console.log(`[withDaneshMate] Copied ${file} -> app/src/main/java/com/daneshmate/app/`);
       }
 
       return config;
@@ -52,79 +50,116 @@ function withDaneshMateNativeFiles(config) {
 
 /**
  * Registers DaneshMatePackage in MainApplication (Kotlin or Java) idempotently.
+ *
+ * Handles every known template shape:
+ *   Kotlin A: PackageList(this).packages.apply { ... }          (RN CLI / Expo SDK 52+)
+ *   Kotlin B: val packages = PackageList(this).packages          (some Expo templates)
+ *   Kotlin C: return PackageList(this).packages                  (Expo SDK 50/51)
+ *   Java   D: List<ReactPackage> packages = new PackageList(this).getPackages();
+ *   Java   E: return new PackageList(this).getPackages();
+ * Fails the prebuild loudly if none match, instead of silently shipping without the module.
  */
 function withDaneshMatePackageRegistration(config) {
   return withMainApplication(config, (config) => {
     let contents = config.modResults.contents;
+    const lang = config.modResults.language;
 
-    // Idempotency check: do not inject if already registered
     if (contents.includes('DaneshMatePackage')) {
       return config;
     }
 
-    // 1. Kotlin template (Expo SDK 51 default)
-    if (contents.includes('PackageList(this).packages.apply {')) {
-      contents = contents.replace(
-        'PackageList(this).packages.apply {',
-        'PackageList(this).packages.apply {\n              add(DaneshMatePackage())'
-      );
-      console.log('[withDaneshMate] Registered DaneshMatePackage() in MainApplication.kt');
-    }
-    // 2. Java template fallback
-    else if (contents.includes('new PackageList(this).getPackages();')) {
-      contents = contents.replace(
-        'new PackageList(this).getPackages();',
-        'List<ReactPackage> packages = new PackageList(this).getPackages();\n          packages.add(new DaneshMatePackage());\n          return packages;'
-      );
-      console.log('[withDaneshMate] Registered DaneshMatePackage() in MainApplication.java');
+    const before = contents;
+
+    if (lang === 'kt' || /\.kt$/.test(config.modResults.path || '')) {
+      if (/PackageList\(this\)\.packages\.apply\s*\{/.test(contents)) {
+        contents = contents.replace(
+          /PackageList\(this\)\.packages\.apply\s*\{/,
+          (m) => `${m}\n              add(DaneshMatePackage())`
+        );
+      } else if (/val\s+packages\s*=\s*PackageList\(this\)\.packages[^\n]*\n/.test(contents)) {
+        contents = contents.replace(
+          /val\s+packages\s*=\s*PackageList\(this\)\.packages[^\n]*\n/,
+          (m) => `${m}            packages.add(DaneshMatePackage())\n`
+        );
+      } else if (/return\s+PackageList\(this\)\.packages\b/.test(contents)) {
+        contents = contents.replace(
+          /return\s+PackageList\(this\)\.packages\b/,
+          'return PackageList(this).packages.apply { add(DaneshMatePackage()) }'
+        );
+      }
+    } else {
+      if (/List<ReactPackage>\s+packages\s*=\s*new\s+PackageList\(this\)\.getPackages\(\);/.test(contents)) {
+        contents = contents.replace(
+          /List<ReactPackage>\s+packages\s*=\s*new\s+PackageList\(this\)\.getPackages\(\);/,
+          (m) => `${m}\n          packages.add(new DaneshMatePackage());`
+        );
+      } else if (/return\s+new\s+PackageList\(this\)\.getPackages\(\);/.test(contents)) {
+        contents = contents.replace(
+          /return\s+new\s+PackageList\(this\)\.getPackages\(\);/,
+          'List<ReactPackage> packages = new PackageList(this).getPackages();\n          packages.add(new DaneshMatePackage());\n          return packages;'
+        );
+      }
     }
 
+    if (contents === before) {
+      throw new Error(
+        '[withDaneshMate] Could not find PackageList in MainApplication to register DaneshMatePackage. ' +
+          'The native Rust bridge would be missing from the APK.'
+      );
+    }
+
+    console.log(`[withDaneshMate] Registered DaneshMatePackage in MainApplication (${lang})`);
     config.modResults.contents = contents;
     return config;
   });
 }
 
 /**
- * Configures signingConfigs.release and links it to the release build type in app/build.gradle
+ * Release signing.
+ *
+ * Appends a second `android {}` block at the END of app/build.gradle. It runs after the
+ * template has defined signingConfigs.debug and buildTypes.release, so it can safely
+ * override the release signing config ONLY when a real keystore file exists.
+ * If no keystore is provided, the template default (debug keystore) stays in place,
+ * so the build never breaks and the APK is always installable.
+ *
+ * NOTE: switching from debug-signed to release-signed APKs changes the signature.
+ * Users must uninstall the old APK once before installing the first release-signed one.
  */
 function withDaneshMateSigning(config) {
   return withAppBuildGradle(config, (config) => {
     let buildGradle = config.modResults.contents;
+    const marker = '// [DaneshMate] release signing';
 
-    const releaseSigningBlock = `
-        release {
-            def keystorePath = System.getenv("RELEASE_KEYSTORE_PATH") ?: "release.keystore"
-            if (file(keystorePath).exists()) {
-                storeFile file(keystorePath)
-                storePassword System.getenv("RELEASE_KEYSTORE_PASSWORD") ?: "daneshmate_release_2026"
-                keyAlias System.getenv("RELEASE_KEY_ALIAS") ?: "daneshmate"
-                keyPassword System.getenv("RELEASE_KEY_PASSWORD") ?: "daneshmate_release_2026"
-            } else {
-                signingConfig signingConfigs.debug
+    if (!buildGradle.includes(marker)) {
+      buildGradle += `
+
+${marker}
+android {
+    def dmStorePath = System.getenv("RELEASE_KEYSTORE_PATH")
+    if (dmStorePath != null && !dmStorePath.isEmpty() && file(dmStorePath).exists()) {
+        signingConfigs {
+            dmRelease {
+                storeFile file(dmStorePath)
+                storePassword System.getenv("RELEASE_KEYSTORE_PASSWORD")
+                keyAlias System.getenv("RELEASE_KEY_ALIAS")
+                keyPassword System.getenv("RELEASE_KEY_PASSWORD")
             }
-        }`;
-
-    if (!buildGradle.includes('System.getenv("RELEASE_KEYSTORE_PATH")')) {
-      buildGradle = buildGradle.replace(
-        /signingConfigs\s*\{/,
-        `signingConfigs {${releaseSigningBlock}`
-      );
+        }
+        buildTypes.release.signingConfig = signingConfigs.dmRelease
+        println "[DaneshMate] Using release keystore: " + dmStorePath
+    } else {
+        println "[DaneshMate] No release keystore found, release APK stays debug-signed"
     }
-
-    // Ensure release build type uses signingConfigs.release
-    buildGradle = buildGradle.replace(
-      /release\s*\{(\s*)signingConfig\s+signingConfigs\.debug/,
-      'release {$1signingConfig signingConfigs.release'
-    );
+}
+`;
+    }
 
     config.modResults.contents = buildGradle;
     return config;
   });
 }
 
-/**
- * DaneshMate Expo Config Plugin
- */
 function withDaneshMate(config) {
   config = withDaneshMateNativeFiles(config);
   config = withDaneshMatePackageRegistration(config);

@@ -1,6 +1,11 @@
 /**
- * DaneshMate Mobile Rust Backend Sync Bridge
- * Connects React Native (Expo) frontend to the Rust Axum backend.
+ * DaneshMate Mobile Sync Bridge
+ *
+ * Architecture:
+ * - AsyncStorage (persistenceAdapter) is the single source of truth.
+ * - The Rust core is an in-memory cache reached through the native bridge.
+ * - If pushing to the Rust cache fails, only the LATEST snapshot is kept as pending
+ *   (previously every failure appended a full copy, so the queue grew without bound).
  */
 
 import {
@@ -69,6 +74,16 @@ export interface SyncResponse {
 
 export type SyncState = 'idle' | 'syncing' | 'synced' | 'offline' | 'error';
 
+/** Rust expects `voice_memo_seconds: Option<u32>`; a float or negative value fails the whole parse. */
+function toU32(value: unknown): number | undefined {
+  if (typeof value !== 'number' || !isFinite(value)) return undefined;
+  return Math.max(0, Math.round(value));
+}
+
+function toStr(value: unknown): string {
+  return value === undefined || value === null ? '' : String(value);
+}
+
 class MobileSyncBridge {
   private currentState: SyncState = 'idle';
   private listeners: ((state: SyncState, message?: string) => void)[] = [];
@@ -87,11 +102,17 @@ class MobileSyncBridge {
 
   private notify(state: SyncState, message?: string) {
     this.currentState = state;
-    this.listeners.forEach((l) => l(state, message));
+    this.listeners.forEach((l) => {
+      try {
+        l(state, message);
+      } catch (err) {
+        console.warn('[SyncBridge] listener error:', err);
+      }
+    });
   }
 
   private formatPayload(
-    profile: StudentProfileData | null,
+    profile: StudentProfileData | null | undefined,
     classes: ClassItemData[],
     logs: SessionLogData[],
     activeThemeId?: string
@@ -99,38 +120,38 @@ class MobileSyncBridge {
     return {
       student_profile: profile
         ? {
-            first_name: profile.firstName,
-            last_name: profile.lastName,
-            passed_units: profile.passedUnits,
+            first_name: toStr(profile.firstName),
+            last_name: toStr(profile.lastName),
+            passed_units: profile.passedUnits ? String(profile.passedUnits) : undefined,
           }
         : undefined,
-      classes: classes.map((c) => ({
-        id: c.id,
-        name: c.name,
-        day: c.day,
-        time_slot: c.time,
-        recurrence: c.recurrence,
-        professor: c.professor,
-        location: c.location,
+      classes: (classes || []).map((c) => ({
+        id: toStr(c.id),
+        name: toStr(c.name),
+        day: toStr(c.day),
+        time_slot: toStr(c.time),
+        recurrence: toStr(c.recurrence) || 'every_week',
+        professor: c.professor || undefined,
+        location: c.location || undefined,
       })),
-      session_logs: logs.map((l) => ({
-        id: l.id,
-        class_id: l.classId,
-        class_name: l.className,
+      session_logs: (logs || []).map((l) => ({
+        id: toStr(l.id),
+        class_id: toStr(l.classId),
+        class_name: toStr(l.className),
         notes: l.notesText || undefined,
-        voice_memo_seconds: l.voiceMemoSeconds,
+        voice_memo_seconds: toU32(l.voiceMemoSeconds),
         attachments_meta: (l.attachedFiles || []).map((f) => ({
-          id: f.id,
-          name: f.name,
-          file_type: f.type,
-          size_text: f.sizeText,
+          id: toStr(f.id),
+          name: toStr(f.name),
+          file_type: toStr(f.type),
+          size_text: toStr(f.sizeText),
           uri: f.uri,
           url: f.url,
         })),
         reminder_schedule: l.reminderTimeText || l.reminderTrigger,
         has_reminder: !!l.hasReminder,
         snoozed_until: l.snoozedUntil,
-        created_at: l.createdAt,
+        created_at: toStr(l.createdAt) || new Date().toISOString(),
       })),
       active_theme_id: activeThemeId,
       client_timestamp: new Date().toISOString(),
@@ -151,7 +172,7 @@ class MobileSyncBridge {
   }
 
   async pushLocalDeltas(
-    profile: StudentProfileData | null,
+    profile: StudentProfileData | null | undefined,
     classes: ClassItemData[],
     logs: SessionLogData[],
     activeThemeId?: string
@@ -164,11 +185,15 @@ class MobileSyncBridge {
       await mobilePersistenceAdapter.clearQueuedMutations();
       this.notify('synced', 'Local deltas synced via Native Rust Core');
       return response as SyncResponse;
-    } catch {
-      await mobilePersistenceAdapter.enqueueMutation({
-        type: 'UPDATE_PROFILE',
-        payload,
-      });
+    } catch (err) {
+      console.warn('[SyncBridge] Rust cache sync failed, keeping latest snapshot pending:', err);
+      try {
+        // Keep exactly one pending snapshot (latest wins). Data itself is already safe in AsyncStorage.
+        await mobilePersistenceAdapter.clearQueuedMutations();
+        await mobilePersistenceAdapter.enqueueMutation({ type: 'UPDATE_PROFILE', payload });
+      } catch (queueErr) {
+        console.warn('[SyncBridge] Could not store pending snapshot:', queueErr);
+      }
       this.notify('offline', 'Preserved offline in local store');
       return null;
     }
@@ -180,12 +205,18 @@ class MobileSyncBridge {
     logs: SessionLogData[],
     activeThemeId?: string
   ): Promise<void> {
-    await Promise.all([
-      mobilePersistenceAdapter.saveStudentProfile(profile),
-      mobilePersistenceAdapter.saveClasses(classes),
-      mobilePersistenceAdapter.saveSessionLogs(logs),
-      activeThemeId ? mobilePersistenceAdapter.saveActiveTheme(activeThemeId) : Promise.resolve(),
-    ]);
+    try {
+      await Promise.all([
+        mobilePersistenceAdapter.saveStudentProfile(profile),
+        mobilePersistenceAdapter.saveClasses(classes),
+        mobilePersistenceAdapter.saveSessionLogs(logs),
+        activeThemeId ? mobilePersistenceAdapter.saveActiveTheme(activeThemeId) : Promise.resolve(),
+      ]);
+    } catch (err) {
+      console.error('[SyncBridge] Persisting to AsyncStorage failed:', err);
+      this.notify('error', 'Local storage write failed');
+      return;
+    }
 
     this.pushLocalDeltas(profile, classes, logs, activeThemeId).catch(() => {});
   }

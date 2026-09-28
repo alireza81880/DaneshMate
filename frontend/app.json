@@ -2,7 +2,7 @@
   "expo": {
     "name": "DaneshMate",
     "slug": "daneshmate",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
@@ -42,7 +42,8 @@
         "expo-build-properties",
         {
           "android": {
-            "enableProguardInReleaseBuilds": true,
+            "enableProguardInReleaseBuilds": false,
+            "enableShrinkResourcesInReleaseBuilds": false,
             "extraProguardRules": "-keep class com.daneshmate.app.** { *; }\n-keepclassmembers class * { native <methods>; @com.facebook.react.bridge.ReactMethod <methods>; }"
           }
         }

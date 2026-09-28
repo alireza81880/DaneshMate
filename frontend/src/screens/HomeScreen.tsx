@@ -166,7 +166,7 @@ export const HomeScreen: React.FC = () => {
 
   const handleRetrySync = async () => {
     if (!isStorageReady) return;
-    const res = await mobileSyncBridge.pushLocalDeltas(userProfile, classes, sessionLogs);
+    await mobileSyncBridge.pushLocalDeltas(userProfile, classes, sessionLogs);
     const queued = await mobilePersistenceAdapter.getQueuedMutations();
     setQueuedCount(queued.length);
   };
@@ -177,6 +177,14 @@ export const HomeScreen: React.FC = () => {
       Animated.spring(slideAnim, { toValue: 0, bounciness: 3, speed: 16, useNativeDriver: true }),
     ]).start();
   }, []);
+
+  // Profile edits must be persisted (previously only React state was updated, so edits were lost on restart)
+  const handleProfileUpdate = (updated: UserProfileData) => {
+    setUserProfile(updated);
+    mobileSyncBridge.performOptimisticSync(updated, classes, sessionLogs).then(() => {
+      mobilePersistenceAdapter.getQueuedMutations().then((q) => setQueuedCount(q.length));
+    });
+  };
 
   const handleOpenAddClass = () => {
     if (!isStorageReady) return;
@@ -347,14 +355,13 @@ export const HomeScreen: React.FC = () => {
         onSave={(data) => {
           if (!isStorageReady) return;
           hapticFeedback.success();
-          setUserProfile(data);
-          mobileSyncBridge.performOptimisticSync(data, classes, sessionLogs);
+          handleProfileUpdate(data);
         }}
       />
     );
   }
 
-  const initials = `${userProfile.firstName.charAt(0)}${userProfile.lastName.charAt(0)}`.toUpperCase();
+  const initials = `${(userProfile.firstName || '').charAt(0)}${(userProfile.lastName || '').charAt(0)}`.toUpperCase();
 
   // Filtered classes by day and search
   const filteredClasses = classes.filter((c) => {
@@ -363,7 +370,7 @@ export const HomeScreen: React.FC = () => {
 
     if (!searchQuery.trim()) return true;
     const query = searchQuery.trim().toLowerCase();
-    const nameMatch = c.name.toLowerCase().includes(query);
+    const nameMatch = (c.name || '').toLowerCase().includes(query);
     const profMatch = c.professor ? c.professor.toLowerCase().includes(query) : false;
     return nameMatch || profMatch;
   });
@@ -415,7 +422,7 @@ export const HomeScreen: React.FC = () => {
                       </svg>
                     ) : (
                       <Text style={[styles.avatarText, { color: palette.primary }]}>
-                        DM
+                        {initials || 'DM'}
                       </Text>
                     )}
                   </View>
@@ -600,7 +607,7 @@ export const HomeScreen: React.FC = () => {
       {activeTab === 'profile' && (
         <ProfileScreen
           userProfile={userProfile}
-          onUpdateProfile={(updated) => setUserProfile(updated)}
+          onUpdateProfile={handleProfileUpdate}
           totalClasses={classes.length}
           totalNotes={sessionLogs.length}
           onOpenSettings={() => setActiveTab('settings')}
@@ -628,7 +635,7 @@ export const HomeScreen: React.FC = () => {
           initialProfile={userProfile}
           isFirstTime={false}
           onSave={(updated) => {
-            setUserProfile(updated);
+            handleProfileUpdate(updated);
             setIsProfileModalOpen(false);
           }}
           onCancel={() => setIsProfileModalOpen(false)}
@@ -671,7 +678,10 @@ export const HomeScreen: React.FC = () => {
           releaseNotes={updateInfo.releaseNotes}
           downloadUrl={updateInfo.downloadUrl}
           onClose={() => setIsUpdateModalOpen(false)}
-          onSnooze={() => setIsUpdateModalOpen(false)}
+          onSnooze={() => {
+            updateChecker.snooze(24);
+            setIsUpdateModalOpen(false);
+          }}
         />
       )}
     </SafeAreaView>
