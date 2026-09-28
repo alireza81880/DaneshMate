@@ -127,13 +127,33 @@ jobs:
       - name: 13. Bundle Offline React Native JavaScript & Assets
         run: |
           cd frontend
+          # Ensure valid Metro configuration is present
+          if [ ! -f "metro.config.js" ]; then
+            cat << 'EOF' > metro.config.js
+const { getDefaultConfig } = (() => {
+  try {
+    return require('expo/metro-config');
+  } catch (e) {
+    try {
+      return require('@react-native/metro-config');
+    } catch (err) {
+      return { getDefaultConfig: (dir) => ({}) };
+    }
+  }
+})();
+
+module.exports = getDefaultConfig(__dirname);
+EOF
+          fi
+
           mkdir -p android/app/src/main/assets
           npx react-native bundle \
             --platform android \
             --dev false \
             --entry-file index.js \
             --bundle-output android/app/src/main/assets/index.android.bundle \
-            --assets-dest android/app/src/main/res
+            --assets-dest android/app/src/main/res \
+            --config metro.config.js
           echo "[✓] Offline JS bundle successfully generated."
 
       - name: 14. Assemble Modern 64-bit Android Release APK
