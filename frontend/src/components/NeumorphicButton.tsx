@@ -10,12 +10,15 @@ import {
   View,
 } from 'react-native';
 import { hapticFeedback } from '../utils/haptics';
+import { useTheme } from '../theme/ThemeContext';
 import { NeumorphicTheme } from '../theme/colors';
+import { FONT_FAMILIES } from '../theme/typography';
+import { rtlStyles } from '../utils/rtl';
 
 export interface NeumorphicButtonProps {
   title?: string;
   onPress: () => void;
-  style?: ViewStyle;
+  style?: ViewStyle | ViewStyle[];
   textStyle?: TextStyle;
   icon?: React.ReactNode;
   variant?: 'standard' | 'primary' | 'danger' | 'convex';
@@ -26,11 +29,6 @@ export interface NeumorphicButtonProps {
   children?: React.ReactNode;
 }
 
-/**
- * Reusable Neumorphic Button for React Native
- * Simulates physical depth and press depression using refined spring physics,
- * tactile haptic micro-interactions, layered highlight borders, and dual-tone shadow gradients.
- */
 export const NeumorphicButton: React.FC<NeumorphicButtonProps> = ({
   title,
   onPress,
@@ -44,15 +42,14 @@ export const NeumorphicButton: React.FC<NeumorphicButtonProps> = ({
   hapticType = 'light',
   children,
 }) => {
+  const { palette } = useTheme();
   const [isPressed, setIsPressed] = useState(false);
   const scaleAnim = useRef(new Animated.Value(1)).current;
-  const depthAnim = useRef(new Animated.Value(0)).current;
 
   const handlePressIn = () => {
     if (disabled) return;
     setIsPressed(true);
 
-    // Tactile micro-interaction feedback
     if (hapticType === 'medium') {
       hapticFeedback.medium();
     } else if (hapticType === 'heavy') {
@@ -61,53 +58,70 @@ export const NeumorphicButton: React.FC<NeumorphicButtonProps> = ({
       hapticFeedback.light();
     }
 
-    // Refined spring depression physics (instant, clean depression)
-    Animated.parallel([
-      Animated.spring(scaleAnim, {
-        toValue: 0.948,
-        damping: 18,
-        mass: 0.75,
-        stiffness: 320,
-        useNativeDriver: true,
-      }),
-      Animated.timing(depthAnim, {
-        toValue: 1,
-        duration: 75,
-        useNativeDriver: false,
-      }),
-    ]).start();
+    Animated.spring(scaleAnim, {
+      toValue: 0.96,
+      damping: 18,
+      mass: 0.75,
+      stiffness: 320,
+      useNativeDriver: true,
+    }).start();
   };
 
   const handlePressOut = () => {
     if (disabled) return;
     setIsPressed(false);
 
-    // Dynamic spring release physics (natural tactile rebound)
-    Animated.parallel([
-      Animated.spring(scaleAnim, {
-        toValue: 1,
-        damping: 12,
-        mass: 0.9,
-        stiffness: 220,
-        useNativeDriver: true,
-      }),
-      Animated.timing(depthAnim, {
-        toValue: 0,
-        duration: 120,
-        useNativeDriver: false,
-      }),
-    ]).start();
+    Animated.spring(scaleAnim, {
+      toValue: 1,
+      damping: 12,
+      mass: 0.9,
+      stiffness: 220,
+      useNativeDriver: true,
+    }).start();
   };
 
   const isActuallyPressed = isPressed || active;
+
+  // Flatten incoming style to extract container-level layout props like flex, width, margin
+  const flattenedStyle = StyleSheet.flatten(style) || {};
+  const containerStyle: ViewStyle = {};
+  if (flattenedStyle.flex !== undefined) containerStyle.flex = flattenedStyle.flex;
+  if (flattenedStyle.width !== undefined) containerStyle.width = flattenedStyle.width;
+  if (flattenedStyle.margin !== undefined) containerStyle.margin = flattenedStyle.margin;
+  if (flattenedStyle.marginTop !== undefined) containerStyle.marginTop = flattenedStyle.marginTop;
+  if (flattenedStyle.marginBottom !== undefined) containerStyle.marginBottom = flattenedStyle.marginBottom;
+  if (flattenedStyle.marginLeft !== undefined) containerStyle.marginLeft = flattenedStyle.marginLeft;
+  if (flattenedStyle.marginRight !== undefined) containerStyle.marginRight = flattenedStyle.marginRight;
+  if (flattenedStyle.marginHorizontal !== undefined) containerStyle.marginHorizontal = flattenedStyle.marginHorizontal;
+  if (flattenedStyle.marginVertical !== undefined) containerStyle.marginVertical = flattenedStyle.marginVertical;
+  if (flattenedStyle.alignSelf !== undefined) containerStyle.alignSelf = flattenedStyle.alignSelf;
+
+  // Dynamic colors based on active theme
+  const getBackgroundColor = () => {
+    if (variant === 'primary') return palette.primary;
+    if (variant === 'danger') return palette.danger || '#EF4444';
+    if (isActuallyPressed) return palette.surfaceInner;
+    return palette.surfaceCard;
+  };
+
+  const getBorderColor = () => {
+    if (variant === 'primary') return palette.primaryLight || 'rgba(255, 255, 255, 0.3)';
+    if (variant === 'danger') return 'rgba(255, 255, 255, 0.25)';
+    return palette.borderLuminous || palette.border;
+  };
+
+  const getTextColor = () => {
+    if (variant === 'primary' || variant === 'danger') return '#FFFFFF';
+    if (isActuallyPressed) return palette.primary;
+    return palette.textPrimary;
+  };
 
   return (
     <Animated.View
       style={[
         styles.outerContainer,
-        {
-          transform: [{ scale: scaleAnim }],
-        },
+        containerStyle,
+        { transform: [{ scale: scaleAnim }] },
       ]}
     >
       <Pressable
@@ -120,30 +134,23 @@ export const NeumorphicButton: React.FC<NeumorphicButtonProps> = ({
         style={[
           styles.baseButton,
           styles[`size_${size}`],
-          // Surface lighting states
           isActuallyPressed ? styles.pressedState : styles.elevatedState,
-          variant === 'primary' && styles.primaryVariant,
-          variant === 'danger' && styles.dangerVariant,
+          {
+            backgroundColor: getBackgroundColor(),
+            borderColor: getBorderColor(),
+          },
           disabled && styles.disabledState,
           style,
         ]}
       >
-        {/* Top-Left Specular Light Highlight (Recreates true 3D Neumorphism in RN) */}
-        {!isActuallyPressed && (
-          <View pointerEvents="none" style={styles.specularHighlight} />
-        )}
-
-        {/* Content Container */}
-        <View style={styles.contentRow}>
+        <View style={[styles.contentRow, rtlStyles.row]}>
           {icon && <View style={styles.iconContainer}>{icon}</View>}
           {title ? (
             <Text
               style={[
                 styles.buttonText,
                 styles[`text_${size}`],
-                variant === 'primary' && styles.primaryButtonText,
-                variant === 'danger' && styles.dangerButtonText,
-                isActuallyPressed && styles.pressedText,
+                { color: getTextColor() },
                 textStyle,
               ]}
             >
@@ -160,130 +167,87 @@ export const NeumorphicButton: React.FC<NeumorphicButtonProps> = ({
 
 const styles = StyleSheet.create({
   outerContainer: {
-    alignSelf: 'flex-start',
+    // If no explicit flex/width passed, shrink-wrap to content
   },
   baseButton: {
-    backgroundColor: NeumorphicTheme.colors.background,
     borderRadius: NeumorphicTheme.radius.lg,
     alignItems: 'center',
     justifyContent: 'center',
     overflow: 'hidden',
     position: 'relative',
+    borderWidth: 1,
   },
-  // Elevated (unpressed) physical state
   elevatedState: {
     ...Platform.select({
       ios: {
-        shadowColor: NeumorphicTheme.colors.shadowDark,
-        shadowOffset: { width: 6, height: 6 },
-        shadowOpacity: 0.55,
-        shadowRadius: 8,
+        shadowColor: '#000000',
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.15,
+        shadowRadius: 6,
       },
       android: {
-        elevation: 6,
+        elevation: 4,
       },
       web: {
-        boxShadow: '6px 6px 14px #b8b9be, -6px -6px 14px #ffffff',
+        boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1), 0 1px 3px rgba(255, 255, 255, 0.4)',
       } as any,
     }),
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.65)',
   },
-  // Inset (depressed) physical state
   pressedState: {
-    backgroundColor: '#d8dee6',
     ...Platform.select({
       ios: {
-        shadowColor: '#ffffff',
-        shadowOffset: { width: -2, height: -2 },
-        shadowOpacity: 0.8,
-        shadowRadius: 4,
+        shadowColor: '#000000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.1,
+        shadowRadius: 2,
       },
       android: {
         elevation: 1,
       },
       web: {
-        boxShadow: 'inset 4px 4px 8px #bec3cc, inset -4px -4px 8px #ffffff',
+        boxShadow: 'inset 0 2px 4px rgba(0, 0, 0, 0.15)',
       } as any,
     }),
-    borderColor: '#c6ccd6',
-    borderWidth: 1,
-  },
-  // Specular rim for pure physical illusion
-  specularHighlight: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: 2,
-    backgroundColor: 'rgba(255, 255, 255, 0.85)',
-    borderTopLeftRadius: NeumorphicTheme.radius.lg,
-    borderTopRightRadius: NeumorphicTheme.radius.lg,
   },
   contentRow: {
-    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
   },
   iconContainer: {
-    marginRight: 8,
+    marginHorizontal: 6,
   },
   buttonText: {
-    color: NeumorphicTheme.colors.textPrimary,
-    fontWeight: '600',
-    letterSpacing: 0.3,
+    fontFamily: FONT_FAMILIES.persian.bold,
+    fontSize: 13,
+    lineHeight: 20,
+    textAlign: 'center',
+    writingDirection: 'rtl',
   },
-  pressedText: {
-    color: '#334155',
-  },
-  // Size Variants
   size_sm: {
-    paddingVertical: 8,
-    paddingHorizontal: 14,
+    paddingVertical: 7,
+    paddingHorizontal: 12,
     borderRadius: NeumorphicTheme.radius.md,
   },
   size_md: {
-    paddingVertical: 14,
-    paddingHorizontal: 22,
+    paddingVertical: 11,
+    paddingHorizontal: 18,
     borderRadius: NeumorphicTheme.radius.lg,
   },
   size_lg: {
-    paddingVertical: 18,
-    paddingHorizontal: 30,
+    paddingVertical: 15,
+    paddingHorizontal: 24,
     borderRadius: NeumorphicTheme.radius.xl,
   },
   text_sm: {
-    fontSize: 13,
+    fontSize: 12,
   },
   text_md: {
-    fontSize: 15,
+    fontSize: 13.5,
   },
   text_lg: {
-    fontSize: 17,
-  },
-  // Theme Variants
-  primaryVariant: {
-    backgroundColor: NeumorphicTheme.colors.primary,
-    borderColor: 'rgba(255, 255, 255, 0.25)',
-    ...Platform.select({
-      web: {
-        boxShadow: '6px 6px 14px rgba(67, 97, 238, 0.35), -6px -6px 14px #ffffff',
-      } as any,
-    }),
-  },
-  primaryButtonText: {
-    color: '#FFFFFF',
-    fontWeight: '700',
-  },
-  dangerVariant: {
-    backgroundColor: NeumorphicTheme.colors.danger,
-    borderColor: 'rgba(255, 255, 255, 0.2)',
-  },
-  dangerButtonText: {
-    color: '#FFFFFF',
-    fontWeight: '700',
+    fontSize: 15,
   },
   disabledState: {
-    opacity: 0.5,
+    opacity: 0.45,
   },
 });

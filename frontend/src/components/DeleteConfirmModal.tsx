@@ -1,7 +1,9 @@
 import React from 'react';
 import { View, Text, StyleSheet, Modal, Pressable, Platform } from 'react-native';
 import { useTheme } from '../theme/ThemeContext';
-import { NeumorphicButton } from './NeumorphicButton';
+import { Icon } from './Icon';
+import { FONT_FAMILIES } from '../theme/typography';
+import { rtlStyles } from '../utils/rtl';
 
 interface DeleteConfirmModalProps {
   visible: boolean;
@@ -31,12 +33,12 @@ export const DeleteConfirmModal: React.FC<DeleteConfirmModalProps> = ({
             styles.dialog,
             {
               backgroundColor: palette.surfaceCard,
-              borderColor: palette.border,
+              borderColor: palette.borderLuminous || palette.border,
             },
           ]}
         >
           <View style={styles.iconCircle}>
-            <Text style={styles.iconText}>🗑️</Text>
+            <Icon name="trash" size={24} color="#e11d48" />
           </View>
 
           <Text style={[styles.title, { color: palette.textPrimary }]}>حذف کلاس</Text>
@@ -45,12 +47,12 @@ export const DeleteConfirmModal: React.FC<DeleteConfirmModalProps> = ({
             دارید؟
           </Text>
 
-          <View style={styles.actionsRow}>
+          <View style={[styles.actionsRow, rtlStyles.row]}>
             <Pressable
               onPress={onCancel}
               style={[
                 styles.cancelButton,
-                { backgroundColor: palette.surfaceInner },
+                { backgroundColor: palette.surfaceInner, borderColor: palette.border },
               ]}
               accessibilityRole="button"
             >
@@ -74,7 +76,7 @@ export const DeleteConfirmModal: React.FC<DeleteConfirmModalProps> = ({
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(15, 23, 42, 0.45)',
+    backgroundColor: 'rgba(15, 23, 42, 0.55)',
     justifyContent: 'center',
     alignItems: 'center',
     padding: 24,
@@ -87,9 +89,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderWidth: 1,
     ...Platform.select({
-      web: {
-        boxShadow: '10px 10px 30px rgba(0,0,0,0.2), -10px -10px 30px rgba(255,255,255,0.8)',
-      } as any,
       ios: {
         shadowColor: '#000000',
         shadowOffset: { width: 0, height: 8 },
@@ -99,65 +98,79 @@ const styles = StyleSheet.create({
       android: {
         elevation: 8,
       },
+      web: {
+        boxShadow: '0 10px 30px rgba(0, 0, 0, 0.2)',
+      } as any,
     }),
   },
   iconCircle: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: 'rgba(225, 29, 72, 0.1)',
+    width: 54,
+    height: 54,
+    borderRadius: 27,
+    backgroundColor: 'rgba(225, 29, 72, 0.12)',
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 14,
   },
-  iconText: {
-    fontSize: 26,
-  },
   title: {
-    fontSize: 18,
-    fontWeight: '900',
+    fontFamily: FONT_FAMILIES.persian.bold,
+    fontSize: 17,
+    lineHeight: 24,
     marginBottom: 8,
     textAlign: 'center',
+    writingDirection: 'rtl',
   },
   desc: {
+    fontFamily: FONT_FAMILIES.persian.regular,
     fontSize: 12.5,
     lineHeight: 20,
     textAlign: 'center',
+    writingDirection: 'rtl',
     marginBottom: 22,
     paddingHorizontal: 10,
   },
   actionsRow: {
-    flexDirection: 'row',
     gap: 12,
     width: '100%',
   },
   cancelButton: {
     flex: 1,
-    paddingVertical: 12,
+    paddingVertical: 11,
     borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: 1,
   },
   cancelText: {
+    fontFamily: FONT_FAMILIES.persian.bold,
     fontSize: 12.5,
-    fontWeight: '700',
+    lineHeight: 18,
+    writingDirection: 'rtl',
   },
   deleteButton: {
     flex: 1,
-    paddingVertical: 12,
+    paddingVertical: 11,
     borderRadius: 14,
     backgroundColor: '#e11d48',
     alignItems: 'center',
     justifyContent: 'center',
     ...Platform.select({
-      web: {
-        boxShadow: '3px 3px 8px rgba(225, 29, 72, 0.35)',
-      } as any,
+      android: {
+        elevation: 2,
+      },
+      ios: {
+        shadowColor: '#e11d48',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.3,
+        shadowRadius: 4,
+      },
     }),
   },
   deleteText: {
+    fontFamily: FONT_FAMILIES.persian.bold,
     fontSize: 12.5,
-    fontWeight: '800',
+    lineHeight: 18,
     color: '#ffffff',
+    writingDirection: 'rtl',
   },
 });

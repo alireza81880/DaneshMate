@@ -1,6 +1,8 @@
 import React from 'react';
 import { View, Text, StyleSheet, Pressable, Platform } from 'react-native';
 import { useTheme } from '../theme/ThemeContext';
+import { FONT_FAMILIES } from '../theme/typography';
+import { rtlStyles } from '../utils/rtl';
 import { NeumorphicCard } from './NeumorphicCard';
 import { ClassSessionLog } from './ClassSessionCaptureModal';
 import { toPersianDigits, formatJalaliDate, getFullJalaliDateTimeString } from '../utils/jalali';
@@ -59,8 +61,8 @@ export const SessionCard: React.FC<SessionCardProps> = ({
   return (
     <NeumorphicCard style={styles.card} borderRadius={20}>
       {/* Header of Log */}
-      <View style={styles.logHeader}>
-        <View style={styles.logBadgeGroup}>
+      <View style={[styles.logHeader, rtlStyles.row]}>
+        <View style={[styles.logBadgeGroup, rtlStyles.row]}>
           <View style={[styles.classBadge, { backgroundColor: palette.surfaceInner }]}>
             <Text style={[styles.classBadgeText, { color: palette.primary }]}>
               {log.className}
@@ -90,6 +92,7 @@ export const SessionCard: React.FC<SessionCardProps> = ({
               key={f.id}
               style={[
                 styles.fileChipItem,
+                rtlStyles.row,
                 { backgroundColor: palette.surfaceInner, borderColor: palette.borderLuminous },
               ]}
             >
@@ -111,7 +114,7 @@ export const SessionCard: React.FC<SessionCardProps> = ({
 
       {/* Voice Memo Widget Preview */}
       {log.voiceMemoSeconds ? (
-        <View style={[styles.audioPlate, { backgroundColor: palette.surfaceInner }]}>
+        <View style={[styles.audioPlate, rtlStyles.row, { backgroundColor: palette.surfaceInner }]}>
           <Pressable
             onPress={() => onToggleAudioPlay && onToggleAudioPlay(log.id)}
             style={[styles.audioPlayBtn, { backgroundColor: palette.primary }]}
@@ -135,7 +138,7 @@ export const SessionCard: React.FC<SessionCardProps> = ({
 
       {/* Dynamic Persian Reminder Alert Badge & Snooze Status */}
       {log.hasReminder && (
-        <View style={[styles.reminderBadge, { borderTopColor: palette.borderLuminous }]}>
+        <View style={[styles.reminderBadge, rtlStyles.row, { borderTopColor: palette.borderLuminous }]}>
           <View style={styles.reminderIconWrapper}>
             <Text style={{ color: '#F43F5E', fontSize: 11 }}>●</Text>
           </View>
@@ -156,7 +159,7 @@ export const SessionCard: React.FC<SessionCardProps> = ({
           hapticFeedback.light();
           onOpenTimeline(log);
         }}
-        style={[styles.openChatTimelineBtn, { backgroundColor: palette.surfaceInner, borderColor: palette.borderLuminous }]}
+        style={[styles.openChatTimelineBtn, rtlStyles.row, { backgroundColor: palette.surfaceInner, borderColor: palette.borderLuminous }]}
       >
         <Text style={[styles.openChatTimelineText, { color: palette.primary }]}>
           مرور تایملاین جلسه
@@ -173,13 +176,11 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   logHeader: {
-    flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 12,
   },
   logBadgeGroup: {
-    flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
   },
@@ -189,24 +190,29 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   classBadgeText: {
+    fontFamily: FONT_FAMILIES.persian.bold,
     fontSize: 11,
-    fontWeight: '800',
+    lineHeight: 16,
+    writingDirection: 'rtl',
   },
   timeText: {
+    fontFamily: FONT_FAMILIES.persian.regular,
     fontSize: 11,
-    fontWeight: '600',
+    lineHeight: 16,
+    writingDirection: 'rtl',
   },
   deleteText: {
+    fontFamily: FONT_FAMILIES.persian.bold,
     color: '#EF4444',
     fontSize: 11,
-    fontWeight: '700',
+    lineHeight: 16,
+    writingDirection: 'rtl',
   },
   attachedFilesSection: {
     gap: 6,
     marginBottom: 10,
   },
   fileChipItem: {
-    flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
     padding: 8,
@@ -220,20 +226,21 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(59, 130, 246, 0.1)',
   },
   fileChipBadgeText: {
+    fontFamily: FONT_FAMILIES.english.bold,
     fontSize: 9,
-    fontWeight: '900',
   },
   fileChipName: {
+    fontFamily: FONT_FAMILIES.persian.medium,
     fontSize: 11.5,
-    fontWeight: '700',
     flex: 1,
     textAlign: 'right',
+    writingDirection: 'rtl',
   },
   fileChipSize: {
+    fontFamily: FONT_FAMILIES.english.regular,
     fontSize: 10,
   },
   audioPlate: {
-    flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
     padding: 10,
@@ -248,23 +255,28 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   audioTitle: {
+    fontFamily: FONT_FAMILIES.persian.bold,
     fontSize: 11.5,
-    fontWeight: '700',
+    lineHeight: 16,
     textAlign: 'right',
+    writingDirection: 'rtl',
   },
   audioSub: {
+    fontFamily: FONT_FAMILIES.persian.regular,
     fontSize: 9.5,
     textAlign: 'right',
+    writingDirection: 'rtl',
     marginTop: 1,
   },
   notesBody: {
+    fontFamily: FONT_FAMILIES.persian.regular,
     fontSize: 12.5,
     lineHeight: 20,
     textAlign: 'right',
+    writingDirection: 'rtl',
     marginBottom: 10,
   },
   reminderBadge: {
-    flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
     borderTopWidth: 1,
@@ -276,9 +288,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   reminderBadgeText: {
+    fontFamily: FONT_FAMILIES.persian.bold,
     fontSize: 11,
+    lineHeight: 16,
     color: '#F43F5E',
-    fontWeight: '700',
+    writingDirection: 'rtl',
   },
   snoozedPill: {
     paddingHorizontal: 6,
@@ -286,12 +300,13 @@ const styles = StyleSheet.create({
     borderRadius: 6,
   },
   snoozedPillText: {
+    fontFamily: FONT_FAMILIES.persian.bold,
     color: '#F43F5E',
     fontSize: 9.5,
-    fontWeight: '700',
+    lineHeight: 14,
+    writingDirection: 'rtl',
   },
   openChatTimelineBtn: {
-    flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingVertical: 10,
@@ -301,8 +316,10 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   openChatTimelineText: {
+    fontFamily: FONT_FAMILIES.persian.bold,
     fontSize: 12,
-    fontWeight: '800',
+    lineHeight: 18,
+    writingDirection: 'rtl',
   },
   openChatTimelineArrow: {
     fontSize: 16,

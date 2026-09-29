@@ -8,12 +8,16 @@ import {
   Pressable,
   Platform,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../theme/ThemeContext';
+import { FONT_FAMILIES } from '../theme/typography';
+import { Icon } from '../components/Icon';
 import { NeumorphicCard } from '../components/NeumorphicCard';
 import { NeumorphicButton } from '../components/NeumorphicButton';
 import { NullSparkleLink } from '../components/NullSparkleLink';
 import { DonationBadge } from '../components/DonationBadge';
 import { UserProfileData } from '../components/ProfileSetupModal';
+import { getRtlRow } from '../utils/rtl';
 
 interface ProfileScreenProps {
   userProfile: UserProfileData;
@@ -32,6 +36,7 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
   totalNotes,
   onOpenSettings,
 }) => {
+  const insets = useSafeAreaInsets();
   const { palette } = useTheme();
 
   const [isEditing, setIsEditing] = useState(false);
@@ -79,7 +84,16 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
   };
 
   return (
-    <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+    <ScrollView
+      contentContainerStyle={[
+        styles.scrollContent,
+        {
+          paddingTop: 14,
+          paddingBottom: Math.max(insets.bottom + 96, 120),
+        },
+      ]}
+      showsVerticalScrollIndicator={false}
+    >
       {/* Screen Header */}
       <View style={styles.header}>
         <Text style={[styles.title, { color: palette.textPrimary }]}>پروفایل دانشجویی</Text>
@@ -98,14 +112,7 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
       <NeumorphicCard style={styles.profileCard} borderRadius={26}>
         <View style={styles.avatarSection}>
           <View style={[styles.avatarCircle, { backgroundColor: palette.surfaceInner, borderColor: palette.primary }]}>
-            {Platform.OS === 'web' ? (
-              <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke={palette.primary} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-                <circle cx="12" cy="7" r="4" />
-              </svg>
-            ) : (
-              <Text style={[styles.avatarText, { color: palette.primary }]}>DM</Text>
-            )}
+            <Icon name="profile" size={30} color={palette.primary} />
           </View>
 
           <View style={styles.identityInfo}>
@@ -250,20 +257,25 @@ export const ProfileScreen: React.FC<ProfileScreenProps> = ({
 const styles = StyleSheet.create({
   scrollContent: {
     paddingHorizontal: 20,
-    paddingTop: Platform.OS === 'android' ? 24 : 16,
-    paddingBottom: 110,
   },
   header: {
     marginBottom: 20,
+    alignItems: 'flex-end',
   },
   title: {
+    fontFamily: FONT_FAMILIES.persian.bold,
     fontSize: 20,
-    fontWeight: '900',
+    lineHeight: 30,
+    fontWeight: '700',
     textAlign: 'right',
+    writingDirection: 'rtl',
   },
   subtitle: {
+    fontFamily: FONT_FAMILIES.persian.regular,
     fontSize: 12,
+    lineHeight: 18,
     textAlign: 'right',
+    writingDirection: 'rtl',
     marginTop: 4,
   },
   noticeBox: {
@@ -273,17 +285,19 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   noticeText: {
+    fontFamily: FONT_FAMILIES.persian.bold,
     color: '#15803D',
     fontSize: 12,
-    fontWeight: '800',
+    fontWeight: '700',
     textAlign: 'center',
+    writingDirection: 'rtl',
   },
   profileCard: {
     padding: 20,
     marginBottom: 20,
   },
   avatarSection: {
-    flexDirection: 'row',
+    flexDirection: getRtlRow(),
     alignItems: 'center',
     gap: 16,
     marginBottom: 20,
@@ -297,30 +311,37 @@ const styles = StyleSheet.create({
     borderWidth: 2,
   },
   avatarText: {
+    fontFamily: FONT_FAMILIES.english.bold,
     fontSize: 22,
-    fontWeight: '900',
+    fontWeight: '700',
   },
   identityInfo: {
     flex: 1,
+    alignItems: 'flex-end',
   },
   fullName: {
+    fontFamily: FONT_FAMILIES.persian.bold,
     fontSize: 18,
-    fontWeight: '900',
+    lineHeight: 26,
+    fontWeight: '700',
     textAlign: 'right',
+    writingDirection: 'rtl',
   },
   badgePill: {
     paddingHorizontal: 10,
     paddingVertical: 4,
     borderRadius: 10,
-    alignSelf: 'flex-start',
+    alignSelf: 'flex-end',
     marginTop: 6,
   },
   badgeText: {
+    fontFamily: FONT_FAMILIES.persian.medium,
     fontSize: 11,
-    fontWeight: '700',
+    fontWeight: '500',
+    writingDirection: 'rtl',
   },
   statsRow: {
-    flexDirection: 'row',
+    flexDirection: getRtlRow(),
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingTop: 16,
@@ -331,13 +352,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   statValue: {
+    fontFamily: FONT_FAMILIES.english.bold,
     fontSize: 18,
-    fontWeight: '900',
+    fontWeight: '700',
   },
   statLabel: {
+    fontFamily: FONT_FAMILIES.persian.regular,
     fontSize: 11,
-    fontWeight: '600',
+    lineHeight: 16,
+    fontWeight: '400',
     marginTop: 2,
+    writingDirection: 'rtl',
   },
   statDivider: {
     width: 1,
@@ -347,18 +372,23 @@ const styles = StyleSheet.create({
     padding: 20,
   },
   cardTitle: {
+    fontFamily: FONT_FAMILIES.persian.bold,
     fontSize: 15,
-    fontWeight: '800',
+    lineHeight: 22,
+    fontWeight: '700',
     textAlign: 'right',
+    writingDirection: 'rtl',
     marginBottom: 16,
   },
   inputGroup: {
     marginBottom: 14,
   },
   label: {
+    fontFamily: FONT_FAMILIES.persian.semiBold,
     fontSize: 12,
-    fontWeight: '700',
+    fontWeight: '600',
     textAlign: 'right',
+    writingDirection: 'rtl',
     marginBottom: 6,
   },
   inputWell: {
@@ -368,14 +398,17 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
   },
   input: {
+    fontFamily: FONT_FAMILIES.persian.regular,
     fontSize: 13,
-    fontWeight: '600',
+    textAlign: 'right',
+    writingDirection: 'rtl',
   },
   errorText: {
+    fontFamily: FONT_FAMILIES.persian.regular,
     color: '#EF4444',
     fontSize: 11,
-    fontWeight: '700',
     textAlign: 'right',
+    writingDirection: 'rtl',
     marginTop: 4,
   },
   formActions: {

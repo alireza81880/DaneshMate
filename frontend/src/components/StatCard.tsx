@@ -1,5 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet, ViewStyle } from 'react-native';
+import { useTheme } from '../theme/ThemeContext';
+import { FONT_FAMILIES } from '../theme/typography';
 import { NeumorphicCard } from './NeumorphicCard';
 import { NeumorphicProgressRing } from './NeumorphicProgressRing';
 
@@ -7,7 +9,7 @@ interface StatCardProps {
   title: string;
   value: string;
   metricLabel: string;
-  progress: number; // 0 to 1
+  progress: number;
   accentColor?: string;
   trendText?: string;
   trendPositive?: boolean;
@@ -15,24 +17,23 @@ interface StatCardProps {
   style?: ViewStyle;
 }
 
-/**
- * StatCard (کارت آماری نئومورفیک)
- * Combines high visual depth, convex extrusion, and an interactive progress ring.
- */
 export const StatCard: React.FC<StatCardProps> = ({
   title,
   value,
   metricLabel,
   progress,
-  accentColor = '#4361EE',
+  accentColor,
   trendText,
   trendPositive = true,
   subFootnote,
   style,
 }) => {
+  const { palette } = useTheme();
+  const effectiveAccent = accentColor || palette.primary;
+
   return (
     <NeumorphicCard style={[styles.card, style]} borderRadius={24}>
-      <Text style={styles.title}>{title}</Text>
+      <Text style={[styles.title, { color: palette.textPrimary }]}>{title}</Text>
 
       <View style={styles.ringContainer}>
         <NeumorphicProgressRing
@@ -41,7 +42,7 @@ export const StatCard: React.FC<StatCardProps> = ({
           strokeWidth={9}
           valueText={value}
           label={metricLabel}
-          accentColor={accentColor}
+          accentColor={effectiveAccent}
         />
       </View>
 
@@ -50,20 +51,28 @@ export const StatCard: React.FC<StatCardProps> = ({
           <View
             style={[
               styles.trendBadge,
-              trendPositive ? styles.trendBadgePositive : styles.trendBadgeNeutral,
+              trendPositive
+                ? { backgroundColor: 'rgba(16, 185, 129, 0.15)' }
+                : { backgroundColor: palette.surfaceInner },
             ]}
           >
             <Text
               style={[
                 styles.trendText,
-                trendPositive ? styles.trendTextPositive : styles.trendTextNeutral,
+                trendPositive
+                  ? { color: '#059669' }
+                  : { color: palette.textSecondary },
               ]}
             >
               {trendText}
             </Text>
           </View>
         )}
-        {subFootnote && <Text style={styles.footnote}>{subFootnote}</Text>}
+        {subFootnote && (
+          <Text style={[styles.footnote, { color: palette.textMuted }]}>
+            {subFootnote}
+          </Text>
+        )}
       </View>
     </NeumorphicCard>
   );
@@ -78,10 +87,11 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   title: {
+    fontFamily: FONT_FAMILIES.persian.bold,
     fontSize: 12.5,
-    fontWeight: '700',
-    color: '#475569',
+    lineHeight: 18,
     textAlign: 'center',
+    writingDirection: 'rtl',
     marginBottom: 8,
   },
   ringContainer: {
@@ -90,7 +100,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   footerRow: {
-    marginTop: 10,
+    marginTop: 8,
     alignItems: 'center',
     width: '100%',
   },
@@ -100,26 +110,17 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     marginBottom: 4,
   },
-  trendBadgePositive: {
-    backgroundColor: 'rgba(46, 196, 182, 0.15)',
-  },
-  trendBadgeNeutral: {
-    backgroundColor: 'rgba(100, 116, 139, 0.1)',
-  },
   trendText: {
+    fontFamily: FONT_FAMILIES.persian.bold,
     fontSize: 10.5,
-    fontWeight: '700',
-  },
-  trendTextPositive: {
-    color: '#0d9488',
-  },
-  trendTextNeutral: {
-    color: '#475569',
+    lineHeight: 14,
+    writingDirection: 'rtl',
   },
   footnote: {
+    fontFamily: FONT_FAMILIES.persian.regular,
     fontSize: 10,
-    color: '#94a3b8',
-    fontWeight: '500',
+    lineHeight: 14,
     textAlign: 'center',
+    writingDirection: 'rtl',
   },
 });

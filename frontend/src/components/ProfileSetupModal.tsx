@@ -3,15 +3,18 @@ import {
   View,
   Text,
   StyleSheet,
-  SafeAreaView,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../theme/ThemeContext';
+import { Icon } from './Icon';
+import { FONT_FAMILIES } from '../theme/typography';
 import { NeumorphicCard } from './NeumorphicCard';
 import { NeumorphicButton } from './NeumorphicButton';
 import { NeumorphicInput } from './NeumorphicInput';
+import { getRtlRow } from '../utils/rtl';
 
 export interface UserProfileData {
   firstName: string;
@@ -76,7 +79,7 @@ export const ProfileSetupModal: React.FC<ProfileSetupModalProps> = ({
   };
 
   return (
-    <SafeAreaView style={[styles.safeArea, { backgroundColor: palette.background }]}>
+    <SafeAreaView edges={['top', 'bottom']} style={[styles.safeArea, { backgroundColor: palette.background }]}>
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={styles.keyboardView}
@@ -87,7 +90,7 @@ export const ProfileSetupModal: React.FC<ProfileSetupModalProps> = ({
         >
           <NeumorphicCard style={styles.card} borderRadius={28}>
             <View style={[styles.iconCircle, { backgroundColor: palette.background }]}>
-              <Text style={styles.iconText}>👤</Text>
+              <Icon name="graduation-cap" size={32} color={palette.primary} />
             </View>
 
             <Text style={[styles.title, { color: palette.textPrimary }]}>
@@ -193,23 +196,28 @@ const styles = StyleSheet.create({
     fontSize: 28,
   },
   title: {
+    fontFamily: FONT_FAMILIES.persian.bold,
     fontSize: 20,
-    fontWeight: '800',
+    lineHeight: 28,
+    fontWeight: '700',
     textAlign: 'center',
+    writingDirection: 'rtl',
     marginBottom: 6,
   },
   subtitle: {
+    fontFamily: FONT_FAMILIES.persian.regular,
     fontSize: 12.5,
     textAlign: 'center',
+    writingDirection: 'rtl',
     marginBottom: 24,
-    lineHeight: 18,
+    lineHeight: 20,
     paddingHorizontal: 10,
   },
   formContainer: {
     width: '100%',
   },
   buttonRow: {
-    flexDirection: 'row',
+    flexDirection: getRtlRow(),
     gap: 12,
     width: '100%',
     marginTop: 8,

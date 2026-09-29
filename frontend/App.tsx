@@ -7,9 +7,11 @@ import {
   ScrollView,
   Platform,
   TextInput,
+  ActivityIndicator,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
+import { useFonts } from 'expo-font';
 import { ThemeProvider } from './src/theme/ThemeContext';
 import { HomeScreen } from './src/screens/HomeScreen';
 
@@ -167,6 +169,17 @@ class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundarySta
 }
 
 export default function App() {
+  const [fontsLoaded] = useFonts({
+    'Vazirmatn-Regular': require('./assets/fonts/Vazirmatn-Regular.ttf'),
+    'Vazirmatn-Medium': require('./assets/fonts/Vazirmatn-Medium.ttf'),
+    'Vazirmatn-SemiBold': require('./assets/fonts/Vazirmatn-SemiBold.ttf'),
+    'Vazirmatn-Bold': require('./assets/fonts/Vazirmatn-Bold.ttf'),
+    'PlusJakartaSans-Regular': require('./assets/fonts/PlusJakartaSans-Regular.ttf'),
+    'PlusJakartaSans-Medium': require('./assets/fonts/PlusJakartaSans-Medium.ttf'),
+    'PlusJakartaSans-SemiBold': require('./assets/fonts/PlusJakartaSans-SemiBold.ttf'),
+    'PlusJakartaSans-Bold': require('./assets/fonts/PlusJakartaSans-Bold.ttf'),
+  });
+
   const [savedCrashLog, setSavedCrashLog] = useState<CrashLogData | null>(null);
   const [checkedStorage, setCheckedStorage] = useState(false);
 
@@ -193,6 +206,14 @@ export default function App() {
 
   if (checkedStorage && savedCrashLog) {
     return <CrashFallbackScreen crashLog={savedCrashLog} onDismiss={handleDismissSavedCrash} />;
+  }
+
+  if (!fontsLoaded && Platform.OS !== 'web') {
+    return (
+      <View style={{ flex: 1, backgroundColor: '#0f172a', justifyContent: 'center', alignItems: 'center' }}>
+        <ActivityIndicator size="large" color="#4361EE" />
+      </View>
+    );
   }
 
   return (

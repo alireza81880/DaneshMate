@@ -1,7 +1,11 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, Pressable, Modal, SafeAreaView, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, Pressable, Modal, ScrollView } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../theme/ThemeContext';
 import { ThemeCategory, ThemeId } from '../theme/colors';
+import { FONT_FAMILIES } from '../theme/typography';
+import { rtlStyles } from '../utils/rtl';
+import { Icon } from './Icon';
 import { NeumorphicButton } from './NeumorphicButton';
 import { DonationBadge } from './DonationBadge';
 import { NullSparkleLink } from './NullSparkleLink';
@@ -21,20 +25,20 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ visible, onClose }
 
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
-      <SafeAreaView style={[styles.safeArea, { backgroundColor: palette.background }]}>
+      <SafeAreaView edges={['top', 'bottom']} style={[styles.safeArea, { backgroundColor: palette.background }]}>
         <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
           {/* Header */}
           <View style={styles.header}>
             <Text style={[styles.title, { color: palette.textPrimary }]}>
-              موتور پوسته پیشرفته ۲۰۲۶ DaneshMate
+              پوسته‌های رنگی DaneshMate
             </Text>
             <Text style={[styles.subtitle, { color: palette.textSecondary }]}>
-              ۱۵ پالت رنگی مدرن نئومورفیسم با سایه‌پردازی دوگانه عمقی (Dual-Shadow)
+              پالت‌های مدرن نئومورفیسم متناسب با سلیقه شما
             </Text>
           </View>
 
           {/* Category Tabs: Light, Dark, Premium */}
-          <View style={styles.categoryRow}>
+          <View style={[styles.categoryRow, rtlStyles.row]}>
             {CATEGORIES.map((cat) => {
               const isSelected = activeCategory === cat;
               return (
@@ -55,7 +59,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ visible, onClose }
                       styles.catBtnText,
                       {
                         color: isSelected ? palette.primary : palette.textSecondary,
-                        fontWeight: isSelected ? '900' : '700',
+                        fontFamily: isSelected ? FONT_FAMILIES.persian.bold : FONT_FAMILIES.persian.medium,
                       },
                     ]}
                   >
@@ -83,9 +87,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ visible, onClose }
                     },
                   ]}
                 >
-                  <View style={styles.paletteRow}>
+                  <View style={[styles.paletteRow, rtlStyles.row]}>
                     <View style={styles.swatchGroup}>
-                      <View style={[styles.colorCircle, { backgroundColor: p.background, borderColor: p.shadowDark }]} />
+                      <View style={[styles.colorCircle, { backgroundColor: p.background, borderColor: p.shadowDark || p.border }]} />
                       <View style={[styles.colorCircle, { backgroundColor: p.primary, marginLeft: -10 }]} />
                     </View>
 
@@ -97,7 +101,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ visible, onClose }
                     </View>
 
                     <View style={[styles.radioIndicator, isSelected && { backgroundColor: p.primary }]}>
-                      {isSelected && <Text style={styles.radioCheck}>✓</Text>}
+                      {isSelected && <Icon name="check" size={14} color="#ffffff" />}
                     </View>
                   </View>
                 </Pressable>
@@ -119,22 +123,52 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ visible, onClose }
 
 const styles = StyleSheet.create({
   safeArea: { flex: 1 },
-  scrollContent: { padding: 22, paddingBottom: 40 },
+  scrollContent: { padding: 20, paddingBottom: 36 },
   header: { marginBottom: 18, alignItems: 'center' },
-  title: { fontSize: 20, fontWeight: '900', textAlign: 'center', marginBottom: 4 },
-  subtitle: { fontSize: 11.5, textAlign: 'center', lineHeight: 18 },
-  categoryRow: { flexDirection: 'row', gap: 8, marginBottom: 16 },
+  title: {
+    fontFamily: FONT_FAMILIES.persian.bold,
+    fontSize: 18,
+    lineHeight: 26,
+    textAlign: 'center',
+    marginBottom: 4,
+    writingDirection: 'rtl',
+  },
+  subtitle: {
+    fontFamily: FONT_FAMILIES.persian.regular,
+    fontSize: 12,
+    textAlign: 'center',
+    lineHeight: 18,
+    writingDirection: 'rtl',
+  },
+  categoryRow: { gap: 8, marginBottom: 16 },
   catBtn: { flex: 1, paddingVertical: 10, borderRadius: 14, alignItems: 'center' },
-  catBtnText: { fontSize: 11.5 },
+  catBtnText: { fontSize: 11.5, lineHeight: 16, writingDirection: 'rtl' },
   palettesList: { gap: 10, marginBottom: 20 },
   paletteCard: { borderRadius: 18, padding: 14 },
-  paletteRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  paletteRow: { alignItems: 'center', justifyContent: 'space-between' },
   swatchGroup: { flexDirection: 'row', alignItems: 'center' },
   colorCircle: { width: 28, height: 28, borderRadius: 14, borderWidth: 2 },
   paletteTextGroup: { flex: 1, marginHorizontal: 12 },
-  paletteName: { fontSize: 13.5, fontWeight: '800', textAlign: 'right' },
-  paletteEnName: { fontSize: 10.5, marginTop: 2, textAlign: 'right' },
-  radioIndicator: { width: 24, height: 24, borderRadius: 12, backgroundColor: 'rgba(0,0,0,0.1)', alignItems: 'center', justifyContent: 'center' },
-  radioCheck: { color: '#ffffff', fontSize: 13, fontWeight: '900' },
-  footer: { marginTop: 4 },
+  paletteName: {
+    fontFamily: FONT_FAMILIES.persian.bold,
+    fontSize: 13.5,
+    lineHeight: 20,
+    textAlign: 'right',
+    writingDirection: 'rtl',
+  },
+  paletteEnName: {
+    fontFamily: FONT_FAMILIES.english.regular,
+    fontSize: 10.5,
+    marginTop: 2,
+    textAlign: 'right',
+  },
+  radioIndicator: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: 'rgba(0,0,0,0.1)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  footer: { marginTop: 4, alignItems: 'center' },
 });

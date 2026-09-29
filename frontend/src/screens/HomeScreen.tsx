@@ -4,7 +4,6 @@ import {
   Text,
   StyleSheet,
   ScrollView,
-  SafeAreaView,
   StatusBar,
   Animated,
   Modal,
@@ -13,7 +12,10 @@ import {
   ActivityIndicator,
   TouchableOpacity,
 } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../theme/ThemeContext';
+import { Icon } from '../components/Icon';
+import { FONT_FAMILIES } from '../theme/typography';
 import { NeumorphicCard } from '../components/NeumorphicCard';
 import { LiquidBentoCard } from '../components/LiquidBentoCard';
 import { NeumorphicButton } from '../components/NeumorphicButton';
@@ -41,6 +43,7 @@ import { mobilePersistenceAdapter } from '../storage/persistenceAdapter';
 import { mobileSyncBridge, SyncState } from '../api/syncBridge';
 import { updateChecker, UpdateCheckResult } from '../services/updateChecker';
 import { UpdateNotificationModal } from '../components/UpdateNotificationModal';
+import { getRtlRow, rtlStyles } from '../utils/rtl';
 
 const DAYS_FILTER: ('همه' | WeekDay)[] = [
   'همه',
@@ -53,6 +56,7 @@ const DAYS_FILTER: ('همه' | WeekDay)[] = [
 ];
 
 export const HomeScreen: React.FC = () => {
+  const insets = useSafeAreaInsets();
   const { palette } = useTheme();
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(15)).current;
@@ -371,7 +375,7 @@ export const HomeScreen: React.FC = () => {
   const targetDeleteClass = classes.find((c) => c.id === deletingClassId);
 
   return (
-    <SafeAreaView style={[styles.safeArea, { backgroundColor: palette.background }]}>
+    <SafeAreaView edges={['top']} style={[styles.safeArea, { backgroundColor: palette.background }]}>
       <StatusBar
         barStyle={palette.isDark ? 'light-content' : 'dark-content'}
         backgroundColor={palette.background}
@@ -386,7 +390,16 @@ export const HomeScreen: React.FC = () => {
 
       {/* Main Tab Screen Router */}
       {activeTab === 'home' && (
-        <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        <ScrollView
+          contentContainerStyle={[
+            styles.scrollContent,
+            {
+              paddingTop: 14,
+              paddingBottom: Math.max(insets.bottom + 96, 120),
+            },
+          ]}
+          showsVerticalScrollIndicator={false}
+        >
           <Animated.View style={{ opacity: fadeAnim, transform: [{ translateY: slideAnim }] }}>
             {/* Header: Clean Brand Title & Student Name */}
             <View style={styles.header}>
@@ -408,16 +421,7 @@ export const HomeScreen: React.FC = () => {
                   title=""
                 >
                   <View style={[styles.avatarInner, { backgroundColor: palette.surfaceInner }]}>
-                    {Platform.OS === 'web' ? (
-                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={palette.primary} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-                        <circle cx="12" cy="7" r="4" />
-                      </svg>
-                    ) : (
-                      <Text style={[styles.avatarText, { color: palette.primary }]}>
-                        DM
-                      </Text>
-                    )}
+                    <Icon name="profile" size={20} color={palette.primary} />
                   </View>
                 </NeumorphicButton>
               </View>
@@ -680,35 +684,110 @@ export const HomeScreen: React.FC = () => {
 
 const styles = StyleSheet.create({
   safeArea: { flex: 1 },
-  scrollContent: { paddingHorizontal: 20, paddingTop: Platform.OS === 'android' ? 24 : 12, paddingBottom: 110 },
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
-  welcomeTextGroup: { flex: 1 },
-  appKicker: { fontSize: 13, fontWeight: '900', letterSpacing: 0.5, marginBottom: 2, textAlign: 'right' },
-  userName: { fontSize: 20, fontWeight: '900', textAlign: 'right' },
-  userSubtitle: { fontSize: 12, marginTop: 2, textAlign: 'right' },
-  headerActions: { flexDirection: 'row', alignItems: 'center', gap: 8, marginLeft: 12 },
+  scrollContent: { paddingHorizontal: 20 },
+  header: { flexDirection: getRtlRow(), justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
+  welcomeTextGroup: { flex: 1, alignItems: 'flex-end' },
+  appKicker: {
+    fontFamily: FONT_FAMILIES.english.bold,
+    fontSize: 13,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+    marginBottom: 2,
+    textAlign: 'right',
+  },
+  userName: {
+    fontFamily: FONT_FAMILIES.persian.bold,
+    fontSize: 20,
+    lineHeight: 30,
+    fontWeight: '700',
+    textAlign: 'right',
+    writingDirection: 'rtl',
+  },
+  userSubtitle: {
+    fontFamily: FONT_FAMILIES.persian.regular,
+    fontSize: 12,
+    lineHeight: 18,
+    marginTop: 2,
+    textAlign: 'right',
+    writingDirection: 'rtl',
+  },
+  headerActions: { flexDirection: getRtlRow(), alignItems: 'center', gap: 8, marginHorizontal: 8 },
   iconButton: { width: 44, height: 44, borderRadius: 22, justifyContent: 'center', alignItems: 'center', borderWidth: 1 },
   actionIcon: { fontSize: 18 },
   avatarButton: { width: 44, height: 44, borderRadius: 22, paddingVertical: 0, paddingHorizontal: 0, justifyContent: 'center', alignItems: 'center' },
   avatarInner: { width: 38, height: 38, borderRadius: 19, justifyContent: 'center', alignItems: 'center' },
-  avatarText: { fontSize: 13, fontWeight: '900' },
-  overviewGrid: { flexDirection: 'row', gap: 12, marginBottom: 20 },
-  metricCard: { flex: 1, padding: 16 },
+  avatarText: { fontSize: 13, fontWeight: '700' },
+  overviewGrid: { flexDirection: getRtlRow(), flexWrap: 'wrap', gap: 12, marginBottom: 20 },
+  metricCard: { flex: 1, minWidth: 120, padding: 16 },
   metricCardFull: { flexBasis: '100%' },
-  metricLabel: { fontSize: 11, fontWeight: '600', textAlign: 'right', marginBottom: 6 },
-  metricValue: { fontSize: 22, fontWeight: '900', textAlign: 'right' },
-  metricFootnote: { fontSize: 10, textAlign: 'right', marginTop: 4 },
+  metricLabel: {
+    fontFamily: FONT_FAMILIES.persian.medium,
+    fontSize: 11,
+    lineHeight: 16,
+    fontWeight: '500',
+    textAlign: 'right',
+    writingDirection: 'rtl',
+    marginBottom: 6,
+  },
+  metricValue: {
+    fontFamily: FONT_FAMILIES.english.bold,
+    fontSize: 22,
+    lineHeight: 28,
+    fontWeight: '700',
+    textAlign: 'right',
+  },
+  metricFootnote: {
+    fontFamily: FONT_FAMILIES.persian.regular,
+    fontSize: 10,
+    lineHeight: 14,
+    textAlign: 'right',
+    writingDirection: 'rtl',
+    marginTop: 4,
+  },
   filterSection: { marginBottom: 16 },
-  filterScroll: { gap: 8, paddingVertical: 4 },
+  filterScroll: { flexDirection: getRtlRow(), gap: 8, paddingVertical: 4 },
   filterTab: { paddingVertical: 8, paddingHorizontal: 16, borderRadius: 14, justifyContent: 'center', alignItems: 'center' },
-  filterTabText: { fontSize: 12 },
-  sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 },
-  sectionTitle: { fontSize: 15, fontWeight: '800', textAlign: 'right' },
-  sectionSubtitle: { fontSize: 11, textAlign: 'right', marginTop: 2 },
+  filterTabText: {
+    fontFamily: FONT_FAMILIES.persian.medium,
+    fontSize: 12,
+    writingDirection: 'rtl',
+  },
+  sectionHeader: { flexDirection: getRtlRow(), justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 },
+  sectionTitle: {
+    fontFamily: FONT_FAMILIES.persian.bold,
+    fontSize: 15,
+    lineHeight: 22,
+    fontWeight: '700',
+    textAlign: 'right',
+    writingDirection: 'rtl',
+  },
+  sectionSubtitle: {
+    fontFamily: FONT_FAMILIES.persian.regular,
+    fontSize: 11,
+    lineHeight: 16,
+    textAlign: 'right',
+    writingDirection: 'rtl',
+    marginTop: 2,
+  },
   emptyStateCard: { padding: 24, alignItems: 'center', justifyContent: 'center', marginTop: 10 },
   emptyIconCircle: { width: 52, height: 52, borderRadius: 26, borderWidth: 1, alignItems: 'center', justifyContent: 'center', marginBottom: 12 },
   emptyStateSymbol: { fontSize: 22, fontWeight: '900' },
-  emptyStateTitle: { fontSize: 15, fontWeight: '800', textAlign: 'center', marginBottom: 6 },
-  emptyStateSubtitle: { fontSize: 12, textAlign: 'center', lineHeight: 18, paddingHorizontal: 16 },
+  emptyStateTitle: {
+    fontFamily: FONT_FAMILIES.persian.bold,
+    fontSize: 15,
+    lineHeight: 22,
+    fontWeight: '700',
+    textAlign: 'center',
+    writingDirection: 'rtl',
+    marginBottom: 6,
+  },
+  emptyStateSubtitle: {
+    fontFamily: FONT_FAMILIES.persian.regular,
+    fontSize: 12,
+    lineHeight: 18,
+    textAlign: 'center',
+    writingDirection: 'rtl',
+    paddingHorizontal: 16,
+  },
   classesList: { gap: 12 },
 });

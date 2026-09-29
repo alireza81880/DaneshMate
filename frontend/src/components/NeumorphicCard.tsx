@@ -1,10 +1,11 @@
 import React from 'react';
 import { View, StyleSheet, ViewStyle, Platform } from 'react-native';
+import { useTheme } from '../theme/ThemeContext';
 import { NeumorphicTheme } from '../theme/colors';
 
 interface NeumorphicCardProps {
   children: React.ReactNode;
-  style?: ViewStyle;
+  style?: ViewStyle | ViewStyle[];
   type?: 'flat' | 'inset' | 'convex';
   borderRadius?: number;
 }
@@ -15,17 +16,34 @@ export const NeumorphicCard: React.FC<NeumorphicCardProps> = ({
   type = 'flat',
   borderRadius = NeumorphicTheme.radius.xl,
 }) => {
+  const { palette } = useTheme();
+
   return (
     <View
       style={[
         styles.card,
+        {
+          backgroundColor: type === 'inset' ? palette.surfaceInner : palette.surfaceCard,
+          borderColor: palette.borderLuminous || palette.border,
+          borderRadius,
+        },
         type === 'flat' && styles.flat,
         type === 'inset' && styles.inset,
-        { borderRadius },
         style,
       ]}
     >
-      {type === 'flat' && <View style={[styles.topHighlight, { borderRadius }]} />}
+      {type === 'flat' && (
+        <View
+          style={[
+            styles.topHighlight,
+            {
+              borderTopLeftRadius: borderRadius,
+              borderTopRightRadius: borderRadius,
+              backgroundColor: palette.isDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(255, 255, 255, 0.75)',
+            },
+          ]}
+        />
+      )}
       {children}
     </View>
   );
@@ -33,45 +51,40 @@ export const NeumorphicCard: React.FC<NeumorphicCardProps> = ({
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: NeumorphicTheme.colors.background,
     padding: 18,
     position: 'relative',
     overflow: 'hidden',
+    borderWidth: 1,
   },
   flat: {
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.65)',
     ...Platform.select({
       ios: {
-        shadowColor: NeumorphicTheme.colors.shadowDark,
-        shadowOffset: { width: 8, height: 8 },
-        shadowOpacity: 0.5,
-        shadowRadius: 12,
+        shadowColor: '#000000',
+        shadowOffset: { width: 0, height: 6 },
+        shadowOpacity: 0.12,
+        shadowRadius: 10,
       },
       android: {
-        elevation: 8,
+        elevation: 4,
       },
       web: {
-        boxShadow: '9px 9px 18px #bec3cc, -9px -9px 18px #ffffff',
+        boxShadow: '0 8px 24px rgba(0,0,0,0.08), 0 2px 6px rgba(255,255,255,0.4)',
       } as any,
     }),
   },
   inset: {
-    backgroundColor: '#d8dee6',
-    borderWidth: 1,
-    borderColor: '#c6ccd6',
     ...Platform.select({
       ios: {
-        shadowColor: '#ffffff',
-        shadowOffset: { width: -2, height: -2 },
-        shadowOpacity: 0.8,
-        shadowRadius: 4,
+        shadowColor: '#000000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.08,
+        shadowRadius: 3,
       },
       android: {
         elevation: 1,
       },
       web: {
-        boxShadow: 'inset 6px 6px 12px #bec3cc, inset -6px -6px 12px #ffffff',
+        boxShadow: 'inset 2px 2px 6px rgba(0,0,0,0.1), inset -2px -2px 6px rgba(255,255,255,0.5)',
       } as any,
     }),
   },
@@ -80,7 +93,6 @@ const styles = StyleSheet.create({
     top: 0,
     left: 0,
     right: 0,
-    height: 2,
-    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+    height: 1.5,
   },
 });

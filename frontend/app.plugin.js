@@ -45,6 +45,20 @@ function withDaneshMateNativeFiles(config) {
         }
       }
 
+      // Ensure bundled fonts are copied to Android assets
+      const sourceFontsDir = path.join(projectRoot, 'assets', 'fonts');
+      const targetFontsDir = path.join(platformRoot, 'app', 'src', 'main', 'assets', 'fonts');
+      if (fs.existsSync(sourceFontsDir)) {
+        fs.mkdirSync(targetFontsDir, { recursive: true });
+        const fontFiles = fs.readdirSync(sourceFontsDir);
+        for (const font of fontFiles) {
+          if (font.endsWith('.ttf') || font.endsWith('.otf')) {
+            fs.copyFileSync(path.join(sourceFontsDir, font), path.join(targetFontsDir, font));
+          }
+        }
+        console.log(`[withDaneshMate] Copied ${fontFiles.length} fonts -> app/src/main/assets/fonts/`);
+      }
+
       return config;
     },
   ]);

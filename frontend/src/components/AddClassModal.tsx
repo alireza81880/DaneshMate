@@ -3,7 +3,6 @@ import {
   View,
   Text,
   StyleSheet,
-  SafeAreaView,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -11,6 +10,11 @@ import {
   TouchableOpacity,
   Modal,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { useTheme } from '../theme/ThemeContext';
+import { Icon, IconName } from './Icon';
+import { FONT_FAMILIES } from '../theme/typography';
+import { rtlStyles } from '../utils/rtl';
 import { NeumorphicCard } from './NeumorphicCard';
 import { NeumorphicButton } from './NeumorphicButton';
 import { NeumorphicInput } from './NeumorphicInput';
@@ -61,15 +65,15 @@ interface RecurrenceOption {
   id: RecurrenceType;
   recType: SimpleRecurrenceType;
   label: string;
-  icon: string;
+  icon: IconName;
   isBiweekly: boolean;
 }
 
 const RECURRENCE_OPTIONS: RecurrenceOption[] = [
-  { id: 'every_week', recType: 'weekly', label: 'هر هفته', icon: '🔁', isBiweekly: false },
-  { id: 'even_weeks', recType: 'even', label: 'هفته‌های زوج', icon: '✌️', isBiweekly: true },
-  { id: 'odd_weeks', recType: 'odd', label: 'هفته‌های فرد', icon: '☝️', isBiweekly: true },
-  { id: 'bi_weekly', recType: 'bi_weekly', label: 'یک هفته در میان', icon: '📅', isBiweekly: true },
+  { id: 'every_week', recType: 'weekly', label: 'هر هفته', icon: 'repeat', isBiweekly: false },
+  { id: 'even_weeks', recType: 'even', label: 'هفته‌های زوج', icon: 'calendar-check', isBiweekly: true },
+  { id: 'odd_weeks', recType: 'odd', label: 'هفته‌های فرد', icon: 'calendar', isBiweekly: true },
+  { id: 'bi_weekly', recType: 'bi_weekly', label: 'یک هفته در میان', icon: 'calendar', isBiweekly: true },
 ];
 
 /**

@@ -1,10 +1,14 @@
 import React from 'react';
 import { View, Text, StyleSheet, ScrollView, Platform } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../theme/ThemeContext';
+import { Icon } from '../components/Icon';
+import { FONT_FAMILIES } from '../theme/typography';
 import { NeumorphicCard } from '../components/NeumorphicCard';
 import { NullSparkleLink } from '../components/NullSparkleLink';
 import { DynamicClassItemData } from '../components/DynamicClassItem';
 import { ClassSessionLog } from '../components/ClassSessionCaptureModal';
+import { getRtlRow } from '../utils/rtl';
 
 interface AnalyticsScreenProps {
   classes: DynamicClassItemData[];
@@ -17,6 +21,7 @@ export const AnalyticsScreen: React.FC<AnalyticsScreenProps> = ({
   sessionLogs,
   passedUnits,
 }) => {
+  const insets = useSafeAreaInsets();
   const { palette } = useTheme();
 
   // Metrics calculations
@@ -43,7 +48,16 @@ export const AnalyticsScreen: React.FC<AnalyticsScreenProps> = ({
   });
 
   return (
-    <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+    <ScrollView
+      contentContainerStyle={[
+        styles.scrollContent,
+        {
+          paddingTop: 14,
+          paddingBottom: Math.max(insets.bottom + 96, 120),
+        },
+      ]}
+      showsVerticalScrollIndicator={false}
+    >
       {/* Title */}
       <View style={styles.header}>
         <Text style={[styles.title, { color: palette.textPrimary }]}>گزارشات و آمار تحصیلی</Text>
@@ -120,16 +134,9 @@ export const AnalyticsScreen: React.FC<AnalyticsScreenProps> = ({
       <NeumorphicCard style={styles.healthCard} borderRadius={22}>
         <View style={styles.healthRow}>
           <View style={[styles.healthIconCircle, { backgroundColor: palette.surfaceInner, borderColor: palette.borderLuminous }]}>
-            {Platform.OS === 'web' ? (
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke={palette.primary} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="23 6 13.5 15.5 8.5 10.5 1 18" />
-                <polyline points="17 6 23 6 23 12" />
-              </svg>
-            ) : (
-              <Text style={{ fontSize: 18, color: palette.primary, fontWeight: '900' }}>↗</Text>
-            )}
+            <Icon name="reports" size={22} color={palette.primary} />
           </View>
-          <View style={{ flex: 1 }}>
+          <View style={{ flex: 1, alignItems: 'flex-end' }}>
             <Text style={[styles.healthTitle, { color: palette.textPrimary }]}>شاخص آمادگی امتحانات</Text>
             <Text style={[styles.healthText, { color: palette.textSecondary }]}>
               {totalNotesCount > 0
@@ -147,28 +154,101 @@ export const AnalyticsScreen: React.FC<AnalyticsScreenProps> = ({
 };
 
 const styles = StyleSheet.create({
-  scrollContent: { paddingHorizontal: 20, paddingTop: 16, paddingBottom: 110 },
-  header: { marginBottom: 20 },
-  title: { fontSize: 22, fontWeight: '900', textAlign: 'right', marginBottom: 4 },
-  subtitle: { fontSize: 12, textAlign: 'right' },
-  gridRow: { flexDirection: 'row', gap: 12, marginBottom: 12 },
-  metricCard: { flex: 1, padding: 16 },
-  metricLabel: { fontSize: 11, fontWeight: '700', textAlign: 'right', marginBottom: 6 },
-  metricNumber: { fontSize: 20, fontWeight: '900', textAlign: 'right' },
-  metricSub: { fontSize: 10, textAlign: 'right', marginTop: 4 },
+  scrollContent: { paddingHorizontal: 20 },
+  header: { marginBottom: 20, alignItems: 'flex-end' },
+  title: {
+    fontFamily: FONT_FAMILIES.persian.bold,
+    fontSize: 22,
+    lineHeight: 32,
+    fontWeight: '700',
+    textAlign: 'right',
+    writingDirection: 'rtl',
+    marginBottom: 4,
+  },
+  subtitle: {
+    fontFamily: FONT_FAMILIES.persian.regular,
+    fontSize: 12,
+    lineHeight: 18,
+    textAlign: 'right',
+    writingDirection: 'rtl',
+  },
+  gridRow: { flexDirection: getRtlRow(), flexWrap: 'wrap', gap: 12, marginBottom: 12 },
+  metricCard: { flex: 1, minWidth: 120, padding: 16 },
+  metricLabel: {
+    fontFamily: FONT_FAMILIES.persian.medium,
+    fontSize: 11,
+    lineHeight: 16,
+    fontWeight: '500',
+    textAlign: 'right',
+    writingDirection: 'rtl',
+    marginBottom: 6,
+  },
+  metricNumber: {
+    fontFamily: FONT_FAMILIES.english.bold,
+    fontSize: 20,
+    lineHeight: 26,
+    fontWeight: '700',
+    textAlign: 'right',
+  },
+  metricSub: {
+    fontFamily: FONT_FAMILIES.persian.regular,
+    fontSize: 10,
+    lineHeight: 14,
+    textAlign: 'right',
+    writingDirection: 'rtl',
+    marginTop: 4,
+  },
   chartCard: { padding: 18, marginTop: 4, marginBottom: 14 },
-  sectionTitle: { fontSize: 14, fontWeight: '800', textAlign: 'right', marginBottom: 2 },
-  sectionDesc: { fontSize: 11, textAlign: 'right', marginBottom: 16 },
+  sectionTitle: {
+    fontFamily: FONT_FAMILIES.persian.bold,
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: '700',
+    textAlign: 'right',
+    writingDirection: 'rtl',
+    marginBottom: 2,
+  },
+  sectionDesc: {
+    fontFamily: FONT_FAMILIES.persian.regular,
+    fontSize: 11,
+    lineHeight: 16,
+    textAlign: 'right',
+    writingDirection: 'rtl',
+    marginBottom: 16,
+  },
   daysList: { gap: 10 },
   dayRow: { gap: 4 },
-  dayLabelGroup: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  dayName: { fontSize: 12, fontWeight: '800' },
-  dayCount: { fontSize: 11, fontWeight: '600' },
+  dayLabelGroup: { flexDirection: getRtlRow(), justifyContent: 'space-between', alignItems: 'center' },
+  dayName: {
+    fontFamily: FONT_FAMILIES.persian.bold,
+    fontSize: 12,
+    fontWeight: '700',
+    writingDirection: 'rtl',
+  },
+  dayCount: {
+    fontFamily: FONT_FAMILIES.english.semiBold,
+    fontSize: 11,
+    fontWeight: '600',
+  },
   barTrack: { height: 10, borderRadius: 5, overflow: 'hidden' },
   barFill: { height: '100%', borderRadius: 5 },
   healthCard: { padding: 18 },
-  healthRow: { flexDirection: 'row', alignItems: 'center', gap: 14 },
-  healthIconCircle: { width: 50, height: 50, borderRadius: 25, backgroundColor: 'rgba(67, 97, 238, 0.1)', justifyContent: 'center', alignItems: 'center' },
-  healthTitle: { fontSize: 13.5, fontWeight: '800', marginBottom: 4, textAlign: 'right' },
-  healthText: { fontSize: 11.5, lineHeight: 18, textAlign: 'right' },
+  healthRow: { flexDirection: getRtlRow(), alignItems: 'center', gap: 14 },
+  healthIconCircle: { width: 50, height: 50, borderRadius: 25, justifyContent: 'center', alignItems: 'center' },
+  healthTitle: {
+    fontFamily: FONT_FAMILIES.persian.bold,
+    fontSize: 13.5,
+    lineHeight: 20,
+    fontWeight: '700',
+    marginBottom: 4,
+    textAlign: 'right',
+    writingDirection: 'rtl',
+  },
+  healthText: {
+    fontFamily: FONT_FAMILIES.persian.regular,
+    fontSize: 11.5,
+    lineHeight: 18,
+    textAlign: 'right',
+    writingDirection: 'rtl',
+  },
 });

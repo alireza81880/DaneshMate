@@ -7,7 +7,11 @@ import {
   Pressable,
   Platform,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../theme/ThemeContext';
+import { Icon } from './Icon';
+import { FONT_FAMILIES } from '../theme/typography';
+import { rtlStyles } from '../utils/rtl';
 import { hapticFeedback } from '../utils/haptics';
 import { SyncState } from '../api/syncBridge';
 
@@ -17,19 +21,15 @@ interface OfflineSyncBannerProps {
   onRetrySync?: () => void;
 }
 
-/**
- * Subtle Neumorphic Network Resilience Toast/Banner
- * Notifies the user when working offline, confirming that local deltas are
- * queued for background sync without blocking user interaction.
- */
 export const OfflineSyncBanner: React.FC<OfflineSyncBannerProps> = ({
   syncState,
   queuedCount,
   onRetrySync,
 }) => {
+  const insets = useSafeAreaInsets();
   const { palette } = useTheme();
   const [isDismissed, setIsDismissed] = useState(false);
-  const slideAnim = useRef(new Animated.Value(-80)).current;
+  const slideAnim = useRef(new Animated.Value(-100)).current;
   const opacityAnim = useRef(new Animated.Value(0)).current;
 
   const isVisible = (syncState === 'offline' || queuedCount > 0) && !isDismissed;
@@ -52,7 +52,7 @@ export const OfflineSyncBanner: React.FC<OfflineSyncBannerProps> = ({
     } else {
       Animated.parallel([
         Animated.timing(slideAnim, {
-          toValue: -80,
+          toValue: -100,
           duration: 200,
           useNativeDriver: true,
         }),
@@ -65,7 +65,7 @@ export const OfflineSyncBanner: React.FC<OfflineSyncBannerProps> = ({
     }
   }, [isVisible]);
 
-  if (!isVisible && slideAnim._value === -80) {
+  if (!isVisible && (slideAnim as any)._value === -100) {
     return null;
   }
 
@@ -85,6 +85,7 @@ export const OfflineSyncBanner: React.FC<OfflineSyncBannerProps> = ({
       style={[
         styles.wrapper,
         {
+          top: Math.max(insets.top + 6, 12),
           transform: [{ translateY: slideAnim }],
           opacity: opacityAnim,
         },
@@ -93,10 +94,11 @@ export const OfflineSyncBanner: React.FC<OfflineSyncBannerProps> = ({
       <View
         style={[
           styles.container,
+          rtlStyles.row,
           {
             backgroundColor: palette.isDark
-              ? 'rgba(17, 24, 39, 0.92)'
-              : 'rgba(255, 255, 255, 0.94)',
+              ? 'rgba(17, 24, 39, 0.95)'
+              : 'rgba(255, 255, 255, 0.96)',
             borderColor: palette.isDark
               ? 'rgba(234, 179, 8, 0.35)'
               : 'rgba(217, 119, 6, 0.35)',
@@ -118,7 +120,7 @@ export const OfflineSyncBanner: React.FC<OfflineSyncBannerProps> = ({
 
         {/* Informational Message */}
         <View style={styles.textGroup}>
-          <View style={styles.titleRow}>
+          <View style={[styles.titleRow, rtlStyles.row]}>
             <Text
               style={[
                 styles.title,
@@ -161,7 +163,7 @@ export const OfflineSyncBanner: React.FC<OfflineSyncBannerProps> = ({
               },
             ]}
           >
-            تغییرات در حافظه پایدار دستگاه ذخیره شد و بدون اختلال اجرا می‌شود.
+            تغییرات در حافظه دستگاه ذخیره شد و بدون اختلال اجرا می‌شود.
           </Text>
         </View>
 
@@ -179,7 +181,7 @@ export const OfflineSyncBanner: React.FC<OfflineSyncBannerProps> = ({
                   ? 'rgba(245, 158, 11, 0.3)'
                   : 'rgba(217, 119, 6, 0.25)',
               },
-              pressed && { opacity: 0.7, transform: [{ scale: 0.96 }] },
+              pressed && { opacity: 0.7 },
             ]}
             accessibilityRole="button"
             accessibilityLabel="همگام‌سازی مجدد با سرور"
@@ -208,7 +210,7 @@ export const OfflineSyncBanner: React.FC<OfflineSyncBannerProps> = ({
           accessibilityRole="button"
           accessibilityLabel="بستن اعلان آفلاین"
         >
-          <Text style={[styles.dismissText, { color: palette.textMuted }]}>✕</Text>
+          <Icon name="close" size={14} color={palette.textSecondary} />
         </Pressable>
       </View>
     </Animated.View>
@@ -218,7 +220,6 @@ export const OfflineSyncBanner: React.FC<OfflineSyncBannerProps> = ({
 const styles = StyleSheet.create({
   wrapper: {
     position: 'absolute',
-    top: Platform.OS === 'ios' ? 48 : 12,
     left: 16,
     right: 16,
     zIndex: 9999,
@@ -227,75 +228,82 @@ const styles = StyleSheet.create({
   container: {
     width: '100%',
     maxWidth: 600,
-    flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: 10,
-    paddingHorizontal: 14,
+    paddingHorizontal: 12,
     borderRadius: 18,
     borderWidth: 1,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.18,
-    shadowRadius: 10,
-    elevation: 6,
     ...Platform.select({
-      web: {
-        backdropFilter: 'blur(12px)',
-      } as any,
+      ios: {
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.18,
+        shadowRadius: 10,
+      },
+      android: {
+        elevation: 6,
+      },
     }),
   },
   dotContainer: {
-    marginRight: 10,
+    marginHorizontal: 8,
     justifyContent: 'center',
     alignItems: 'center',
   },
   pulseDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
   },
   textGroup: {
     flex: 1,
     justifyContent: 'center',
+    paddingHorizontal: 4,
   },
   titleRow: {
-    flexDirection: 'row',
     alignItems: 'center',
     marginBottom: 2,
   },
   title: {
-    fontSize: 13,
-    fontWeight: '700',
-    marginRight: 8,
+    fontFamily: FONT_FAMILIES.persian.bold,
+    fontSize: 12,
+    lineHeight: 18,
+    marginHorizontal: 6,
+    textAlign: 'right',
+    writingDirection: 'rtl',
   },
   badge: {
     paddingHorizontal: 6,
-    paddingVertical: 2,
+    paddingVertical: 1,
     borderRadius: 8,
   },
   badgeText: {
-    fontSize: 10,
-    fontWeight: '700',
+    fontFamily: FONT_FAMILIES.persian.bold,
+    fontSize: 9.5,
+    lineHeight: 14,
   },
   subtitle: {
-    fontSize: 11,
+    fontFamily: FONT_FAMILIES.persian.regular,
+    fontSize: 10.5,
     lineHeight: 15,
+    textAlign: 'right',
+    writingDirection: 'rtl',
   },
   retryButton: {
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
     borderWidth: 1,
-    marginRight: 8,
+    marginHorizontal: 6,
   },
   retryButtonText: {
-    fontSize: 11,
-    fontWeight: '700',
+    fontFamily: FONT_FAMILIES.persian.bold,
+    fontSize: 10.5,
+    lineHeight: 15,
+    textAlign: 'center',
+    writingDirection: 'rtl',
   },
   dismissButton: {
     padding: 4,
-  },
-  dismissText: {
-    fontSize: 13,
-    fontWeight: '600',
+    marginHorizontal: 4,
   },
 });

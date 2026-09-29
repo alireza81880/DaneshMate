@@ -1,6 +1,9 @@
 import React, { useRef } from 'react';
-import { View, Text, StyleSheet, Pressable, Animated } from 'react-native';
-import { NeumorphicTheme } from '../theme/colors';
+import { View, Text, StyleSheet, Pressable, Animated, Platform } from 'react-native';
+import { useTheme } from '../theme/ThemeContext';
+import { Icon } from './Icon';
+import { FONT_FAMILIES } from '../theme/typography';
+import { rtlStyles } from '../utils/rtl';
 
 interface DashboardHeaderProps {
   studentName: string;
@@ -12,20 +15,16 @@ interface DashboardHeaderProps {
   onNotificationPress?: () => void;
 }
 
-/**
- * DashboardHeader (هدر خوش‌آمدگویی نئومورفیک)
- * Features tactile dual-shadow action buttons, prominent typography hierarchy,
- * and specular lighting glints.
- */
 export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
   studentName,
   studentId,
   major,
   termString,
-  notificationCount = 2,
+  notificationCount = 0,
   onProfilePress,
   onNotificationPress,
 }) => {
+  const { palette } = useTheme();
   const bellScale = useRef(new Animated.Value(1)).current;
 
   const handleNotificationPress = () => {
@@ -37,39 +36,73 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
   };
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, rtlStyles.row]}>
       <View style={styles.textSection}>
-        <View style={styles.welcomeKickerRow}>
-          <Text style={styles.welcomeKicker}>دانش‌میت · دستیار هوشمند دانشجو</Text>
-          <View style={styles.kickerPill}>
-            <Text style={styles.kickerPillText}>{termString}</Text>
+        <View style={[styles.welcomeKickerRow, rtlStyles.row]}>
+          <Text style={[styles.welcomeKicker, { color: palette.primary }]}>
+            دانش‌میت · دستیار دانشجو
+          </Text>
+          <View style={[styles.kickerPill, { backgroundColor: palette.surfaceInner }]}>
+            <Text style={[styles.kickerPillText, { color: palette.textSecondary }]}>
+              {termString}
+            </Text>
           </View>
         </View>
 
-        <Text style={styles.studentName}>سلام، {studentName} 👋</Text>
-        <Text style={styles.studentMeta}>
+        <Text
+          style={[styles.studentName, { color: palette.textPrimary }]}
+          numberOfLines={1}
+          ellipsizeMode="tail"
+        >
+          سلام، {studentName}
+        </Text>
+        <Text
+          style={[styles.studentMeta, { color: palette.textSecondary }]}
+          numberOfLines={1}
+          ellipsizeMode="tail"
+        >
           {major} · شماره دانشجویی: {studentId}
         </Text>
       </View>
 
-      {/* Right Controls: Notification Bell + Avatar */}
-      <View style={styles.actionButtons}>
-        {/* Notification Neumorphic Button */}
+      {/* Action Buttons: Notification Bell + Avatar */}
+      <View style={[styles.actionButtons, rtlStyles.row]}>
         <Animated.View style={{ transform: [{ scale: bellScale }] }}>
-          <Pressable onPress={handleNotificationPress} style={styles.circleBtn}>
-            <Text style={styles.iconEmoji}>🔔</Text>
+          <Pressable
+            onPress={handleNotificationPress}
+            style={[
+              styles.circleBtn,
+              {
+                backgroundColor: palette.surfaceCard,
+                borderColor: palette.borderLuminous || palette.border,
+              },
+            ]}
+            accessibilityRole="button"
+            accessibilityLabel="اعلان‌ها"
+          >
+            <Icon name="bell" size={18} color={palette.primary} />
             {notificationCount > 0 && (
-              <View style={styles.badge}>
+              <View style={[styles.badge, { backgroundColor: palette.danger || '#ef4444' }]}>
                 <Text style={styles.badgeText}>{notificationCount}</Text>
               </View>
             )}
           </Pressable>
         </Animated.View>
 
-        {/* User Avatar Well */}
-        <Pressable onPress={onProfilePress} style={[styles.circleBtn, styles.avatarBtn]}>
-          <View style={styles.avatarInner}>
-            <Text style={styles.avatarText}>AR</Text>
+        <Pressable
+          onPress={onProfilePress}
+          style={[
+            styles.circleBtn,
+            {
+              backgroundColor: palette.surfaceCard,
+              borderColor: palette.borderLuminous || palette.border,
+            },
+          ]}
+          accessibilityRole="button"
+          accessibilityLabel="پروفایل کاربری"
+        >
+          <View style={[styles.avatarInner, { backgroundColor: palette.surfaceInner }]}>
+            <Icon name="profile" size={18} color={palette.primary} />
           </View>
         </Pressable>
       </View>
@@ -79,7 +112,6 @@ export const DashboardHeader: React.FC<DashboardHeaderProps> = ({
 
 const styles = StyleSheet.create({
   container: {
-    flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 20,
@@ -87,96 +119,94 @@ const styles = StyleSheet.create({
   },
   textSection: {
     flex: 1,
-    paddingRight: 12,
+    paddingHorizontal: 8,
   },
   welcomeKickerRow: {
-    flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
     marginBottom: 4,
   },
   welcomeKicker: {
+    fontFamily: FONT_FAMILIES.persian.bold,
     fontSize: 11,
-    fontWeight: '800',
-    color: '#4361EE',
-    letterSpacing: 0.2,
+    lineHeight: 16,
+    textAlign: 'right',
+    writingDirection: 'rtl',
   },
   kickerPill: {
-    backgroundColor: '#d8dee6',
     paddingHorizontal: 6,
     paddingVertical: 1,
     borderRadius: 6,
   },
   kickerPillText: {
+    fontFamily: FONT_FAMILIES.persian.medium,
     fontSize: 9.5,
-    fontWeight: '700',
-    color: '#475569',
+    lineHeight: 14,
+    textAlign: 'right',
+    writingDirection: 'rtl',
   },
   studentName: {
-    fontSize: 22,
-    fontWeight: '900',
-    color: '#1e293b',
-    letterSpacing: -0.5,
+    fontFamily: FONT_FAMILIES.persian.bold,
+    fontSize: 20,
+    lineHeight: 28,
+    textAlign: 'right',
+    writingDirection: 'rtl',
   },
   studentMeta: {
-    fontSize: 12,
-    color: '#64748b',
+    fontFamily: FONT_FAMILIES.persian.regular,
+    fontSize: 11.5,
+    lineHeight: 18,
     marginTop: 2,
-    fontWeight: '500',
+    textAlign: 'right',
+    writingDirection: 'rtl',
   },
   actionButtons: {
-    flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: 8,
   },
   circleBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: NeumorphicTheme.colors.background,
+    width: 42,
+    height: 42,
+    borderRadius: 21,
     alignItems: 'center',
     justifyContent: 'center',
     position: 'relative',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.8)',
-    boxShadow: '5px 5px 10px #b8b9be, -5px -5px 10px #ffffff',
-  },
-  iconEmoji: {
-    fontSize: 16,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 4,
+      },
+      android: {
+        elevation: 3,
+      },
+      web: {
+        boxShadow: '0 4px 12px rgba(0, 0, 0, 0.08)',
+      } as any,
+    }),
   },
   badge: {
     position: 'absolute',
-    top: 2,
-    right: 2,
-    backgroundColor: '#e11d48',
+    top: 0,
+    right: 0,
     width: 16,
     height: 16,
     borderRadius: 8,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1.5,
-    borderColor: '#E0E5EC',
   },
   badgeText: {
     color: '#ffffff',
     fontSize: 9,
-    fontWeight: '800',
-  },
-  avatarBtn: {
-    backgroundColor: '#E0E5EC',
+    fontFamily: FONT_FAMILIES.english.bold,
   },
   avatarInner: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#dbe0ea',
+    width: 34,
+    height: 34,
+    borderRadius: 17,
     alignItems: 'center',
     justifyContent: 'center',
-    boxShadow: 'inset 2px 2px 4px #b8b9be, inset -2px -2px 4px #ffffff',
-  },
-  avatarText: {
-    fontSize: 13,
-    fontWeight: '800',
-    color: '#4361EE',
   },
 });

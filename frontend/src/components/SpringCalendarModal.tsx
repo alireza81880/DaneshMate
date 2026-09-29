@@ -4,13 +4,15 @@ import {
   Text,
   StyleSheet,
   Modal,
-  SafeAreaView,
   TouchableOpacity,
   Pressable,
   Animated,
   ScrollView,
   Platform,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { FONT_FAMILIES } from '../theme/typography';
+import { rtlStyles } from '../utils/rtl';
 import { NeumorphicCard } from './NeumorphicCard';
 import { NeumorphicButton } from './NeumorphicButton';
 import {
@@ -622,19 +624,21 @@ const styles = StyleSheet.create({
     }),
   },
   dayCellText: {
+    fontFamily: FONT_FAMILIES.persian.bold,
     fontSize: 12,
-    fontWeight: '800',
+    lineHeight: 16,
     color: '#1E293B',
+    textAlign: 'center',
+    writingDirection: 'rtl',
   },
   dayCellTextFriday: {
     color: '#EF4444',
   },
   dayCellTextSelected: {
     color: '#FFFFFF',
-    fontWeight: '900',
   },
   actionRow: {
-    flexDirection: 'row',
+    flexDirection: rtlStyles.row.flexDirection,
     gap: 12,
     marginTop: 14,
   },

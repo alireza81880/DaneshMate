@@ -1,12 +1,16 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, Pressable, Platform } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../theme/ThemeContext';
+import { Icon } from '../components/Icon';
+import { FONT_FAMILIES } from '../theme/typography';
 import { NeumorphicCard } from '../components/NeumorphicCard';
 import { NeumorphicButton } from '../components/NeumorphicButton';
 import { DynamicClassItemData } from '../components/DynamicClassItem';
 import { ClassSessionLog, ClassSessionCaptureModal } from '../components/ClassSessionCaptureModal';
 import { SessionCard } from '../components/SessionCard';
 import { ClassSessionChatViewerScreen } from './ClassSessionChatViewerScreen';
+import { getRtlRow } from '../utils/rtl';
 
 interface NotesScreenProps {
   classes: DynamicClassItemData[];
@@ -23,6 +27,7 @@ export const NotesScreen: React.FC<NotesScreenProps> = ({
   onDeleteLog,
   onUpdateLog,
 }) => {
+  const insets = useSafeAreaInsets();
   const { palette } = useTheme();
   const [isCaptureModalOpen, setIsCaptureModalOpen] = useState(false);
   const [selectedClassFilter, setSelectedClassFilter] = useState<string>('all');
@@ -44,10 +49,19 @@ export const NotesScreen: React.FC<NotesScreenProps> = ({
   };
 
   return (
-    <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+    <ScrollView
+      contentContainerStyle={[
+        styles.scrollContent,
+        {
+          paddingTop: 14,
+          paddingBottom: Math.max(insets.bottom + 96, 120),
+        },
+      ]}
+      showsVerticalScrollIndicator={false}
+    >
       {/* Header */}
       <View style={styles.header}>
-        <View style={{ flex: 1 }}>
+        <View style={{ flex: 1, alignItems: 'flex-end' }}>
           <Text style={[styles.title, { color: palette.textPrimary }]}>
             یادداشت و رسانه کلاس‌ها
           </Text>
@@ -128,16 +142,7 @@ export const NotesScreen: React.FC<NotesScreenProps> = ({
       {filteredLogs.length === 0 ? (
         <NeumorphicCard style={styles.emptyCard} borderRadius={24}>
           <View style={[styles.emptyIconCircle, { backgroundColor: palette.surfaceInner, borderColor: palette.borderLuminous }]}>
-            {Platform.OS === 'web' ? (
-              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke={palette.primary} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z" />
-                <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-                <line x1="12" y1="19" x2="12" y2="23" />
-                <line x1="8" y1="23" x2="16" y2="23" />
-              </svg>
-            ) : (
-              <Text style={{ fontSize: 24, color: palette.primary }}>🎙</Text>
-            )}
+            <Icon name="mic" size={28} color={palette.primary} />
           </View>
           <Text style={[styles.emptyTitle, { color: palette.textPrimary }]}>
             هنوز یادداشت یا فایلی برای کلاس‌ها ثبت نشده است
@@ -191,26 +196,31 @@ export const NotesScreen: React.FC<NotesScreenProps> = ({
 const styles = StyleSheet.create({
   scrollContent: {
     padding: 16,
-    paddingBottom: 90,
   },
   header: {
-    flexDirection: 'row',
+    flexDirection: getRtlRow(),
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 16,
   },
   title: {
+    fontFamily: FONT_FAMILIES.persian.bold,
     fontSize: 18,
-    fontWeight: '900',
+    lineHeight: 26,
+    fontWeight: '700',
     textAlign: 'right',
+    writingDirection: 'rtl',
   },
   subtitle: {
+    fontFamily: FONT_FAMILIES.persian.regular,
     fontSize: 11,
+    lineHeight: 16,
     marginTop: 2,
     textAlign: 'right',
+    writingDirection: 'rtl',
   },
   filterScroll: {
-    flexDirection: 'row',
+    flexDirection: getRtlRow(),
     gap: 8,
     paddingVertical: 4,
     marginBottom: 16,
@@ -221,7 +231,9 @@ const styles = StyleSheet.create({
     borderRadius: 12,
   },
   filterChipText: {
+    fontFamily: FONT_FAMILIES.persian.medium,
     fontSize: 11,
+    writingDirection: 'rtl',
   },
   emptyCard: {
     padding: 24,
@@ -238,15 +250,20 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   emptyTitle: {
+    fontFamily: FONT_FAMILIES.persian.bold,
     fontSize: 14,
-    fontWeight: '800',
+    lineHeight: 22,
+    fontWeight: '700',
     textAlign: 'center',
+    writingDirection: 'rtl',
     marginBottom: 6,
   },
   emptySubtitle: {
+    fontFamily: FONT_FAMILIES.persian.regular,
     fontSize: 11,
-    textAlign: 'center',
     lineHeight: 18,
+    textAlign: 'center',
+    writingDirection: 'rtl',
   },
   logsList: {
     gap: 12,

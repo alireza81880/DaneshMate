@@ -1,6 +1,9 @@
 import React from 'react';
-import { View, TextInput, StyleSheet, Pressable, Text, Platform } from 'react-native';
+import { View, TextInput, StyleSheet, Pressable, Platform } from 'react-native';
 import { useTheme } from '../theme/ThemeContext';
+import { Icon } from './Icon';
+import { FONT_FAMILIES } from '../theme/typography';
+import { rtlStyles } from '../utils/rtl';
 
 interface NeumorphicSearchBarProps {
   value: string;
@@ -27,13 +30,14 @@ export const NeumorphicSearchBar: React.FC<NeumorphicSearchBarProps> = ({
       <View
         style={[
           styles.searchWell,
+          rtlStyles.row,
           {
             backgroundColor: palette.surfaceInner,
             borderColor: palette.border,
           },
         ]}
       >
-        <Text style={styles.searchIcon}>🔍</Text>
+        <Icon name="search" size={16} color={palette.textSecondary} style={styles.searchIcon} />
 
         <TextInput
           value={value}
@@ -58,7 +62,7 @@ export const NeumorphicSearchBar: React.FC<NeumorphicSearchBarProps> = ({
             accessibilityLabel="پاک کردن جستجو"
             accessibilityRole="button"
           >
-            <Text style={[styles.clearIcon, { color: palette.textSecondary }]}>✕</Text>
+            <Icon name="close" size={12} color={palette.textSecondary} />
           </Pressable>
         )}
       </View>
@@ -72,51 +76,46 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   searchWell: {
-    flexDirection: 'row',
     alignItems: 'center',
     borderRadius: 18,
     paddingHorizontal: 14,
     paddingVertical: Platform.OS === 'ios' ? 10 : 6,
     borderWidth: 1,
     ...Platform.select({
-      web: {
-        boxShadow: 'inset 2px 2px 5px rgba(0,0,0,0.08), inset -2px -2px 5px rgba(255,255,255,0.7)',
-      } as any,
       ios: {
         shadowColor: '#000000',
         shadowOffset: { width: 0, height: 1 },
         shadowOpacity: 0.05,
         shadowRadius: 2,
       },
-    }),
-  },
-  searchIcon: {
-    fontSize: 14,
-    marginRight: 8,
-  },
-  input: {
-    flex: 1,
-    fontSize: 13,
-    fontWeight: '600',
-    textAlign: 'right',
-    paddingVertical: 2,
-  },
-  clearBtn: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginLeft: 8,
-    ...Platform.select({
+      android: {
+        elevation: 1,
+      },
       web: {
-        cursor: 'pointer',
-        boxShadow: '1px 1px 3px rgba(0,0,0,0.1)',
+        boxShadow: 'inset 0 1px 3px rgba(0, 0, 0, 0.08)',
       } as any,
     }),
   },
-  clearIcon: {
-    fontSize: 11,
-    fontWeight: '900',
+  searchIcon: {
+    marginHorizontal: 4,
+  },
+  input: {
+    flex: 1,
+    fontFamily: FONT_FAMILIES.persian.regular,
+    fontSize: 13,
+    lineHeight: 20,
+    textAlign: 'right',
+    writingDirection: 'rtl',
+    paddingVertical: 4,
+    marginHorizontal: 6,
+  },
+  clearBtn: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
   },
 });

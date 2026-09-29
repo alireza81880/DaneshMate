@@ -3,14 +3,17 @@ import {
   View,
   Text,
   StyleSheet,
-  SafeAreaView,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
   Pressable,
   TouchableOpacity,
 } from 'react-native';
-import { NeumorphicTheme } from '../theme/colors';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { useTheme } from '../theme/ThemeContext';
+import { FONT_FAMILIES } from '../theme/typography';
+import { rtlStyles } from '../utils/rtl';
+import { Icon, IconName } from './Icon';
 import { NeumorphicCard } from './NeumorphicCard';
 import { NeumorphicButton } from './NeumorphicButton';
 import { NeumorphicInput } from './NeumorphicInput';
@@ -28,8 +31,8 @@ export interface ClassFormData {
   day: WeekDay;
   time: string;
   recurrence: RecurrenceType;
-  anchor_date?: string; // Anchor date string (e.g. 1405/07/04) for 14-day biweekly cycles
-  anchor_timestamp?: number; // Exact UNIX epoch timestamp of first session
+  anchor_date?: string;
+  anchor_timestamp?: number;
   firstSessionDate?: string;
   professor?: string;
   location?: string;
@@ -53,11 +56,11 @@ const WEEK_DAYS: WeekDay[] = [
   'پنج‌شنبه',
 ];
 
-const RECURRENCE_OPTIONS: { id: RecurrenceType; label: string; icon: string; isBiweekly: boolean }[] = [
-  { id: 'every_week', label: 'هر هفته', icon: '🔁', isBiweekly: false },
-  { id: 'bi_weekly', label: 'یک هفته در میان', icon: '📅', isBiweekly: true },
-  { id: 'even_weeks', label: 'هفته‌های زوج', icon: '✌️', isBiweekly: true },
-  { id: 'odd_weeks', label: 'هفته‌های فرد', icon: '☝️', isBiweekly: true },
+const RECURRENCE_OPTIONS: { id: RecurrenceType; label: string; icon: IconName; isBiweekly: boolean }[] = [
+  { id: 'every_week', label: 'هر هفته', icon: 'repeat', isBiweekly: false },
+  { id: 'bi_weekly', label: 'یک هفته در میان', icon: 'calendar', isBiweekly: true },
+  { id: 'even_weeks', label: 'هفته‌های زوج', icon: 'calendar-check', isBiweekly: true },
+  { id: 'odd_weeks', label: 'هفته‌های فرد', icon: 'calendar', isBiweekly: true },
 ];
 
 export const ClassFormModal: React.FC<ClassFormModalProps> = ({
@@ -66,6 +69,8 @@ export const ClassFormModal: React.FC<ClassFormModalProps> = ({
   onCancel,
   isEditing = false,
 }) => {
+  const { palette } = useTheme();
+
   const [name, setName] = useState(initialData?.name || '');
   const [day, setDay] = useState<WeekDay>(initialData?.day || 'شنبه');
   const [time, setTime] = useState(initialData?.time || '08:00 - 10:00');
@@ -90,74 +95,44 @@ export const ClassFormModal: React.FC<ClassFormModalProps> = ({
   const [finalExamDate, setFinalExamDate] = useState(initialData?.finalExamDate || '');
   const [errors, setErrors] = useState<{ name?: string; time?: string }>({});
 
-  // Spring-Animated Modal State for Anchor Date (تاریخ مبدأ)
   const [isSpringModalOpen, setIsSpringModalOpen] = useState(false);
-  const [scheduledSessionTimestamps, setScheduledSessionTimestamps] = useState<number[]>(
-    initialData?.scheduled_session_timestamps || []
-  );
 
   const handleSelectRecurrence = (opt: typeof RECURRENCE_OPTIONS[0]) => {
-    hapticFeedback.selection();
+    hapticFeedback.light();
     setRecurrence(opt.id);
-    if (opt.isBiweekly) {
-      // Trigger Spring Pop-up Modal to select Anchor Date
+
+    if (opt.isBiweekly && !anchorDate) {
       setIsSpringModalOpen(true);
-    } else {
-      setScheduledSessionTimestamps([]);
     }
   };
 
-  const handleSelectAnchorDate = (
-    dateStr: string,
-    timestamp: number,
-    formattedLabel: string,
-    sessions: number[]
-  ) => {
+  const handleSelectAnchorDate = (dateStr: string, timestamp: number) => {
     hapticFeedback.success();
     setAnchorDate(dateStr);
     setAnchorTimestamp(timestamp);
-    setAnchorLabel(formattedLabel);
-    setScheduledSessionTimestamps(sessions);
+    setAnchorLabel(`شروع دوره: ${dateStr}`);
+    setIsSpringModalOpen(false);
   };
 
   const handleSave = () => {
-    const newErrors: { name?: string; time?: string } = {};
+    const errs: { name?: string; time?: string } = {};
+    if (!name.trim()) errs.name = 'لطفاً نام کلاس را وارد کنید';
+    if (!time.trim()) errs.time = 'لطفاً ساعت برگزاری را مشخص کنید';
 
-    if (!name.trim()) {
-      newErrors.name = 'ورود نام کلاس الزامی است.';
-    }
-    if (!time.trim()) {
-      newErrors.time = 'انتخاب زمان کلاس الزامی است.';
-    }
-
-    if (Object.keys(newErrors).length > 0) {
-      setErrors(newErrors);
+    if (Object.keys(errs).length > 0) {
+      hapticFeedback.heavy();
+      setErrors(errs);
       return;
     }
 
-    hapticFeedback.success();
-
-    const recType =
-      recurrence === 'even_weeks'
-        ? 'even'
-        : recurrence === 'odd_weeks'
-        ? 'odd'
-        : recurrence === 'bi_weekly' || recurrence === 'biweekly'
-        ? 'bi_weekly'
-        : 'weekly';
-
     onSave({
-      id: initialData?.id || Date.now().toString(),
+      id: initialData?.id,
       name: name.trim(),
       day,
       time: time.trim(),
       recurrence,
-      recurrence_type: recType,
-      anchor_date: anchorDate.trim() || undefined,
-      anchor_timestamp: anchorTimestamp,
-      scheduled_session_timestamps:
-        scheduledSessionTimestamps.length > 0 ? scheduledSessionTimestamps : undefined,
-      firstSessionDate: anchorDate.trim() || undefined,
+      anchor_date: anchorDate || undefined,
+      anchor_timestamp: anchorTimestamp || undefined,
       professor: professor.trim() || undefined,
       location: location.trim() || undefined,
       midtermExamDate: midtermExamDate.trim() || undefined,
@@ -166,7 +141,7 @@ export const ClassFormModal: React.FC<ClassFormModalProps> = ({
   };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView edges={['top', 'bottom']} style={[styles.safeArea, { backgroundColor: palette.background }]}>
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={styles.keyboardView}
@@ -174,13 +149,14 @@ export const ClassFormModal: React.FC<ClassFormModalProps> = ({
         <ScrollView
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
         >
-          <NeumorphicCard style={styles.card} borderRadius={26}>
+          <NeumorphicCard style={styles.card} borderRadius={24}>
             <View style={styles.header}>
-              <Text style={styles.title}>
+              <Text style={[styles.title, { color: palette.textPrimary }]}>
                 {isEditing ? 'ویرایش مشخصات کلاس' : 'افزودن کلاس جدید'}
               </Text>
-              <Text style={styles.subtitle}>
+              <Text style={[styles.subtitle, { color: palette.textSecondary }]}>
                 اطلاعات زمان‌بندی، تاریخ مبدأ جلسات و امتحانات را مشخص نمایید.
               </Text>
             </View>
@@ -200,10 +176,10 @@ export const ClassFormModal: React.FC<ClassFormModalProps> = ({
 
               {/* 2. Day Selection */}
               <View style={styles.sectionContainer}>
-                <Text style={styles.sectionLabel}>
+                <Text style={[styles.sectionLabel, { color: palette.textPrimary }]}>
                   روز برگزاری کلاس <Text style={styles.requiredStar}>*</Text>
                 </Text>
-                <View style={styles.daysGrid}>
+                <View style={[styles.daysGrid, rtlStyles.row]}>
                   {WEEK_DAYS.map((d) => {
                     const isSelected = day === d;
                     return (
@@ -212,13 +188,19 @@ export const ClassFormModal: React.FC<ClassFormModalProps> = ({
                         onPress={() => setDay(d)}
                         style={[
                           styles.dayButton,
-                          isSelected ? styles.dayButtonSelected : styles.dayButtonUnselected,
+                          {
+                            backgroundColor: isSelected ? palette.primary : palette.surfaceInner,
+                            borderColor: isSelected ? palette.primary : palette.border,
+                          },
                         ]}
                       >
                         <Text
                           style={[
                             styles.dayButtonText,
-                            isSelected && styles.dayButtonTextSelected,
+                            {
+                              color: isSelected ? '#ffffff' : palette.textPrimary,
+                              fontFamily: isSelected ? FONT_FAMILIES.persian.bold : FONT_FAMILIES.persian.medium,
+                            },
                           ]}
                         >
                           {d}
@@ -229,7 +211,7 @@ export const ClassFormModal: React.FC<ClassFormModalProps> = ({
                 </View>
               </View>
 
-              {/* 3. Interactive TimePicker (ZERO manual text inputs) */}
+              {/* 3. Interactive TimePicker */}
               <NeumorphicTimePicker
                 value={time}
                 onChange={(t) => {
@@ -239,14 +221,15 @@ export const ClassFormModal: React.FC<ClassFormModalProps> = ({
                 error={errors.time}
               />
 
-              {/* 4. Recurrence Selector with Bi-Weekly Anchor Logic */}
+              {/* 4. Recurrence Selector */}
               <View style={styles.sectionContainer}>
-                <Text style={styles.sectionLabel}>
+                <Text style={[styles.sectionLabel, { color: palette.textPrimary }]}>
                   دوره تکرار تشکیل کلاس (چرخشی / هفتگی)
                 </Text>
-                <View style={styles.recurrenceGrid}>
+                <View style={[styles.recurrenceGrid, rtlStyles.row]}>
                   {RECURRENCE_OPTIONS.map((opt) => {
                     const isSelected = recurrence === opt.id;
+                    const iconColor = isSelected ? '#ffffff' : palette.textSecondary;
                     return (
                       <TouchableOpacity
                         key={opt.id}
@@ -254,14 +237,20 @@ export const ClassFormModal: React.FC<ClassFormModalProps> = ({
                         activeOpacity={0.7}
                         style={[
                           styles.recurrenceBtn,
-                          isSelected ? styles.recurrenceBtnSelected : styles.recurrenceBtnUnselected,
+                          {
+                            backgroundColor: isSelected ? palette.primary : palette.surfaceInner,
+                            borderColor: isSelected ? palette.primary : palette.border,
+                          },
                         ]}
                       >
-                        <Text style={styles.recurrenceIcon}>{opt.icon}</Text>
+                        <Icon name={opt.icon} size={16} color={iconColor} style={styles.recurrenceIcon} />
                         <Text
                           style={[
                             styles.recurrenceLabel,
-                            isSelected && styles.recurrenceLabelSelected,
+                            {
+                              color: isSelected ? '#ffffff' : palette.textPrimary,
+                              fontFamily: isSelected ? FONT_FAMILIES.persian.bold : FONT_FAMILIES.persian.medium,
+                            },
                           ]}
                         >
                           {opt.label}
@@ -271,19 +260,19 @@ export const ClassFormModal: React.FC<ClassFormModalProps> = ({
                   })}
                 </View>
 
-                {/* Elevated Anchor Date Chip inside Form with Quick Edit Trigger */}
+                {/* Anchor Date Quick Edit Trigger */}
                 {(recurrence === 'bi_weekly' || recurrence === 'biweekly' || recurrence === 'even_weeks' || recurrence === 'odd_weeks') && (
-                  <View style={styles.anchorElevatedCard}>
-                    <View style={styles.anchorElevatedHeader}>
-                      <View style={styles.anchorIconBadge}>
-                        <Text style={styles.anchorIconBadgeText}>🎯</Text>
+                  <View style={[styles.anchorElevatedCard, { backgroundColor: palette.surfaceInner, borderColor: palette.borderLuminous }]}>
+                    <View style={[styles.anchorElevatedHeader, rtlStyles.row]}>
+                      <View style={[styles.anchorIconBadge, { backgroundColor: 'rgba(37, 99, 235, 0.15)' }]}>
+                        <Icon name="calendar-check" size={18} color={palette.primary} />
                       </View>
-                      <View style={{ flex: 1, alignItems: 'flex-start' }}>
-                        <Text style={styles.anchorBadgeTitle}>
-                          تاریخ مبدأ (Anchor Date) چرخه ۱۴ روزه:
+                      <View style={{ flex: 1, paddingHorizontal: 6 }}>
+                        <Text style={[styles.anchorBadgeTitle, { color: palette.primary }]}>
+                          تاریخ مبدأ چرخه ۱۴ روزه:
                         </Text>
-                        <Text style={styles.anchorBadgeValue}>
-                          {anchorLabel || (anchorDate ? `شروع دوره: ${anchorDate}` : 'هنوز انتخاب نشده (برای انتخاب کلیک کنید)')}
+                        <Text style={[styles.anchorBadgeValue, { color: palette.textPrimary }]}>
+                          {anchorLabel || (anchorDate ? `شروع دوره: ${anchorDate}` : 'انتخاب نشده (برای انتخاب ضربه بزنید)')}
                         </Text>
                       </View>
                       <TouchableOpacity
@@ -292,33 +281,19 @@ export const ClassFormModal: React.FC<ClassFormModalProps> = ({
                           setIsSpringModalOpen(true);
                         }}
                         activeOpacity={0.7}
-                        style={styles.anchorEditChip}
+                        style={[styles.anchorEditChip, { backgroundColor: palette.primary }]}
                       >
-                        <Text style={styles.anchorEditChipText}>ویرایش</Text>
+                        <Text style={styles.anchorEditChipText}>انتخاب</Text>
                       </TouchableOpacity>
                     </View>
-                    <Text style={styles.anchorCycleHint}>
-                      • جلسات و اعلان‌ها هر ۱۴ روز یک‌بار بر مبنای این تاریخ مبدأ محاسبه و در هفته‌های غیرفعال متوقف می‌گردند.
-                    </Text>
                   </View>
                 )}
               </View>
 
-              {/* 5. First Session Date (Jalali Date Picker) */}
+              {/* 5. Exam Schedules */}
               <View style={styles.sectionContainer}>
-                <NeumorphicDatePicker
-                  label="تاریخ اولین جلسه (مبدأ تقویم)"
-                  optional={true}
-                  value={anchorDate}
-                  onChange={(d) => setAnchorDate(d)}
-                  placeholder="انتخاب تاریخ شمسی شروع کلاس‌ها"
-                />
-              </View>
-
-              {/* 6. Exam Schedules (Jalali Date Pickers) */}
-              <View style={styles.sectionContainer}>
-                <Text style={styles.sectionLabel}>
-                  تاریخ امتحانات درس (یادآور هوشمند آزمون‌ها)
+                <Text style={[styles.sectionLabel, { color: palette.textPrimary }]}>
+                  تاریخ امتحانات درس (یادآور هوشمند)
                 </Text>
                 <View style={styles.examsRow}>
                   <NeumorphicDatePicker
@@ -338,16 +313,16 @@ export const ClassFormModal: React.FC<ClassFormModalProps> = ({
                 </View>
               </View>
 
-              {/* 7. Optional Professor's Name */}
+              {/* 6. Optional Professor's Name */}
               <NeumorphicInput
                 label="نام استاد"
                 optional={true}
-                placeholder="نام استاد را وارد نمایید (اختیاری)"
+                placeholder="نام استاد (اختیاری)"
                 value={professor}
                 onChangeText={setProfessor}
               />
 
-              {/* 8. Optional Class Location */}
+              {/* 7. Optional Class Location */}
               <NeumorphicInput
                 label="محل برگزاری"
                 optional={true}
@@ -358,7 +333,7 @@ export const ClassFormModal: React.FC<ClassFormModalProps> = ({
             </View>
 
             {/* Action Buttons */}
-            <View style={styles.actionRow}>
+            <View style={[styles.actionRow, rtlStyles.row]}>
               <NeumorphicButton
                 title="انصراف"
                 size="md"
@@ -377,7 +352,6 @@ export const ClassFormModal: React.FC<ClassFormModalProps> = ({
         </ScrollView>
       </KeyboardAvoidingView>
 
-      {/* Reusable Spring-Animated Jalali Calendar Modal */}
       <SpringCalendarModal
         visible={isSpringModalOpen}
         onClose={() => setIsSpringModalOpen(false)}
@@ -390,128 +364,115 @@ export const ClassFormModal: React.FC<ClassFormModalProps> = ({
 };
 
 const styles = StyleSheet.create({
-  safeArea: { flex: 1, backgroundColor: NeumorphicTheme.colors.background },
+  safeArea: { flex: 1 },
   keyboardView: { flex: 1 },
-  scrollContent: { padding: 18, paddingBottom: 40 },
-  card: { padding: 22 },
-  header: { marginBottom: 20, alignItems: 'center' },
-  title: { fontSize: 18, fontWeight: '800', color: '#1e293b', textAlign: 'center' },
-  subtitle: { fontSize: 12, color: '#64748b', textAlign: 'center', marginTop: 4, lineHeight: 18 },
+  scrollContent: { padding: 16, paddingBottom: 36 },
+  card: { padding: 18 },
+  header: { marginBottom: 18, alignItems: 'center' },
+  title: {
+    fontFamily: FONT_FAMILIES.persian.bold,
+    fontSize: 18,
+    lineHeight: 26,
+    textAlign: 'center',
+    writingDirection: 'rtl',
+  },
+  subtitle: {
+    fontFamily: FONT_FAMILIES.persian.regular,
+    fontSize: 12,
+    lineHeight: 18,
+    textAlign: 'center',
+    writingDirection: 'rtl',
+    marginTop: 4,
+  },
   form: { gap: 4 },
   sectionContainer: { marginBottom: 16 },
-  sectionLabel: { fontSize: 13, fontWeight: '700', color: '#334155', marginBottom: 8, textAlign: 'right' },
-  requiredStar: { color: '#e11d48' },
-  daysGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  dayButton: { flex: 1, minWidth: '30%', paddingVertical: 10, paddingHorizontal: 8, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
-  dayButtonUnselected: {
-    backgroundColor: '#e6ebf2',
-    ...Platform.select({
-      web: { boxShadow: '3px 3px 6px #bec3cc, -3px -3px 6px #ffffff' } as any,
-    }),
+  sectionLabel: {
+    fontFamily: FONT_FAMILIES.persian.bold,
+    fontSize: 12.5,
+    lineHeight: 18,
+    marginBottom: 8,
+    textAlign: 'right',
+    writingDirection: 'rtl',
   },
-  dayButtonSelected: { backgroundColor: '#2563eb' },
-  dayButtonText: { fontSize: 12, fontWeight: '700', color: '#475569' },
-  dayButtonTextSelected: { color: '#ffffff', fontWeight: '800' },
-  recurrenceGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  requiredStar: { color: '#e11d48' },
+  daysGrid: { flexWrap: 'wrap', gap: 6 },
+  dayButton: {
+    flex: 1,
+    minWidth: '30%',
+    paddingVertical: 9,
+    paddingHorizontal: 6,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+  },
+  dayButtonText: {
+    fontSize: 11.5,
+    lineHeight: 16,
+    writingDirection: 'rtl',
+  },
+  recurrenceGrid: { flexWrap: 'wrap', gap: 6 },
   recurrenceBtn: {
     flex: 1,
     minWidth: '45%',
     paddingVertical: 10,
     paddingHorizontal: 8,
-    borderRadius: 14,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: 1,
   },
-  recurrenceBtnUnselected: {
-    backgroundColor: '#e6ebf2',
-    ...Platform.select({
-      web: { boxShadow: '3px 3px 6px #bec3cc, -3px -3px 6px #ffffff' } as any,
-    }),
+  recurrenceIcon: { marginBottom: 4 },
+  recurrenceLabel: {
+    fontSize: 11,
+    lineHeight: 16,
+    textAlign: 'center',
+    writingDirection: 'rtl',
   },
-  recurrenceBtnSelected: { backgroundColor: '#2563eb' },
-  recurrenceIcon: { fontSize: 14, marginBottom: 2 },
-  recurrenceLabel: { fontSize: 11, fontWeight: '700', color: '#475569' },
-  recurrenceLabelSelected: { color: '#ffffff', fontWeight: '800' },
   anchorElevatedCard: {
-    marginTop: 12,
-    padding: 14,
-    borderRadius: 18,
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1.5,
-    borderColor: 'rgba(37, 99, 235, 0.25)',
-    ...Platform.select({
-      web: {
-        boxShadow: '0 4px 16px rgba(37, 99, 235, 0.1)',
-      } as any,
-      default: {
-        shadowColor: '#2563EB',
-        shadowOffset: { width: 0, height: 3 },
-        shadowOpacity: 0.12,
-        shadowRadius: 6,
-        elevation: 3,
-      },
-    }),
+    marginTop: 10,
+    padding: 12,
+    borderRadius: 14,
+    borderWidth: 1,
   },
   anchorElevatedHeader: {
-    flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: 8,
   },
   anchorIconBadge: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: 'rgba(37, 99, 235, 0.12)',
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  anchorIconBadgeText: {
-    fontSize: 16,
-  },
   anchorBadgeTitle: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#2563EB',
+    fontFamily: FONT_FAMILIES.persian.medium,
+    fontSize: 10.5,
+    lineHeight: 14,
     textAlign: 'right',
+    writingDirection: 'rtl',
   },
   anchorBadgeValue: {
-    fontSize: 12.5,
-    fontWeight: '900',
-    color: '#0F172A',
+    fontFamily: FONT_FAMILIES.persian.bold,
+    fontSize: 11.5,
+    lineHeight: 16,
     marginTop: 2,
     textAlign: 'right',
+    writingDirection: 'rtl',
   },
   anchorEditChip: {
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 10,
-    backgroundColor: '#2563EB',
-    ...Platform.select({
-      web: {
-        boxShadow: '0 2px 6px rgba(37, 99, 235, 0.3)',
-      } as any,
-      default: {
-        shadowColor: '#2563EB',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.25,
-        shadowRadius: 3,
-        elevation: 2,
-      },
-    }),
   },
   anchorEditChipText: {
+    fontFamily: FONT_FAMILIES.persian.bold,
     fontSize: 11,
-    fontWeight: '800',
     color: '#FFFFFF',
-  },
-  anchorCycleHint: {
-    fontSize: 10,
-    color: '#64748B',
-    marginTop: 8,
-    lineHeight: 15,
-    textAlign: 'right',
+    writingDirection: 'rtl',
   },
   examsRow: { gap: 8 },
-  actionRow: { flexDirection: 'row', gap: 12, marginTop: 20 },
+  actionRow: { gap: 10, marginTop: 16 },
   actionBtn: { flex: 1 },
 });

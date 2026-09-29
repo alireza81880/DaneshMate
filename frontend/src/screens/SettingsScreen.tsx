@@ -7,13 +7,18 @@ import {
   Pressable,
   Platform,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../theme/ThemeContext';
+import { Icon } from '../components/Icon';
+import { FONT_FAMILIES } from '../theme/typography';
 import { LiquidBentoCard } from '../components/LiquidBentoCard';
 import { NullSparkleLink } from '../components/NullSparkleLink';
 import { DonationBadge } from '../components/DonationBadge';
 import { ThemeCategory, ThemeId } from '../theme/colors';
+import { getRtlRow } from '../utils/rtl';
 
 export const SettingsScreen: React.FC = () => {
+  const insets = useSafeAreaInsets();
   const { themeId, setThemeId, palette, palettesByCategory } = useTheme();
   const [activeCategory, setActiveCategory] = useState<ThemeCategory>('Dark & Monochromatic');
 
@@ -25,7 +30,16 @@ export const SettingsScreen: React.FC = () => {
   ];
 
   return (
-    <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+    <ScrollView
+      contentContainerStyle={[
+        styles.scrollContent,
+        {
+          paddingTop: 14,
+          paddingBottom: Math.max(insets.bottom + 96, 120),
+        },
+      ]}
+      showsVerticalScrollIndicator={false}
+    >
       {/* Header */}
       <View style={styles.header}>
         <Text style={[styles.title, { color: palette.textPrimary }]}>تنظیمات و شخصی‌سازی تم</Text>
@@ -120,13 +134,7 @@ export const SettingsScreen: React.FC = () => {
       {/* Cyber-Luxe Glass Specs Bento Card */}
       <LiquidBentoCard style={styles.infoCard} borderRadius={24}>
         <View style={styles.cardHeader}>
-          {Platform.OS === 'web' ? (
-            <svg width="20" height="20" viewBox="0 0 24 24" fill={palette.primary}>
-              <path d="M12 0L14.5 9.5L24 12L14.5 14.5L12 24L9.5 14.5L0 12L9.5 9.5L12 0Z" />
-            </svg>
-          ) : (
-            <Text style={[styles.cardIcon, { color: palette.primary }]}>✦</Text>
-          )}
+          <Icon name="sparkles" size={20} color={palette.primary} />
           <Text style={[styles.infoTitle, { color: palette.textPrimary }]}>
             معماری سایبر-لوکس و شیشه‌ای (Cyber-Luxe Glassmorphism)
           </Text>
@@ -146,23 +154,29 @@ export const SettingsScreen: React.FC = () => {
 const styles = StyleSheet.create({
   scrollContent: {
     paddingHorizontal: 20,
-    paddingTop: Platform.OS === 'android' ? 24 : 16,
-    paddingBottom: 120,
   },
   header: {
     marginBottom: 18,
+    alignItems: 'flex-end',
   },
   title: {
+    fontFamily: FONT_FAMILIES.persian.bold,
     fontSize: 20,
-    fontWeight: '900',
+    lineHeight: 30,
+    fontWeight: '700',
     textAlign: 'right',
+    writingDirection: 'rtl',
   },
   subtitle: {
+    fontFamily: FONT_FAMILIES.persian.regular,
     fontSize: 12,
+    lineHeight: 18,
     textAlign: 'right',
+    writingDirection: 'rtl',
     marginTop: 4,
   },
   categoryRow: {
+    flexDirection: getRtlRow(),
     gap: 8,
     paddingBottom: 16,
   },
@@ -174,14 +188,16 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   categoryText: {
+    fontFamily: FONT_FAMILIES.persian.medium,
     fontSize: 12,
+    writingDirection: 'rtl',
   },
   themesList: {
     gap: 12,
     marginBottom: 20,
   },
   themeItem: {
-    flexDirection: 'row',
+    flexDirection: getRtlRow(),
     alignItems: 'center',
     justifyContent: 'space-between',
     padding: 16,
@@ -192,19 +208,25 @@ const styles = StyleSheet.create({
         cursor: 'pointer',
         transition: 'all 0.2s ease',
       } as any,
+      android: {
+        elevation: 3,
+      },
     }),
   },
   themeInfo: {
     flex: 1,
+    alignItems: 'flex-end',
   },
   nameRow: {
-    flexDirection: 'row',
+    flexDirection: getRtlRow(),
     alignItems: 'center',
     gap: 8,
   },
   themePersianName: {
+    fontFamily: FONT_FAMILIES.persian.bold,
     fontSize: 15,
-    fontWeight: '900',
+    fontWeight: '700',
+    writingDirection: 'rtl',
   },
   activeTag: {
     paddingHorizontal: 8,
@@ -212,20 +234,24 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   activeTagText: {
+    fontFamily: FONT_FAMILIES.persian.bold,
     color: '#FFFFFF',
     fontSize: 10,
-    fontWeight: '800',
+    fontWeight: '700',
+    writingDirection: 'rtl',
   },
   themeEngName: {
+    fontFamily: FONT_FAMILIES.english.semiBold,
     fontSize: 11,
     marginTop: 2,
     fontWeight: '600',
+    writingDirection: 'ltr',
   },
   swatchGroup: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    marginLeft: 12,
+    marginRight: 12,
   },
   swatch: {
     width: 22,
@@ -238,7 +264,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   cardHeader: {
-    flexDirection: 'row',
+    flexDirection: getRtlRow(),
     alignItems: 'center',
     gap: 8,
     marginBottom: 8,
@@ -247,13 +273,18 @@ const styles = StyleSheet.create({
     fontSize: 18,
   },
   infoTitle: {
+    fontFamily: FONT_FAMILIES.persian.bold,
     fontSize: 13,
-    fontWeight: '800',
+    lineHeight: 20,
+    fontWeight: '700',
     textAlign: 'right',
+    writingDirection: 'rtl',
   },
   infoDesc: {
+    fontFamily: FONT_FAMILIES.persian.regular,
     fontSize: 11,
     lineHeight: 18,
     textAlign: 'right',
+    writingDirection: 'rtl',
   },
 });

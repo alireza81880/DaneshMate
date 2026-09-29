@@ -4,7 +4,6 @@ import {
   Text,
   StyleSheet,
   Modal,
-  SafeAreaView,
   FlatList,
   Pressable,
   TouchableOpacity,
@@ -14,6 +13,7 @@ import {
   Animated,
   ScrollView,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../theme/ThemeContext';
 import { AttachedFile, ClassSessionLog, FileCategory } from '../components/ClassSessionCaptureModal';
 import { AudioMemoBubble } from '../components/AudioMemoBubble';
@@ -550,7 +550,7 @@ export const ClassSessionChatViewerScreen: React.FC<ClassSessionChatViewerScreen
 
     return (
       <Modal visible={visible} animationType="slide" presentationStyle="fullScreen" onRequestClose={onClose}>
-        <SafeAreaView style={[styles.container, { backgroundColor: palette.background }]}>
+        <SafeAreaView edges={['top', 'bottom']} style={[styles.container, { backgroundColor: palette.background }]}>
           {/* =========================================================================
               CLEAN HEADER STRUCTURE: Distinct Two-Row Navigation & Class Meta Banner
              ========================================================================= */}

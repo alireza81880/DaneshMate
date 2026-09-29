@@ -10,6 +10,8 @@ import {
   Platform,
 } from 'react-native';
 import { useTheme } from '../theme/ThemeContext';
+import { FONT_FAMILIES } from '../theme/typography';
+import { Icon } from './Icon';
 import { NeumorphicButton } from './NeumorphicButton';
 import { NeumorphicCard } from './NeumorphicCard';
 import { hapticFeedback } from '../utils/haptics';
@@ -128,7 +130,7 @@ export const UpdateNotificationModal: React.FC<UpdateNotificationModalProps> = (
           <View style={styles.headerRow}>
             <View style={styles.headerTitleGroup}>
               <View style={[styles.sparkleIconBadge, { backgroundColor: palette.primary + '18' }]}>
-                <Text style={[styles.sparkleIconText, { color: palette.primary }]}>✨</Text>
+                <Icon name="sparkles" size={18} color={palette.primary} />
               </View>
               <View>
                 <Text style={[styles.kickerText, { color: palette.primary }]}>
@@ -151,7 +153,7 @@ export const UpdateNotificationModal: React.FC<UpdateNotificationModalProps> = (
               accessibilityRole="button"
               accessibilityLabel="بستن پنجره به‌روزرسانی"
             >
-              <Text style={[styles.closeButtonText, { color: palette.textMuted }]}>✕</Text>
+              <Icon name="close" size={14} color={palette.textSecondary} />
             </Pressable>
           </View>
 
@@ -291,16 +293,20 @@ const styles = StyleSheet.create({
     fontSize: 18,
   },
   kickerText: {
+    fontFamily: FONT_FAMILIES.persian.bold,
     fontSize: 11,
-    fontWeight: '700',
+    lineHeight: 16,
     letterSpacing: 0.5,
     marginBottom: 2,
     textAlign: 'right',
+    writingDirection: 'rtl',
   },
   mainTitle: {
+    fontFamily: FONT_FAMILIES.persian.bold,
     fontSize: 15,
-    fontWeight: '800',
+    lineHeight: 22,
     textAlign: 'right',
+    writingDirection: 'rtl',
   },
   closeButton: {
     width: 30,

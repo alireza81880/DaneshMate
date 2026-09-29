@@ -1,6 +1,9 @@
 import React from 'react';
 import { View, Text, StyleSheet, Pressable, Platform } from 'react-native';
 import { useTheme } from '../theme/ThemeContext';
+import { Icon } from './Icon';
+import { FONT_FAMILIES } from '../theme/typography';
+import { rtlStyles } from '../utils/rtl';
 import { WeekDay, RecurrenceType } from './ClassFormModal';
 import { toPersianDigits } from '../utils/jalali';
 
@@ -59,15 +62,13 @@ export const DynamicClassItem: React.FC<DynamicClassItemProps> = ({
           styles.card,
           {
             backgroundColor: palette.surfaceCard,
-            borderColor: palette.border,
+            borderColor: palette.borderLuminous || palette.border,
           },
         ]}
       >
-        <View style={styles.topSpecular} />
-
         {/* Top: Day badge, Recurrence badge, and Time */}
-        <View style={styles.topRow}>
-          <View style={styles.badgeGroup}>
+        <View style={[styles.topRow, rtlStyles.row]}>
+          <View style={[styles.badgeGroup, rtlStyles.row]}>
             <View style={[styles.dayBadge, { backgroundColor: palette.surfaceInner }]}>
               <Text style={[styles.dayBadgeText, { color: palette.textPrimary }]}>
                 {item.day || 'شنبه'}
@@ -82,7 +83,9 @@ export const DynamicClassItem: React.FC<DynamicClassItemProps> = ({
           </View>
 
           <View style={[styles.timePlate, { backgroundColor: palette.surfaceInner }]}>
-            <Text style={[styles.timeText, { color: palette.textPrimary }]}>{toPersianDigits(item.time)}</Text>
+            <Text style={[styles.timeText, { color: palette.textPrimary }]}>
+              {toPersianDigits(item.time)}
+            </Text>
           </View>
         </View>
 
@@ -91,18 +94,20 @@ export const DynamicClassItem: React.FC<DynamicClassItemProps> = ({
 
         {/* Optional Metadata Row (Professor and Location) */}
         {(item.professor || item.location) && (
-          <View style={styles.metaRow}>
+          <View style={[styles.metaRow, rtlStyles.row]}>
             {item.professor ? (
-              <View style={[styles.metaChip, { backgroundColor: palette.surfaceInner }]}>
+              <View style={[styles.metaChip, rtlStyles.row, { backgroundColor: palette.surfaceInner }]}>
+                <Icon name="profile" size={13} color={palette.textSecondary} />
                 <Text style={[styles.metaText, { color: palette.textSecondary }]}>
-                  👨‍🏫 استاد: {item.professor}
+                  استاد: {item.professor}
                 </Text>
               </View>
             ) : null}
             {item.location ? (
-              <View style={[styles.metaChip, { backgroundColor: palette.surfaceInner }]}>
+              <View style={[styles.metaChip, rtlStyles.row, { backgroundColor: palette.surfaceInner }]}>
+                <Icon name="map-pin" size={13} color={palette.textSecondary} />
                 <Text style={[styles.metaText, { color: palette.textSecondary }]}>
-                  📍 محل: {item.location}
+                  محل: {item.location}
                 </Text>
               </View>
             ) : null}
@@ -111,18 +116,18 @@ export const DynamicClassItem: React.FC<DynamicClassItemProps> = ({
 
         {/* Optional Exam Badges (Midterm & Final Exams) */}
         {(item.midtermExamDate || item.finalExamDate) && (
-          <View style={styles.examsRow}>
+          <View style={[styles.examsRow, rtlStyles.row]}>
             {item.midtermExamDate ? (
-              <View style={[styles.examBadge, { backgroundColor: 'rgba(245, 158, 11, 0.12)', borderColor: '#f59e0b' }]}>
-                <Text style={styles.examBadgeIcon}>📝</Text>
+              <View style={[styles.examBadge, rtlStyles.row, { backgroundColor: 'rgba(245, 158, 11, 0.12)', borderColor: '#f59e0b' }]}>
+                <Icon name="edit" size={12} color="#d97706" />
                 <Text style={[styles.examBadgeText, { color: '#d97706' }]}>
                   میان‌ترم: {toPersianDigits(item.midtermExamDate)}
                 </Text>
               </View>
             ) : null}
             {item.finalExamDate ? (
-              <View style={[styles.examBadge, { backgroundColor: 'rgba(239, 68, 68, 0.12)', borderColor: '#ef4444' }]}>
-                <Text style={styles.examBadgeIcon}>🎯</Text>
+              <View style={[styles.examBadge, rtlStyles.row, { backgroundColor: 'rgba(239, 68, 68, 0.12)', borderColor: '#ef4444' }]}>
+                <Icon name="calendar" size={12} color="#dc2626" />
                 <Text style={[styles.examBadgeText, { color: '#dc2626' }]}>
                   پایان‌ترم: {toPersianDigits(item.finalExamDate)}
                 </Text>
@@ -132,19 +137,18 @@ export const DynamicClassItem: React.FC<DynamicClassItemProps> = ({
         )}
 
         {/* Footer: CRUD Action Buttons (Edit / Delete) */}
-        <View style={[styles.actionsFooter, { borderTopColor: palette.divider }]}>
+        <View style={[styles.actionsFooter, rtlStyles.row, { borderTopColor: palette.border }]}>
           <Text style={[styles.statusFooterText, { color: palette.textMuted }]}>
             ثبت شده در برنامه هفتگی
           </Text>
 
-          <View style={styles.buttonsGroup}>
-            {/* Edit Button */}
+          <View style={[styles.buttonsGroup, rtlStyles.row]}>
             <Pressable
               onPress={() => onEdit(item)}
               style={({ pressed: btnP }) => [
                 styles.actionBtn,
-                { backgroundColor: palette.surfaceCard },
-                btnP && [styles.actionBtnPressed, { backgroundColor: palette.surfaceInner }],
+                { backgroundColor: palette.surfaceInner, borderColor: palette.border },
+                btnP && { opacity: 0.75 },
               ]}
               accessibilityLabel="ویرایش کلاس"
               accessibilityRole="button"
@@ -152,14 +156,13 @@ export const DynamicClassItem: React.FC<DynamicClassItemProps> = ({
               <Text style={[styles.editBtnText, { color: palette.primary }]}>ویرایش</Text>
             </Pressable>
 
-            {/* Delete Button - Independent & Directly Responsive */}
             <Pressable
               onPress={handleDeletePress}
               style={({ pressed: btnP }) => [
                 styles.actionBtn,
                 styles.deleteBtn,
-                { backgroundColor: palette.surfaceCard },
-                btnP && [styles.actionBtnPressed, { backgroundColor: palette.surfaceInner }],
+                { backgroundColor: palette.surfaceInner, borderColor: 'rgba(239, 68, 68, 0.3)' },
+                btnP && { opacity: 0.75 },
               ]}
               accessibilityLabel="حذف کلاس"
               accessibilityRole="button"
@@ -175,47 +178,39 @@ export const DynamicClassItem: React.FC<DynamicClassItemProps> = ({
 
 const styles = StyleSheet.create({
   wrapper: {
-    marginBottom: 12,
     width: '100%',
+    marginBottom: 12,
   },
   card: {
-    borderRadius: 22,
+    borderRadius: 20,
     padding: 16,
     borderWidth: 1,
     overflow: 'hidden',
     position: 'relative',
     ...Platform.select({
-      web: {
-        boxShadow:
-          '5px 5px 12px rgba(166, 175, 195, 0.4), -5px -5px 12px rgba(255, 255, 255, 0.8)',
-      } as any,
-      default: {
-        elevation: 3,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
+      ios: {
+        shadowColor: '#000000',
+        shadowOffset: { width: 0, height: 4 },
         shadowOpacity: 0.08,
-        shadowRadius: 6,
+        shadowRadius: 8,
       },
+      android: {
+        elevation: 3,
+      },
+      web: {
+        boxShadow: '0 4px 16px rgba(0, 0, 0, 0.06)',
+      } as any,
     }),
   },
-  topSpecular: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: 1,
-    backgroundColor: 'rgba(255, 255, 255, 0.4)',
-  },
   topRow: {
-    flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 10,
   },
   badgeGroup: {
-    flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
+    flexWrap: 'wrap',
   },
   dayBadge: {
     paddingHorizontal: 10,
@@ -223,8 +218,10 @@ const styles = StyleSheet.create({
     borderRadius: 10,
   },
   dayBadgeText: {
+    fontFamily: FONT_FAMILIES.persian.bold,
     fontSize: 11,
-    fontWeight: '800',
+    lineHeight: 16,
+    writingDirection: 'rtl',
   },
   recurrenceBadge: {
     paddingHorizontal: 8,
@@ -232,8 +229,10 @@ const styles = StyleSheet.create({
     borderRadius: 10,
   },
   recurrenceBadgeText: {
+    fontFamily: FONT_FAMILIES.persian.medium,
     fontSize: 10.5,
-    fontWeight: '700',
+    lineHeight: 15,
+    writingDirection: 'rtl',
   },
   timePlate: {
     paddingHorizontal: 10,
@@ -241,38 +240,42 @@ const styles = StyleSheet.create({
     borderRadius: 10,
   },
   timeText: {
-    fontSize: 11.5,
-    fontWeight: '800',
+    fontFamily: FONT_FAMILIES.english.bold,
+    fontSize: 12,
+    lineHeight: 16,
   },
   className: {
+    fontFamily: FONT_FAMILIES.persian.bold,
     fontSize: 16,
-    fontWeight: '800',
+    lineHeight: 24,
     textAlign: 'right',
+    writingDirection: 'rtl',
     marginBottom: 8,
   },
   metaRow: {
-    flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 6,
     marginBottom: 8,
   },
   metaChip: {
+    alignItems: 'center',
+    gap: 4,
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 8,
   },
   metaText: {
+    fontFamily: FONT_FAMILIES.persian.regular,
     fontSize: 11,
-    fontWeight: '600',
+    lineHeight: 16,
+    writingDirection: 'rtl',
   },
   examsRow: {
-    flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 6,
     marginBottom: 10,
   },
   examBadge: {
-    flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
     paddingHorizontal: 8,
@@ -280,15 +283,13 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     borderWidth: 1,
   },
-  examBadgeIcon: {
-    fontSize: 11,
-  },
   examBadgeText: {
+    fontFamily: FONT_FAMILIES.persian.medium,
     fontSize: 10.5,
-    fontWeight: '700',
+    lineHeight: 15,
+    writingDirection: 'rtl',
   },
   actionsFooter: {
-    flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     borderTopWidth: 1,
@@ -296,11 +297,12 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   statusFooterText: {
+    fontFamily: FONT_FAMILIES.persian.regular,
     fontSize: 10.5,
-    fontWeight: '500',
+    lineHeight: 15,
+    writingDirection: 'rtl',
   },
   buttonsGroup: {
-    flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
   },
@@ -309,32 +311,21 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.4)',
-    ...Platform.select({
-      web: {
-        boxShadow:
-          '2px 2px 5px rgba(166, 175, 195, 0.35), -2px -2px 5px rgba(255, 255, 255, 0.7)',
-      } as any,
-    }),
-  },
-  actionBtnPressed: {
-    ...Platform.select({
-      web: {
-        boxShadow:
-          'inset 1px 1px 3px rgba(166, 175, 195, 0.5), inset -1px -1px 3px rgba(255, 255, 255, 0.8)',
-      } as any,
-    }),
   },
   editBtnText: {
+    fontFamily: FONT_FAMILIES.persian.bold,
     fontSize: 11.5,
-    fontWeight: '700',
+    lineHeight: 16,
+    writingDirection: 'rtl',
   },
   deleteBtn: {
-    borderColor: 'rgba(244, 63, 94, 0.2)',
+    borderColor: 'rgba(239, 68, 68, 0.4)',
   },
   deleteBtnText: {
-    color: '#e11d48',
+    fontFamily: FONT_FAMILIES.persian.bold,
     fontSize: 11.5,
-    fontWeight: '700',
+    lineHeight: 16,
+    color: '#ef4444',
+    writingDirection: 'rtl',
   },
 });

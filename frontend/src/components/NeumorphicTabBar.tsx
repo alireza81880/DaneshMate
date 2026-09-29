@@ -1,13 +1,17 @@
 import React from 'react';
 import { View, Text, StyleSheet, Pressable, Platform } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../theme/ThemeContext';
+import { Icon, IconName } from './Icon';
+import { FONT_FAMILIES } from '../theme/typography';
+import { rtlStyles } from '../utils/rtl';
 
 export type MainTabType = 'home' | 'notes' | 'reports' | 'profile' | 'settings';
 
 interface TabItem {
   id: MainTabType;
   label: string;
-  icon: string;
+  icon: IconName;
   badge?: number;
 }
 
@@ -22,21 +26,31 @@ export const NeumorphicTabBar: React.FC<NeumorphicTabBarProps> = ({
   onTabPress,
   notesCount = 0,
 }) => {
+  const insets = useSafeAreaInsets();
   const { palette } = useTheme();
 
   const tabs: TabItem[] = [
-    { id: 'home', label: 'داشبورد', icon: '🏠' },
-    { id: 'notes', label: 'یادداشت کلاس', icon: '🎙️', badge: notesCount > 0 ? notesCount : undefined },
-    { id: 'reports', label: 'گزارشات', icon: '📊' },
-    { id: 'profile', label: 'پروفایل', icon: '👤' },
-    { id: 'settings', label: 'تنظیمات', icon: '⚙️' },
+    { id: 'home', label: 'داشبورد', icon: 'home' },
+    { id: 'notes', label: 'یادداشت کلاس', icon: 'notes', badge: notesCount > 0 ? notesCount : undefined },
+    { id: 'reports', label: 'گزارشات', icon: 'reports' },
+    { id: 'profile', label: 'پروفایل', icon: 'profile' },
+    { id: 'settings', label: 'تنظیمات', icon: 'palette' },
   ];
 
   return (
-    <View style={styles.outerContainer}>
+    <View
+      style={[
+        styles.outerContainer,
+        {
+          paddingBottom: Math.max(insets.bottom + 8, Platform.OS === 'ios' ? 24 : 12),
+        },
+      ]}
+      pointerEvents="box-none"
+    >
       <View
         style={[
           styles.barContainer,
+          rtlStyles.row,
           {
             backgroundColor: palette.surfaceCard,
             borderColor: palette.border,
@@ -45,6 +59,7 @@ export const NeumorphicTabBar: React.FC<NeumorphicTabBarProps> = ({
       >
         {tabs.map((tab) => {
           const isActive = activeTab === tab.id;
+          const iconColor = isActive ? palette.primary : palette.textSecondary;
           return (
             <Pressable
               key={tab.id}
@@ -63,7 +78,7 @@ export const NeumorphicTabBar: React.FC<NeumorphicTabBarProps> = ({
               accessibilityLabel={tab.label}
             >
               <View style={styles.iconContainer}>
-                <Text style={styles.tabIcon}>{tab.icon}</Text>
+                <Icon name={tab.icon} size={20} color={iconColor} />
                 {tab.badge ? (
                   <View style={[styles.badge, { backgroundColor: palette.primary }]}>
                     <Text style={styles.badgeText}>{tab.badge}</Text>
@@ -76,7 +91,7 @@ export const NeumorphicTabBar: React.FC<NeumorphicTabBarProps> = ({
                   styles.tabLabel,
                   {
                     color: isActive ? palette.primary : palette.textSecondary,
-                    fontWeight: isActive ? '900' : '600',
+                    fontFamily: isActive ? FONT_FAMILIES.persian.bold : FONT_FAMILIES.persian.medium,
                   },
                 ]}
               >
@@ -98,16 +113,15 @@ export const NeumorphicTabBar: React.FC<NeumorphicTabBarProps> = ({
 const styles = StyleSheet.create({
   outerContainer: {
     paddingHorizontal: 16,
-    paddingBottom: Platform.OS === 'ios' ? 24 : 14,
     paddingTop: 8,
     position: 'absolute',
     bottom: 0,
     left: 0,
     right: 0,
     backgroundColor: 'transparent',
+    zIndex: 50,
   },
   barContainer: {
-    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-around',
     borderRadius: 26,
@@ -142,30 +156,24 @@ const styles = StyleSheet.create({
   tabBtnInactive: {},
   tabBtnActive: {
     borderWidth: 1,
-    ...Platform.select({
-      web: {
-        boxShadow: 'inset 2px 2px 4px rgba(0,0,0,0.12), inset -2px -2px 4px rgba(255,255,255,0.7)',
-      } as any,
-    }),
   },
   iconContainer: {
     position: 'relative',
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  tabIcon: {
-    fontSize: 20,
-    marginBottom: 2,
+    marginBottom: 4,
   },
   tabLabel: {
-    fontSize: 10,
+    fontSize: 10.5,
+    lineHeight: 15,
     textAlign: 'center',
+    writingDirection: 'rtl',
   },
   activeDot: {
     width: 4,
     height: 4,
     borderRadius: 2,
-    marginTop: 2,
+    marginTop: 3,
   },
   badge: {
     position: 'absolute',
@@ -181,6 +189,6 @@ const styles = StyleSheet.create({
   badgeText: {
     color: '#ffffff',
     fontSize: 9,
-    fontWeight: '900',
+    fontFamily: FONT_FAMILIES.english.bold,
   },
 });

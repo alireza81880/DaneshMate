@@ -8,8 +8,11 @@ import {
   Platform,
   TouchableWithoutFeedback,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../theme/ThemeContext';
 import { hapticFeedback } from '../utils/haptics';
+import { Icon, IconName } from './Icon';
+import { FONT_FAMILIES } from '../theme/typography';
 
 export type MainTabType = 'home' | 'notes' | 'reports' | 'profile' | 'settings';
 
@@ -35,68 +38,21 @@ const MENU_ITEMS: RadialMenuItem[] = [
 const RADIUS = 96;
 
 /**
- * Ultra-Modern Vector Icon Node (Replacing childish system emojis)
+ * Ultra-Modern Vector Icon Node (Replacing emojis/symbols with unified vector icons)
  */
 const VectorIconNode: React.FC<{ type: MainTabType; color: string; size?: number }> = ({
   type,
   color,
   size = 20,
 }) => {
-  if (Platform.OS === 'web') {
-    switch (type) {
-      case 'home':
-        return (
-          <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
-            <polyline points="9 22 9 12 15 12 15 22" />
-          </svg>
-        );
-      case 'notes':
-        return (
-          <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z" />
-            <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-            <line x1="12" y1="19" x2="12" y2="23" />
-            <line x1="8" y1="23" x2="16" y2="23" />
-          </svg>
-        );
-      case 'reports':
-        return (
-          <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <line x1="18" y1="20" x2="18" y2="10" />
-            <line x1="12" y1="20" x2="12" y2="4" />
-            <line x1="6" y1="20" x2="6" y2="14" />
-          </svg>
-        );
-      case 'profile':
-        return (
-          <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-            <circle cx="12" cy="7" r="4" />
-          </svg>
-        );
-      case 'settings':
-        return (
-          <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <circle cx="13.5" cy="6.5" r=".5" fill={color} />
-            <circle cx="17.5" cy="10.5" r=".5" fill={color} />
-            <circle cx="8.5" cy="7.5" r=".5" fill={color} />
-            <circle cx="6.5" cy="12.5" r=".5" fill={color} />
-            <path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z" />
-          </svg>
-        );
-    }
-  }
-
-  // Fallback for native runtime
-  const symbols: Record<MainTabType, string> = {
-    home: '⌂',
-    notes: '🎙',
-    reports: '❙❙❙',
-    profile: '●',
-    settings: '✦',
+  const iconMap: Record<MainTabType, IconName> = {
+    home: 'home',
+    notes: 'notes',
+    reports: 'reports',
+    profile: 'profile',
+    settings: 'palette',
   };
-  return <Text style={{ color, fontSize: size, fontWeight: '900' }}>{symbols[type]}</Text>;
+  return <Icon name={iconMap[type]} size={size} color={color} />;
 };
 
 export const FloatingRadialMenu: React.FC<FloatingRadialMenuProps> = ({
@@ -104,6 +60,7 @@ export const FloatingRadialMenu: React.FC<FloatingRadialMenuProps> = ({
   onTabSelect,
   notesCount = 0,
 }) => {
+  const insets = useSafeAreaInsets();
   const { palette } = useTheme();
   const [isOpen, setIsOpen] = useState(false);
 
@@ -169,7 +126,13 @@ export const FloatingRadialMenu: React.FC<FloatingRadialMenuProps> = ({
       )}
 
       {/* Floating Center Anchor */}
-      <View style={styles.anchorWrapper} pointerEvents="box-none">
+      <View
+        style={[
+          styles.anchorWrapper,
+          { bottom: Math.max(insets.bottom + 12, Platform.OS === 'ios' ? 34 : 20) },
+        ]}
+        pointerEvents="box-none"
+      >
         {/* Fan-Out Child Vector Items (180° to 0° arc upward) */}
         {MENU_ITEMS.map((item, index) => {
           const angleDeg = 180 - index * (180 / (MENU_ITEMS.length - 1));
@@ -288,7 +251,7 @@ export const FloatingRadialMenu: React.FC<FloatingRadialMenuProps> = ({
           accessibilityLabel={isOpen ? 'بستن منو' : 'باز کردن منوی ناوبری شعاعی'}
         >
           {isOpen ? (
-            <Text style={[styles.closeIcon, { color: palette.textPrimary }]}>✕</Text>
+            <Icon name="close" size={20} color={palette.textPrimary} />
           ) : (
             <VectorIconNode type={activeTab} color={palette.primary} size={22} />
           )}
@@ -428,8 +391,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   itemLabelText: {
-    fontSize: 9,
-    fontWeight: '800',
+    fontFamily: FONT_FAMILIES.persian.bold,
+    fontSize: 10,
+    fontWeight: '700',
     textAlign: 'center',
+    writingDirection: 'rtl',
   },
 });

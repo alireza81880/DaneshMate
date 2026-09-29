@@ -4,13 +4,14 @@ import {
   Text,
   StyleSheet,
   Modal,
-  SafeAreaView,
   ScrollView,
   TextInput,
   Pressable,
   Platform,
   Alert,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { Icon } from './Icon';
 import { useTheme } from '../theme/ThemeContext';
 import { LiquidBentoCard } from './LiquidBentoCard';
 import { NeumorphicButton } from './NeumorphicButton';
@@ -330,14 +331,14 @@ export const ClassSessionCaptureModal: React.FC<ClassSessionCaptureModalProps> =
 
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
-      <SafeAreaView style={[styles.container, { backgroundColor: palette.background }]}>
+      <SafeAreaView edges={['top', 'bottom']} style={[styles.container, { backgroundColor: palette.background }]}>
         {/* Header */}
         <View style={[styles.header, { borderBottomColor: palette.borderLuminous }]}>
           <Text style={[styles.headerTitle, { color: palette.textPrimary }]}>
             ثبت جلسه و رسانه چندرسانه‌ای
           </Text>
           <Pressable onPress={onClose} style={styles.closeBtn}>
-            <Text style={[styles.closeBtnText, { color: palette.textSecondary }]}>✕</Text>
+            <Icon name="close" size={18} color={palette.textSecondary} />
           </Pressable>
         </View>
 

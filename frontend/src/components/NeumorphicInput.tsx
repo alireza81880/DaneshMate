@@ -9,7 +9,9 @@ import {
   TextStyle,
   Platform,
 } from 'react-native';
-import { NeumorphicTheme } from '../theme/colors';
+import { useTheme } from '../theme/ThemeContext';
+import { FONT_FAMILIES } from '../theme/typography';
+import { rtlStyles } from '../utils/rtl';
 
 interface NeumorphicInputProps extends TextInputProps {
   label?: string;
@@ -29,26 +31,51 @@ export const NeumorphicInput: React.FC<NeumorphicInputProps> = ({
   icon,
   ...rest
 }) => {
+  const { palette } = useTheme();
+
   return (
     <View style={[styles.container, containerStyle]}>
       {label && (
-        <View style={styles.labelRow}>
-          <Text style={styles.label}>{label}</Text>
-          {optional && <Text style={styles.optionalBadge}>(اختیاری)</Text>}
+        <View style={[styles.labelRow, rtlStyles.row]}>
+          <Text style={[styles.label, { color: palette.textPrimary }]}>{label}</Text>
+          {optional && (
+            <Text style={[styles.optionalBadge, { color: palette.textMuted }]}>
+              (اختیاری)
+            </Text>
+          )}
         </View>
       )}
 
       {/* Recessed Inset Well for the Input Field */}
-      <View style={[styles.inputWell, !!error && styles.inputWellError]}>
+      <View
+        style={[
+          styles.inputWell,
+          rtlStyles.row,
+          {
+            backgroundColor: palette.surfaceInner,
+            borderColor: error ? palette.danger || '#ef4444' : palette.border,
+          },
+        ]}
+      >
         {icon && <View style={styles.iconContainer}>{icon}</View>}
         <TextInput
-          placeholderTextColor="#94a3b8"
-          style={[styles.input, inputStyle]}
+          placeholderTextColor={palette.textMuted}
+          style={[
+            styles.input,
+            {
+              color: palette.textPrimary,
+            },
+            inputStyle,
+          ]}
           {...rest}
         />
       </View>
 
-      {error ? <Text style={styles.errorText}>{error}</Text> : null}
+      {error ? (
+        <Text style={[styles.errorText, { color: palette.danger || '#ef4444' }]}>
+          {error}
+        </Text>
+      ) : null}
     </View>
   );
 };
@@ -59,64 +86,64 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   labelRow: {
-    flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    marginBottom: 8,
+    marginBottom: 6,
     paddingHorizontal: 2,
   },
   label: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: '#334155',
+    fontFamily: FONT_FAMILIES.persian.bold,
+    fontSize: 12.5,
+    lineHeight: 18,
+    textAlign: 'right',
+    writingDirection: 'rtl',
   },
   optionalBadge: {
+    fontFamily: FONT_FAMILIES.persian.regular,
     fontSize: 11,
-    color: '#94a3b8',
-    fontWeight: '500',
+    lineHeight: 16,
+    textAlign: 'right',
+    writingDirection: 'rtl',
   },
   inputWell: {
-    backgroundColor: '#d8dee6',
     borderRadius: 16,
     paddingHorizontal: 14,
-    paddingVertical: Platform.OS === 'ios' ? 14 : 10,
-    flexDirection: 'row',
+    paddingVertical: Platform.OS === 'ios' ? 12 : 8,
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#c6ccd6',
     ...Platform.select({
       ios: {
-        shadowColor: '#ffffff',
-        shadowOffset: { width: -2, height: -2 },
-        shadowOpacity: 0.8,
-        shadowRadius: 3,
+        shadowColor: '#000000',
+        shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.06,
+        shadowRadius: 2,
       },
       android: {
         elevation: 1,
       },
       web: {
-        boxShadow: 'inset 3px 3px 6px #bec3cc, inset -3px -3px 6px #ffffff',
+        boxShadow: 'inset 0 1px 3px rgba(0, 0, 0, 0.1)',
       } as any,
     }),
   },
-  inputWellError: {
-    borderColor: '#fca5a5',
-  },
   iconContainer: {
-    marginRight: 8,
+    marginHorizontal: 6,
   },
   input: {
     flex: 1,
-    fontSize: 14,
-    color: '#1e293b',
-    fontWeight: '600',
-    textAlign: 'right', // Supports Persian/RTL and standard input
+    fontFamily: FONT_FAMILIES.persian.regular,
+    fontSize: 13.5,
+    lineHeight: 20,
+    textAlign: 'right',
+    writingDirection: 'rtl',
   },
   errorText: {
+    fontFamily: FONT_FAMILIES.persian.medium,
     fontSize: 11,
-    color: '#e11d48',
-    fontWeight: '600',
+    lineHeight: 16,
     marginTop: 4,
     paddingHorizontal: 4,
+    textAlign: 'right',
+    writingDirection: 'rtl',
   },
 });
