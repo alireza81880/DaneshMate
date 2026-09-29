@@ -1,4 +1,4 @@
-name: Android Test APK Build (Debug)
+name: Android Test APK Build (Standalone)
 
 on:
   workflow_dispatch:
@@ -8,7 +8,7 @@ permissions:
 
 jobs:
   build-test-apk:
-    name: Build Android Test APK (arm64-v8a Debug)
+    name: Build Android Test APK (arm64-v8a Standalone)
     runs-on: ubuntu-latest
     steps:
       - name: 1. Checkout Repository
@@ -113,59 +113,113 @@ jobs:
         run: |
           npm run test:ffi
 
-      - name: 13. Assemble Android Debug APK (Debug Signing)
+      - name: 13. Generate Temporary Test Keystore & Assemble Standalone Release APK
         run: |
           mkdir -p "${GITHUB_WORKSPACE}/artifacts"
+          
+          # Generate a self-signed temporary keystore exclusively for this test run
+          TEST_KEYSTORE_PATH="${RUNNER_TEMP}/daneshmate-test.keystore"
+          TEST_PASSWORD="daneshmate_test_pass"
+          TEST_ALIAS="daneshmate_test"
+          
+          echo "[+] Generating runner-local test keystore with keytool..."
+          keytool -genkeypair -v \
+            -storetype PKCS12 \
+            -keystore "$TEST_KEYSTORE_PATH" \
+            -alias "$TEST_ALIAS" \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 365 \
+            -storepass "$TEST_PASSWORD" \
+            -keypass "$TEST_PASSWORD" \
+            -dname "CN=DaneshMateTest, OU=Mobile, O=DaneshMate, L=Tehran, ST=Tehran, C=IR"
+
+          echo "[✓] Temporary test keystore created at: $TEST_KEYSTORE_PATH"
+
           cd frontend/android
           chmod +x gradlew
 
-          # Assemble Debug APK with stacktrace
-          ./gradlew assembleDebug --stacktrace
+          # Assemble Release APK (Triggers Hermes compilation + JS offline embedding: createBundleReleaseJsAndAssets)
+          export RELEASE_KEYSTORE_PATH="$TEST_KEYSTORE_PATH"
+          export RELEASE_KEYSTORE_PASSWORD="$TEST_PASSWORD"
+          export RELEASE_KEY_ALIAS="$TEST_ALIAS"
+          export RELEASE_KEY_PASSWORD="$TEST_PASSWORD"
 
-          echo "=== Generated Debug APKs ==="
+          echo "[+] Running Gradle assembleRelease for Standalone Test APK..."
+          ./gradlew assembleRelease --stacktrace
+
+          echo "=== Generated Android APKs ==="
           find app/build/outputs/apk -type f -name "*.apk"
+          echo "=============================="
+
+          FOUND_ARM64=$(find app/build/outputs/apk -type f -name "*arm64-v8a*release*.apk" | head -n 1)
+          if [ -z "$FOUND_ARM64" ]; then
+            FOUND_ARM64=$(find app/build/outputs/apk -type f -name "*arm64-v8a*.apk" | head -n 1)
+          fi
+          if [ -z "$FOUND_ARM64" ]; then
+            FOUND_ARM64=$(find app/build/outputs/apk -type f -name "*release*.apk" | head -n 1)
+          fi
+          if [ -z "$FOUND_ARM64" ]; then
+            FOUND_ARM64=$(find app/build/outputs/apk -type f -name "*.apk" | head -n 1)
+          fi
+
+          if [ -n "$FOUND_ARM64" ] && [ -f "$FOUND_ARM64" ]; then
+            echo "[✓] Located Release APK: $FOUND_ARM64 -> DaneshMate-Android-Test.apk"
+            cp -f "$FOUND_ARM64" "${GITHUB_WORKSPACE}/artifacts/DaneshMate-Android-Test.apk"
+          else
+            echo "[-] Error: Release APK was not found!"
+            exit 1
+          fi
+
+          echo "[+] Inspecting and verifying required internal assets inside APK..."
+          APK_ENTRIES=$(unzip -l "$FOUND_ARM64")
+
+          # 1. VERIFY OFFLINE JAVASCRIPT BUNDLE (Prevents 'Unable to load script' error)
+          echo "$APK_ENTRIES" | grep -q "assets/index.android.bundle" || {
+            echo "[-] CRITICAL ERROR: Missing assets/index.android.bundle inside APK!"
+            echo "[-] The app will fail to load without Metro!"
+            exit 1
+          }
+          echo "[✓] PASS: assets/index.android.bundle is present inside APK (100% Standalone Offline Bundle)"
+
+          # 2. VERIFY EMBEDDED RUST NATIVE C-ABI LIBRARY
+          echo "$APK_ENTRIES" | grep -q "lib/arm64-v8a/libdaneshmate_core.so" || {
+            echo "[-] CRITICAL ERROR: Missing lib/arm64-v8a/libdaneshmate_core.so inside APK!"
+            exit 1
+          }
+          echo "[✓] PASS: lib/arm64-v8a/libdaneshmate_core.so is present (Embedded 64-bit Rust Core)"
+
+          # 3. VERIFY HERMES RUNTIME ENGINE
+          echo "$APK_ENTRIES" | grep -q "lib/arm64-v8a/libhermes.so" || {
+            echo "[-] CRITICAL ERROR: Missing lib/arm64-v8a/libhermes.so inside APK!"
+            exit 1
+          }
+          echo "[✓] PASS: lib/arm64-v8a/libhermes.so is present (Hermes Engine)"
+
+          echo "=== Verification Summary ==="
+          echo "APK Size: $(ls -lh "${GITHUB_WORKSPACE}/artifacts/DaneshMate-Android-Test.apk" | awk '{print $5}')"
+          echo "Signature verification:"
+          APKSIGNER_BIN=$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -n 1)
+          if [ -n "$APKSIGNER_BIN" ]; then
+            "$APKSIGNER_BIN" verify --print-certs "$FOUND_ARM64"
+          fi
           echo "============================"
 
-          FOUND_DEBUG_APK=$(find app/build/outputs/apk -type f -name "*debug*.apk" | head -n 1)
-          if [ -z "$FOUND_DEBUG_APK" ]; then
-            FOUND_DEBUG_APK=$(find app/build/outputs/apk -type f -name "*.apk" | head -n 1)
-          fi
+      - name: 14. Cleanup Temporary Keystore
+        if: always()
+        run: |
+          rm -f "${RUNNER_TEMP}/daneshmate-test.keystore" || true
+          echo "[✓] Temporary test keystore purged from runner."
 
-          if [ -n "$FOUND_DEBUG_APK" ] && [ -f "$FOUND_DEBUG_APK" ]; then
-            echo "[✓] Located Debug APK: $FOUND_DEBUG_APK -> DaneshMate-Android-Test.apk"
-            cp -f "$FOUND_DEBUG_APK" "${GITHUB_WORKSPACE}/artifacts/DaneshMate-Android-Test.apk"
-          else
-            echo "[-] Error: Debug APK was not found!"
-            exit 1
-          fi
-
-          echo "[+] Verifying required internal assets in Debug APK..."
-          APK_ENTRIES=$(unzip -l "$FOUND_DEBUG_APK")
-
-          echo "$APK_ENTRIES" | grep -q "lib/arm64-v8a/libdaneshmate_core.so" || {
-            echo "[-] ERROR: Missing lib/arm64-v8a/libdaneshmate_core.so inside APK!"
-            exit 1
-          }
-          echo "[✓] Verified lib/arm64-v8a/libdaneshmate_core.so is present"
-
-          echo "$APK_ENTRIES" | grep -q "lib/arm64-v8a/libhermes.so" || {
-            echo "[-] ERROR: Missing lib/arm64-v8a/libhermes.so inside APK!"
-            exit 1
-          }
-          echo "[✓] Verified lib/arm64-v8a/libhermes.so is present"
-
-          echo "=== Test Artifact Ready ==="
-          ls -lh "${GITHUB_WORKSPACE}/artifacts/DaneshMate-Android-Test.apk"
-
-      - name: 14. Upload Gradle Build Failure Reports
+      - name: 15. Upload Gradle Build Failure Reports
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: android-debug-build-reports
+          name: android-test-build-reports
           path: frontend/android/app/build/reports/
           if-no-files-found: ignore
 
-      - name: 15. Upload Test APK Artifact
+      - name: 16. Upload Standalone Test APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: DaneshMate-Android-Test
