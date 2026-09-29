@@ -38,6 +38,8 @@ export interface Palette {
   surfaceCard: string;
   surfaceInner: string;
   borderLuminous: string;
+  border?: string;
+  danger?: string;
   primary: string;
   primaryLight: string;
   secondaryAccent: string;
@@ -49,6 +51,7 @@ export interface Palette {
   isDark: boolean;
   boxShadowFlat: string;
   boxShadowPressed: string;
+  colors?: Record<string, string>;
 }
 
 export const THEME_PALETTES: Record<ThemeId, Palette> = {
@@ -355,3 +358,37 @@ export const THEME_PALETTES: Record<ThemeId, Palette> = {
     boxShadowPressed: 'inset 3px 3px 6px #C7BDD0, inset -3px -3px 6px #FFFFFF',
   },
 };
+
+/**
+ * NeumorphicTheme (Default tactile styling theme object)
+ * Provides static color constants and radius values consumed by Neumorphic components.
+ */
+export const NeumorphicTheme = {
+  colors: {
+    background: '#E0E5EC',
+    surface: '#E0E5EC',
+    primary: '#4361EE',
+    primaryLight: '#4895EF',
+    secondary: '#3F37C9',
+    textPrimary: '#1E293B',
+    textSecondary: '#64748B',
+    textMuted: '#94A3B8',
+    shadowDark: '#A3B1C6',
+    shadowLight: '#FFFFFF',
+    border: 'rgba(255, 255, 255, 0.7)',
+    success: '#10B981',
+    warning: '#F59E0B',
+    danger: '#EF4444',
+  },
+  radius: {
+    xs: 4,
+    sm: 8,
+    md: 12,
+    lg: 16,
+    xl: 24,
+    full: 9999,
+  },
+};
+
+export const theme = NeumorphicTheme;
+export default NeumorphicTheme;

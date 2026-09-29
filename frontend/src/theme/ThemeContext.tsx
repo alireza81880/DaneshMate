@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, ReactNode } from 'react';
-import { THEME_PALETTES, Palette, ThemeId, ThemeCategory } from './colors';
+import { THEME_PALETTES, Palette, ThemeId, ThemeCategory, NeumorphicTheme } from './colors';
 
 interface ThemeContextType {
   themeId: ThemeId;
@@ -7,9 +7,11 @@ interface ThemeContextType {
   setThemeId: (id: ThemeId) => void;
   availablePalettes: Palette[];
   palettesByCategory: Record<ThemeCategory, Palette[]>;
+  theme: typeof NeumorphicTheme;
+  colors: typeof NeumorphicTheme.colors;
 }
 
-const ThemeContext = createContext<ThemeContextType>({
+const defaultContextValue: ThemeContextType = {
   themeId: 'deep-space',
   palette: THEME_PALETTES['deep-space'],
   setThemeId: () => {},
@@ -20,7 +22,11 @@ const ThemeContext = createContext<ThemeContextType>({
     'Dark & Monochromatic': Object.values(THEME_PALETTES).filter((p) => p.category === 'Dark & Monochromatic'),
     'Premium High-Contrast': Object.values(THEME_PALETTES).filter((p) => p.category === 'Premium High-Contrast'),
   },
-});
+  theme: NeumorphicTheme,
+  colors: NeumorphicTheme.colors,
+};
+
+const ThemeContext = createContext<ThemeContextType>(defaultContextValue);
 
 export const ThemeProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [themeId, setThemeId] = useState<ThemeId>('deep-space');
@@ -35,9 +41,34 @@ export const ThemeProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     'Premium High-Contrast': availablePalettes.filter((p) => p.category === 'Premium High-Contrast'),
   };
 
+  const dynamicTheme = {
+    ...NeumorphicTheme,
+    colors: {
+      ...NeumorphicTheme.colors,
+      background: palette.background,
+      surface: palette.surfaceCard,
+      primary: palette.primary,
+      primaryLight: palette.primaryLight,
+      secondary: palette.secondaryAccent,
+      textPrimary: palette.textPrimary,
+      textSecondary: palette.textSecondary,
+      textMuted: palette.textMuted,
+      border: palette.borderLuminous,
+      shadowDark: palette.glowColor || NeumorphicTheme.colors.shadowDark,
+    },
+  };
+
   return (
     <ThemeContext.Provider
-      value={{ themeId, palette, setThemeId, availablePalettes, palettesByCategory }}
+      value={{
+        themeId,
+        palette,
+        setThemeId,
+        availablePalettes,
+        palettesByCategory,
+        theme: dynamicTheme,
+        colors: dynamicTheme.colors,
+      }}
     >
       {children}
     </ThemeContext.Provider>
@@ -45,3 +76,4 @@ export const ThemeProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 };
 
 export const useTheme = () => useContext(ThemeContext);
+
