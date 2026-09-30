@@ -6,7 +6,7 @@ Param(
 $ErrorActionPreference = "Stop"
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $BackendDir = Resolve-Path "$ScriptDir\.."
-$AndroidJniLibs = "$BackendDir\..\frontend\android\app\src\main\jniLibs"
+$AndroidJniLibs = "$BackendDir\..\android\app\src\main\jniLibs"
 
 Write-Host "=== DaneshMate Rust Core Android Cross-Compilation ===" -ForegroundColor Cyan
 Set-Location $BackendDir

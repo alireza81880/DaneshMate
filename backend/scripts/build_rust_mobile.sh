@@ -10,8 +10,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BACKEND_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 WORKSPACE_ROOT="$(cd "${BACKEND_DIR}/.." && pwd)"
 
-ANDROID_JNILIBS_DIR="${WORKSPACE_ROOT}/frontend/android/app/src/main/jniLibs"
-IOS_FRAMEWORKS_DIR="${WORKSPACE_ROOT}/frontend/ios/Frameworks"
+ANDROID_JNILIBS_DIR="${WORKSPACE_ROOT}/android/app/src/main/jniLibs"
+IOS_FRAMEWORKS_DIR="${WORKSPACE_ROOT}/ios/Frameworks"
 
 echo "=== DaneshMate Embedded Rust Core Cross-Compiler ==="
 echo "Backend Dir:    ${BACKEND_DIR}"

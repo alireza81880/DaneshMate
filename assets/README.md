@@ -40,8 +40,8 @@ Android dynamically applies masks (circle, squircle, rounded rectangle) to adapt
 ## 🔄 How to Replace with Custom Assets
 1. Export your custom vector logo as 32-bit transparent PNGs matching the canvas dimensions above.
 2. Overwrite the files in this directory with the exact same filenames:
-   - `frontend/assets/icon.png`
-   - `frontend/assets/adaptive-icon.png`
-   - `frontend/assets/splash.png`
-   - `frontend/assets/favicon.png`
+   - `assets/icon.png`
+   - `assets/adaptive-icon.png`
+   - `assets/splash.png`
+   - `assets/favicon.png`
 3. Run `npm run test:ffi` or re-export the application bundles to propagate the new assets.
