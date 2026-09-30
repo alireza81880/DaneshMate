@@ -4,7 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTheme } from '../theme/ThemeContext';
 import { Icon, IconName } from './Icon';
 import { FONT_FAMILIES } from '../theme/typography';
-import { rtlStyles } from '../utils/rtl';
+import { getRtlRow } from '../utils/rtl';
 
 export type MainTabType = 'home' | 'notes' | 'reports' | 'profile' | 'settings';
 
@@ -30,19 +30,21 @@ export const NeumorphicTabBar: React.FC<NeumorphicTabBarProps> = ({
   const { palette } = useTheme();
 
   const tabs: TabItem[] = [
-    { id: 'home', label: 'داشبورد', icon: 'home' },
-    { id: 'notes', label: 'یادداشت کلاس', icon: 'notes', badge: notesCount > 0 ? notesCount : undefined },
-    { id: 'reports', label: 'گزارشات', icon: 'reports' },
+    { id: 'home', label: 'خانه', icon: 'home' },
+    { id: 'notes', label: 'یادداشت‌ها', icon: 'notes', badge: notesCount > 0 ? notesCount : undefined },
+    { id: 'reports', label: 'گزارش‌ها', icon: 'reports' },
     { id: 'profile', label: 'پروفایل', icon: 'profile' },
-    { id: 'settings', label: 'تنظیمات', icon: 'palette' },
+    { id: 'settings', label: 'پوسته‌ها', icon: 'palette' },
   ];
+
+  const barBg = palette.isDark ? '#141A28' : palette.surfaceCard;
 
   return (
     <View
       style={[
         styles.outerContainer,
         {
-          paddingBottom: Math.max(insets.bottom + 8, Platform.OS === 'ios' ? 24 : 12),
+          paddingBottom: Math.max(insets.bottom + 6, Platform.OS === 'ios' ? 20 : 10),
         },
       ]}
       pointerEvents="box-none"
@@ -50,37 +52,37 @@ export const NeumorphicTabBar: React.FC<NeumorphicTabBarProps> = ({
       <View
         style={[
           styles.barContainer,
-          rtlStyles.row,
           {
-            backgroundColor: palette.surfaceCard,
-            borderColor: palette.border,
+            flexDirection: getRtlRow(),
+            backgroundColor: barBg,
+            borderColor: palette.borderLuminous,
+            borderTopColor: palette.isDark ? 'rgba(255, 255, 255, 0.2)' : 'rgba(255, 255, 255, 0.8)',
           },
         ]}
       >
         {tabs.map((tab) => {
           const isActive = activeTab === tab.id;
-          const iconColor = isActive ? palette.primary : palette.textSecondary;
+          const iconColor = isActive ? '#FFFFFF' : palette.textSecondary;
           return (
             <Pressable
               key={tab.id}
               onPress={() => onTabPress(tab.id)}
               style={({ pressed }) => [
                 styles.tabBtn,
-                isActive ? styles.tabBtnActive : styles.tabBtnInactive,
                 {
-                  backgroundColor: isActive ? palette.surfaceInner : 'transparent',
-                  borderColor: isActive ? palette.primary : 'transparent',
+                  backgroundColor: isActive ? palette.primary : 'transparent',
                 },
-                pressed && { opacity: 0.8 },
+                isActive && styles.activeTabGlow,
+                pressed && { opacity: 0.85, transform: [{ scale: 0.96 }] },
               ]}
               accessibilityRole="tab"
               accessibilityState={{ selected: isActive }}
               accessibilityLabel={tab.label}
             >
               <View style={styles.iconContainer}>
-                <Icon name={tab.icon} size={20} color={iconColor} />
+                <Icon name={tab.icon} size={19} color={iconColor} />
                 {tab.badge ? (
-                  <View style={[styles.badge, { backgroundColor: palette.primary }]}>
+                  <View style={[styles.badge, { backgroundColor: '#EF4444' }]}>
                     <Text style={styles.badgeText}>{tab.badge}</Text>
                   </View>
                 ) : null}
@@ -90,18 +92,13 @@ export const NeumorphicTabBar: React.FC<NeumorphicTabBarProps> = ({
                 style={[
                   styles.tabLabel,
                   {
-                    color: isActive ? palette.primary : palette.textSecondary,
+                    color: isActive ? '#FFFFFF' : palette.textSecondary,
                     fontFamily: isActive ? FONT_FAMILIES.persian.bold : FONT_FAMILIES.persian.medium,
                   },
                 ]}
               >
                 {tab.label}
               </Text>
-
-              {/* Active Indicator Dot */}
-              {isActive && (
-                <View style={[styles.activeDot, { backgroundColor: palette.primary }]} />
-              )}
             </Pressable>
           );
         })}
@@ -112,34 +109,30 @@ export const NeumorphicTabBar: React.FC<NeumorphicTabBarProps> = ({
 
 const styles = StyleSheet.create({
   outerContainer: {
-    paddingHorizontal: 16,
-    paddingTop: 8,
     position: 'absolute',
-    bottom: 0,
     left: 0,
     right: 0,
-    backgroundColor: 'transparent',
-    zIndex: 50,
+    bottom: 0,
+    paddingHorizontal: 16,
+    zIndex: 90,
   },
   barContainer: {
     alignItems: 'center',
-    justifyContent: 'space-around',
-    borderRadius: 26,
-    paddingVertical: 8,
+    justifyContent: 'space-between',
+    paddingVertical: 6,
     paddingHorizontal: 6,
-    borderWidth: 1,
+    borderRadius: 22,
+    borderWidth: 1.2,
     ...Platform.select({
-      web: {
-        boxShadow: '0 8px 24px rgba(0,0,0,0.12), 0 2px 8px rgba(255,255,255,0.6)',
-      } as any,
       ios: {
         shadowColor: '#000000',
         shadowOffset: { width: 0, height: 6 },
-        shadowOpacity: 0.12,
-        shadowRadius: 12,
+        shadowOpacity: 0.35,
+        shadowRadius: 14,
       },
       android: {
-        elevation: 8,
+        elevation: 10,
+        shadowColor: '#000000',
       },
     }),
   },
@@ -148,47 +141,48 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 8,
-    paddingHorizontal: 4,
-    borderRadius: 18,
-    marginHorizontal: 2,
-    position: 'relative',
+    paddingHorizontal: 2,
+    borderRadius: 16,
+    gap: 3,
   },
-  tabBtnInactive: {},
-  tabBtnActive: {
-    borderWidth: 1,
+  activeTabGlow: {
+    ...Platform.select({
+      ios: {
+        shadowColor: '#3B82F6',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.4,
+        shadowRadius: 6,
+      },
+      android: {
+        elevation: 4,
+      },
+    }),
   },
   iconContainer: {
     position: 'relative',
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 4,
-  },
-  tabLabel: {
-    fontSize: 10.5,
-    lineHeight: 15,
-    textAlign: 'center',
-    writingDirection: 'rtl',
-  },
-  activeDot: {
-    width: 4,
-    height: 4,
-    borderRadius: 2,
-    marginTop: 3,
   },
   badge: {
     position: 'absolute',
     top: -4,
-    right: -8,
+    right: -10,
+    minWidth: 16,
+    height: 16,
     borderRadius: 8,
     paddingHorizontal: 4,
-    paddingVertical: 1,
-    minWidth: 14,
     alignItems: 'center',
     justifyContent: 'center',
   },
   badgeText: {
     color: '#ffffff',
-    fontSize: 9,
-    fontFamily: FONT_FAMILIES.english.bold,
+    fontSize: 9.5,
+    fontWeight: '800',
+  },
+  tabLabel: {
+    fontSize: 10.5,
+    lineHeight: 14,
+    textAlign: 'center',
+    writingDirection: 'rtl',
   },
 });

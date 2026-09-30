@@ -7,14 +7,12 @@ import {
   TouchableOpacity,
   Pressable,
   Animated,
-  ScrollView,
   Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useTheme } from '../theme/ThemeContext';
 import { FONT_FAMILIES } from '../theme/typography';
-import { rtlStyles } from '../utils/rtl';
-import { NeumorphicCard } from './NeumorphicCard';
-import { NeumorphicButton } from './NeumorphicButton';
+import { Icon } from './Icon';
 import {
   PERSIAN_MONTHS,
   getCurrentJalaliDate,
@@ -39,18 +37,19 @@ const FULL_WEEK_DAYS = ['شنبه', 'یکشنبه', 'دوشنبه', 'سه‌شن
 
 /**
  * SpringCalendarModal
- * Reusable Neumorphic Spring-Animated Jalali Calendar Modal
- * Designed with physical spring dynamics (bounciness: 8, speed: 12)
- * Features deep Neumorphic inset wells for date grids & soft elevated surfaces for active chips.
+ * Faithfully matches the Web Jalali Spring Calendar Modal (src/App.tsx lines 3440-3610)
+ * Uses high-contrast solid cyber-luxe surfaces, deep inset well, month switcher,
+ * and Android-compatible tactile depth.
  */
 export const SpringCalendarModal: React.FC<SpringCalendarModalProps> = ({
   visible,
   onClose,
   onSelectDate,
   initialDate,
-  title = 'تاریخ اولین جلسه این کلاس را انتخاب کنید',
-  subtitle = 'برای محاسبه دقیق یادآورها و تعیین چرخه ۱۴ روزه (هفته‌های زوج و فرد)، تاریخ مبدأ را مشخص نمایید.',
+  title = 'تاریخ اولین جلسه این کلاس را مشخص کنید',
+  subtitle = 'مبدأ چرخه ۱۴ روزه و پیش‌بینی ۸ جلسه تا پایان ترم',
 }) => {
+  const { palette } = useTheme();
   const [currentJYear, currentJMonth, currentJDay] = getCurrentJalaliDate();
 
   // Internal state for selected Jalali Year, Month, Day
@@ -59,7 +58,7 @@ export const SpringCalendarModal: React.FC<SpringCalendarModalProps> = ({
   const [selectedDay, setSelectedDay] = useState<number>(currentJDay);
 
   // Animated Values for Spring Motion
-  const scaleAnim = useRef(new Animated.Value(0.7)).current;
+  const scaleAnim = useRef(new Animated.Value(0.75)).current;
   const opacityAnim = useRef(new Animated.Value(0)).current;
 
   // Initialize from initialDate if provided
@@ -86,13 +85,13 @@ export const SpringCalendarModal: React.FC<SpringCalendarModalProps> = ({
   // Handle Smooth Spring Transitions on Open
   useEffect(() => {
     if (visible) {
-      scaleAnim.setValue(0.72);
+      scaleAnim.setValue(0.75);
       opacityAnim.setValue(0);
 
       Animated.parallel([
         Animated.spring(scaleAnim, {
           toValue: 1,
-          bounciness: 8,
+          bounciness: 7,
           speed: 12,
           useNativeDriver: true,
         }),
@@ -108,13 +107,13 @@ export const SpringCalendarModal: React.FC<SpringCalendarModalProps> = ({
   const handleDismiss = useCallback(() => {
     Animated.parallel([
       Animated.timing(scaleAnim, {
-        toValue: 0.78,
-        duration: 140,
+        toValue: 0.8,
+        duration: 130,
         useNativeDriver: true,
       }),
       Animated.timing(opacityAnim, {
         toValue: 0,
-        duration: 140,
+        duration: 130,
         useNativeDriver: true,
       }),
     ]).start(() => {
@@ -130,7 +129,6 @@ export const SpringCalendarModal: React.FC<SpringCalendarModalProps> = ({
     const standardDateStr = `${selectedYear}/${mm}/${dd}`;
     const timestamp = jalaliToTimestamp(selectedYear, selectedMonth, selectedDay);
 
-    // Compute Persian weekday name for label
     const [gy, gm, gd] = jalaliToGregorian(selectedYear, selectedMonth, selectedDay);
     const dayOfWeek = (new Date(gy, gm - 1, gd).getDay() + 1) % 7;
     const weekDayName = FULL_WEEK_DAYS[dayOfWeek];
@@ -155,19 +153,12 @@ export const SpringCalendarModal: React.FC<SpringCalendarModalProps> = ({
 
   // Calculate Calendar Grid Metrics
   const daysInMonth = getDaysInJalaliMonth(selectedYear, selectedMonth);
-
-  // Calculate day of week of the 1st of this Jalali month
   const [firstGy, firstGm, firstGd] = jalaliToGregorian(selectedYear, selectedMonth, 1);
   const firstGDate = new Date(firstGy, firstGm - 1, firstGd);
   const firstColOffset = (firstGDate.getDay() + 1) % 7; // Saturday = 0, ..., Friday = 6
 
-  // Available Years
-  const availableYears = [currentJYear - 1, currentJYear, currentJYear + 1, currentJYear + 2];
-
-  // Currently selected weekday for top indicator
-  const [selectedGy, selectedGm, selectedGd] = jalaliToGregorian(selectedYear, selectedMonth, selectedDay);
-  const currentWeekdayIndex = (new Date(selectedGy, selectedGm - 1, selectedGd).getDay() + 1) % 7;
-  const currentWeekdayName = FULL_WEEK_DAYS[currentWeekdayIndex];
+  // Solid dark modal surface matching Web
+  const modalBg = palette.isDark ? '#141A26' : palette.surfaceCard;
 
   return (
     <Modal
@@ -190,142 +181,122 @@ export const SpringCalendarModal: React.FC<SpringCalendarModalProps> = ({
             },
           ]}
         >
-          <NeumorphicCard style={styles.modalCard} borderRadius={28}>
-            {/* Header Badge & Title */}
-            <View style={styles.header}>
-              <View style={styles.biweeklyBadge}>
-                <Text style={styles.biweeklyBadgeIcon}>🎯</Text>
-                <Text style={styles.biweeklyBadgeText}>یک هفته در میان (چرخه ۱۴ روزه)</Text>
+          <View
+            style={[
+              styles.modalCard,
+              {
+                backgroundColor: modalBg,
+                borderColor: palette.borderLuminous,
+                borderTopColor: palette.isDark ? 'rgba(255, 255, 255, 0.2)' : 'rgba(255, 255, 255, 0.9)',
+              },
+            ]}
+          >
+            {/* Modal Header */}
+            <View style={[styles.header, { borderBottomColor: palette.divider || 'rgba(255, 255, 255, 0.08)' }]}>
+              <View style={styles.headerLeft}>
+                <View style={[styles.headerIconWrap, { backgroundColor: palette.primary }]}>
+                  <Icon name="calendar" size={16} color="#FFFFFF" />
+                </View>
+                <View style={styles.headerTextGroup}>
+                  <Text style={[styles.title, { color: palette.textPrimary }]}>{title}</Text>
+                  <Text style={[styles.subtitle, { color: palette.textSecondary }]}>{subtitle}</Text>
+                </View>
               </View>
-              <Text style={styles.title}>{title}</Text>
-              <Text style={styles.subtitle}>{subtitle}</Text>
-            </View>
-
-            {/* Active Date Elevation Pill */}
-            <View style={styles.activePillCard}>
-              <View style={styles.activePillLeft}>
-                <Text style={styles.activePillWeekday}>{currentWeekdayName}</Text>
-                <Text style={styles.activePillDate}>
-                  {toPersianDigits(selectedDay)} {PERSIAN_MONTHS[selectedMonth - 1]} {toPersianDigits(selectedYear)}
-                </Text>
-              </View>
-              <View style={styles.activePillTag}>
-                <Text style={styles.activePillTagText}>تاریخ مبدأ</Text>
-              </View>
-            </View>
-
-            {/* Year Selector */}
-            <View style={styles.sectionRow}>
-              <Text style={styles.sectionHeaderLabel}>سال تحصیلی:</Text>
-              <View style={styles.yearChipsWrap}>
-                {availableYears.map((yr) => {
-                  const isSel = selectedYear === yr;
-                  return (
-                    <TouchableOpacity
-                      key={yr}
-                      onPress={() => {
-                        hapticFeedback.selection();
-                        setSelectedYear(yr);
-                      }}
-                      activeOpacity={0.7}
-                      style={[styles.yearChip, isSel && styles.yearChipActive]}
-                    >
-                      <Text style={[styles.yearChipText, isSel && styles.yearChipTextActive]}>
-                        {toPersianDigits(yr)}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-            </View>
-
-            {/* Month Selector (Horizontal Scroll with Neumorphic Chips) */}
-            <View style={styles.sectionRow}>
-              <Text style={styles.sectionHeaderLabel}>ماه:</Text>
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={styles.monthsScrollTrack}
+              <TouchableOpacity
+                onPress={handleDismiss}
+                style={[styles.closeBtn, { backgroundColor: palette.surfaceInner, borderColor: palette.borderLuminous }]}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
               >
-                {PERSIAN_MONTHS.map((mName, idx) => {
-                  const mNum = idx + 1;
-                  const isSel = selectedMonth === mNum;
-                  return (
-                    <TouchableOpacity
-                      key={mName}
-                      onPress={() => {
-                        hapticFeedback.selection();
-                        setSelectedMonth(mNum);
-                        const maxD = getDaysInJalaliMonth(selectedYear, mNum);
-                        if (selectedDay > maxD) {
-                          setSelectedDay(maxD);
-                        }
-                      }}
-                      activeOpacity={0.7}
-                      style={[styles.monthChip, isSel && styles.monthChipActive]}
-                    >
-                      <Text style={[styles.monthChipText, isSel && styles.monthChipTextActive]}>
-                        {mName}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </ScrollView>
+                <Icon name="close" size={16} color={palette.textSecondary} />
+              </TouchableOpacity>
             </View>
 
-            {/* DEEP NEUMORPHIC INSET WELL: Calendar Day Grid */}
-            <View style={styles.insetWellContainer}>
-              {/* Day-of-Week Column Headers */}
-              <View style={styles.weekHeadersRow}>
-                {WEEK_DAY_LABELS.map((label, i) => (
-                  <View key={i} style={styles.weekHeaderCell}>
-                    <Text
-                      style={[
-                        styles.weekHeaderText,
-                        i === 6 && { color: '#EF4444' }, // جمعه (Friday) in red accent
-                      ]}
-                    >
+            {/* Month Navigation Row */}
+            <View style={[styles.monthNavRow, { backgroundColor: palette.surfaceInner, borderColor: palette.borderLuminous }]}>
+              <TouchableOpacity
+                onPress={() => {
+                  hapticFeedback.selection();
+                  if (selectedMonth === 1) {
+                    setSelectedYear((y) => y - 1);
+                    setSelectedMonth(12);
+                  } else {
+                    setSelectedMonth((m) => m - 1);
+                  }
+                }}
+                style={styles.monthNavBtn}
+              >
+                <Text style={[styles.monthNavArrow, { color: palette.primaryLight }]}>‹ ماه قبل</Text>
+              </TouchableOpacity>
+
+              <Text style={[styles.monthTitleText, { color: palette.textPrimary }]}>
+                {PERSIAN_MONTHS[selectedMonth - 1]} {toPersianDigits(selectedYear)}
+              </Text>
+
+              <TouchableOpacity
+                onPress={() => {
+                  hapticFeedback.selection();
+                  if (selectedMonth === 12) {
+                    setSelectedYear((y) => y + 1);
+                    setSelectedMonth(1);
+                  } else {
+                    setSelectedMonth((m) => m + 1);
+                  }
+                }}
+                style={styles.monthNavBtn}
+              >
+                <Text style={[styles.monthNavArrow, { color: palette.primaryLight }]}>ماه بعد ›</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Inset Well for Date Grid */}
+            <View style={[styles.insetWell, { backgroundColor: palette.surfaceInner, borderColor: palette.borderLuminous }]}>
+              {/* Week Day Labels */}
+              <View style={[styles.weekDaysRow, { borderBottomColor: palette.divider || 'rgba(255, 255, 255, 0.06)' }]}>
+                {WEEK_DAY_LABELS.map((label, idx) => (
+                  <View key={label} style={styles.weekDayCell}>
+                    <Text style={[styles.weekDayText, idx === 6 && styles.fridayText]}>
                       {label}
                     </Text>
                   </View>
                 ))}
               </View>
 
-              {/* 7-Column Days Grid */}
-              <View style={styles.daysMatrixGrid}>
-                {/* Empty offset spacer cells before the 1st of month */}
-                {Array.from({ length: firstColOffset }, (_, i) => (
-                  <View key={`empty-${i}`} style={styles.emptyDayCell} />
+              {/* Days Matrix */}
+              <View style={styles.daysMatrix}>
+                {Array.from({ length: firstColOffset }).map((_, i) => (
+                  <View key={`empty-${i}`} style={styles.dayCellWrapper} />
                 ))}
 
-                {/* Day Number Chips */}
-                {Array.from({ length: daysInMonth }, (_, i) => i + 1).map((d) => {
-                  const isSelected = selectedDay === d;
-                  const dayColIndex = (firstColOffset + (d - 1)) % 7;
-                  const isFriday = dayColIndex === 6;
-
+                {Array.from({ length: daysInMonth }).map((_, i) => {
+                  const dayNum = i + 1;
+                  const isSel = selectedDay === dayNum;
                   return (
                     <TouchableOpacity
-                      key={d}
+                      key={dayNum}
                       onPress={() => {
-                        hapticFeedback.medium();
-                        setSelectedDay(d);
+                        hapticFeedback.selection();
+                        setSelectedDay(dayNum);
                       }}
-                      activeOpacity={0.7}
                       style={[
                         styles.dayCell,
-                        isFriday && styles.dayCellFriday,
-                        isSelected && styles.dayCellSelected,
+                        isSel && [
+                          styles.dayCellSelected,
+                          {
+                            backgroundColor: palette.primary,
+                            shadowColor: palette.primary,
+                          },
+                        ],
                       ]}
+                      activeOpacity={0.7}
                     >
                       <Text
                         style={[
                           styles.dayCellText,
-                          isFriday && styles.dayCellTextFriday,
-                          isSelected && styles.dayCellTextSelected,
+                          { color: isSel ? '#FFFFFF' : palette.textPrimary },
+                          isSel && styles.dayCellTextSelected,
                         ]}
                       >
-                        {toPersianDigits(d)}
+                        {toPersianDigits(dayNum)}
                       </Text>
                     </TouchableOpacity>
                   );
@@ -333,23 +304,48 @@ export const SpringCalendarModal: React.FC<SpringCalendarModalProps> = ({
               </View>
             </View>
 
+            {/* Selected Anchor Preview Chip */}
+            <View style={[styles.previewChip, { backgroundColor: palette.surfaceInner, borderColor: palette.borderLuminous }]}>
+              <Text style={[styles.previewChipDate, { color: palette.primaryLight }]}>
+                مبدأ دوره: {toPersianDigits(selectedDay)} {PERSIAN_MONTHS[selectedMonth - 1]} {toPersianDigits(selectedYear)}
+              </Text>
+              <Text style={styles.previewChipSubtitle}>
+                ✨ پیش‌بینی خودکار ۸ جلسه تا پایان ۱۶ هفته ترم تحصیلی
+              </Text>
+            </View>
+
             {/* Action Buttons */}
             <View style={styles.actionRow}>
-              <NeumorphicButton
-                title="انصراف"
-                size="md"
+              <TouchableOpacity
                 onPress={handleDismiss}
-                style={styles.cancelBtn}
-              />
-              <NeumorphicButton
-                title="تأیید تاریخ مبدأ"
-                variant="primary"
-                size="md"
+                style={[
+                  styles.cancelButton,
+                  {
+                    backgroundColor: palette.surfaceInner,
+                    borderColor: palette.borderLuminous,
+                  },
+                ]}
+                activeOpacity={0.7}
+              >
+                <Text style={[styles.cancelButtonText, { color: palette.textSecondary }]}>انصراف</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
                 onPress={handleConfirm}
-                style={styles.confirmBtn}
-              />
+                style={[
+                  styles.confirmButton,
+                  {
+                    backgroundColor: palette.primary,
+                    shadowColor: palette.primary,
+                  },
+                ]}
+                activeOpacity={0.8}
+              >
+                <Icon name="check" size={16} color="#FFFFFF" />
+                <Text style={styles.confirmButtonText}>تأیید و ذخیره تاریخ مبدأ</Text>
+              </TouchableOpacity>
             </View>
-          </NeumorphicCard>
+          </View>
         </Animated.View>
       </SafeAreaView>
     </Modal>
@@ -359,7 +355,7 @@ export const SpringCalendarModal: React.FC<SpringCalendarModalProps> = ({
 const styles = StyleSheet.create({
   modalBackdrop: {
     flex: 1,
-    backgroundColor: 'rgba(10, 15, 26, 0.72)',
+    backgroundColor: 'rgba(2, 6, 23, 0.85)',
     justifyContent: 'center',
     alignItems: 'center',
     padding: 16,
@@ -370,282 +366,226 @@ const styles = StyleSheet.create({
   },
   springCardWrapper: {
     width: '100%',
-    maxWidth: 420,
+    maxWidth: 390,
     zIndex: 1000,
   },
   modalCard: {
+    borderRadius: 24,
     padding: 20,
-    backgroundColor: '#E6EBF2',
+    borderWidth: 1.2,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000000',
+        shadowOffset: { width: 0, height: 10 },
+        shadowOpacity: 0.45,
+        shadowRadius: 20,
+      },
+      android: {
+        elevation: 12,
+        shadowColor: '#000000',
+      },
+      web: {
+        boxShadow: '0 16px 40px rgba(0, 0, 0, 0.6), inset 0 1px 1px rgba(255, 255, 255, 0.15)',
+      } as any,
+    }),
   },
   header: {
-    alignItems: 'center',
-    marginBottom: 14,
-  },
-  biweeklyBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    backgroundColor: 'rgba(37, 99, 235, 0.12)',
-    borderColor: 'rgba(37, 99, 235, 0.25)',
-    borderWidth: 1,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
+    justifyContent: 'space-between',
+    paddingBottom: 12,
+    marginBottom: 14,
+    borderBottomWidth: 1,
+  },
+  headerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    flex: 1,
+  },
+  headerIconWrap: {
+    width: 34,
+    height: 34,
     borderRadius: 12,
-    marginBottom: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  biweeklyBadgeIcon: {
-    fontSize: 13,
-  },
-  biweeklyBadgeText: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: '#2563EB',
+  headerTextGroup: {
+    flex: 1,
   },
   title: {
-    fontSize: 16,
-    fontWeight: '900',
-    color: '#0F172A',
-    textAlign: 'center',
-    marginBottom: 4,
+    fontFamily: FONT_FAMILIES.persian.bold,
+    fontSize: 13.5,
+    lineHeight: 20,
+    textAlign: 'right',
+    writingDirection: 'rtl',
   },
   subtitle: {
-    fontSize: 11,
-    color: '#64748B',
-    textAlign: 'center',
-    lineHeight: 16,
-    paddingHorizontal: 12,
-  },
-  activePillCard: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    marginBottom: 14,
-    borderWidth: 1,
-    borderColor: 'rgba(37, 99, 235, 0.2)',
-    ...Platform.select({
-      web: {
-        boxShadow: '0 4px 12px rgba(37, 99, 235, 0.1)',
-      } as any,
-      default: {
-        shadowColor: '#2563EB',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.12,
-        shadowRadius: 6,
-        elevation: 3,
-      },
-    }),
-  },
-  activePillLeft: {
-    alignItems: 'flex-start',
-  },
-  activePillWeekday: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#2563EB',
-    marginBottom: 1,
-  },
-  activePillDate: {
-    fontSize: 14,
-    fontWeight: '900',
-    color: '#0F172A',
-  },
-  activePillTag: {
-    backgroundColor: 'rgba(37, 99, 235, 0.1)',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 8,
-  },
-  activePillTagText: {
-    fontSize: 10,
-    fontWeight: '800',
-    color: '#2563EB',
-  },
-  sectionRow: {
-    marginBottom: 10,
-  },
-  sectionHeaderLabel: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: '#475569',
-    marginBottom: 6,
+    fontFamily: FONT_FAMILIES.persian.regular,
+    fontSize: 10.5,
+    lineHeight: 15,
     textAlign: 'right',
+    writingDirection: 'rtl',
+    marginTop: 2,
   },
-  yearChipsWrap: {
-    flexDirection: 'row',
-    gap: 8,
-    justifyContent: 'flex-end',
-  },
-  yearChip: {
-    paddingHorizontal: 14,
-    paddingVertical: 6,
-    borderRadius: 12,
-    backgroundColor: '#E2E8F0',
+  closeBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
     borderWidth: 1,
-    borderColor: 'rgba(0, 0, 0, 0.08)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  yearChipActive: {
-    backgroundColor: '#2563EB',
-    borderColor: '#1D4ED8',
-    ...Platform.select({
-      web: {
-        boxShadow: '0 2px 8px rgba(37, 99, 235, 0.35)',
-      } as any,
-      default: {
-        shadowColor: '#2563EB',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.25,
-        shadowRadius: 4,
-        elevation: 3,
-      },
-    }),
-  },
-  yearChipText: {
-    fontSize: 12,
-    fontWeight: '800',
-    color: '#334155',
-  },
-  yearChipTextActive: {
-    color: '#FFFFFF',
-  },
-  monthsScrollTrack: {
+  monthNavRow: {
     flexDirection: 'row',
-    gap: 6,
-    paddingVertical: 2,
-  },
-  monthChip: {
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderWidth: 1,
+    borderRadius: 16,
+    paddingVertical: 8,
     paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 12,
-    backgroundColor: '#E2E8F0',
+    marginBottom: 12,
+  },
+  monthNavBtn: {
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+  },
+  monthNavArrow: {
+    fontFamily: FONT_FAMILIES.persian.bold,
+    fontSize: 12,
+    writingDirection: 'rtl',
+  },
+  monthTitleText: {
+    fontFamily: FONT_FAMILIES.persian.bold,
+    fontSize: 14,
+    textAlign: 'center',
+    writingDirection: 'rtl',
+  },
+  insetWell: {
     borderWidth: 1,
-    borderColor: 'rgba(0, 0, 0, 0.08)',
-  },
-  monthChipActive: {
-    backgroundColor: '#2563EB',
-    borderColor: '#1D4ED8',
-    ...Platform.select({
-      web: {
-        boxShadow: '0 2px 8px rgba(37, 99, 235, 0.35)',
-      } as any,
-      default: {
-        shadowColor: '#2563EB',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.25,
-        shadowRadius: 4,
-        elevation: 3,
-      },
-    }),
-  },
-  monthChipText: {
-    fontSize: 11,
-    fontWeight: '800',
-    color: '#334155',
-  },
-  monthChipTextActive: {
-    color: '#FFFFFF',
-  },
-  // DEEP NEUMORPHIC INSET WELL
-  insetWellContainer: {
-    backgroundColor: '#D9E0EB',
-    borderRadius: 20,
+    borderRadius: 16,
     padding: 10,
-    borderWidth: 1.5,
-    borderColor: 'rgba(0, 0, 0, 0.06)',
-    marginVertical: 6,
-    ...Platform.select({
-      web: {
-        boxShadow: 'inset 3px 3px 6px rgba(0, 0, 0, 0.14), inset -3px -3px 6px rgba(255, 255, 255, 0.75)',
-      } as any,
-      default: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.1,
-        shadowRadius: 2,
-      },
-    }),
+    marginBottom: 12,
   },
-  weekHeadersRow: {
+  weekDaysRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    paddingBottom: 6,
-    marginBottom: 6,
+    paddingBottom: 8,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(0, 0, 0, 0.06)',
+    marginBottom: 8,
   },
-  weekHeaderCell: {
+  weekDayCell: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  weekHeaderText: {
+  weekDayText: {
+    fontFamily: FONT_FAMILIES.persian.bold,
     fontSize: 11,
-    fontWeight: '900',
-    color: '#64748B',
+    color: '#94A3B8',
   },
-  daysMatrixGrid: {
+  fridayText: {
+    color: '#EF4444',
+  },
+  daysMatrix: {
     flexDirection: 'row',
     flexWrap: 'wrap',
   },
-  emptyDayCell: {
+  dayCellWrapper: {
     width: '14.28%',
-    height: 38,
+    height: 36,
   },
   dayCell: {
     width: '14.28%',
-    height: 38,
+    height: 36,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 12,
-    marginVertical: 2,
-  },
-  dayCellFriday: {
-    backgroundColor: 'rgba(239, 68, 68, 0.06)',
+    borderRadius: 10,
+    marginVertical: 1,
   },
   dayCellSelected: {
-    backgroundColor: '#2563EB',
-    borderRadius: 12,
-    borderWidth: 1.5,
-    borderColor: '#1D4ED8',
+    borderRadius: 10,
     ...Platform.select({
-      web: {
-        boxShadow: '0 3px 10px rgba(37, 99, 235, 0.4), inset 0 1px 2px rgba(255, 255, 255, 0.4)',
-      } as any,
-      default: {
-        shadowColor: '#2563EB',
-        shadowOffset: { width: 0, height: 3 },
-        shadowOpacity: 0.35,
-        shadowRadius: 5,
+      ios: {
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.4,
+        shadowRadius: 4,
+      },
+      android: {
         elevation: 4,
       },
     }),
   },
   dayCellText: {
-    fontFamily: FONT_FAMILIES.persian.bold,
-    fontSize: 12,
-    lineHeight: 16,
-    color: '#1E293B',
-    textAlign: 'center',
-    writingDirection: 'rtl',
-  },
-  dayCellTextFriday: {
-    color: '#EF4444',
+    fontFamily: FONT_FAMILIES.english.bold,
+    fontSize: 12.5,
   },
   dayCellTextSelected: {
     color: '#FFFFFF',
+    fontWeight: '700',
+  },
+  previewChip: {
+    borderWidth: 1,
+    borderRadius: 14,
+    padding: 10,
+    alignItems: 'center',
+    marginBottom: 14,
+    gap: 4,
+  },
+  previewChipDate: {
+    fontFamily: FONT_FAMILIES.persian.bold,
+    fontSize: 12,
+    textAlign: 'center',
+    writingDirection: 'rtl',
+  },
+  previewChipSubtitle: {
+    fontFamily: FONT_FAMILIES.persian.regular,
+    fontSize: 10.5,
+    color: '#10B981',
+    textAlign: 'center',
+    writingDirection: 'rtl',
   },
   actionRow: {
-    flexDirection: rtlStyles.row.flexDirection,
-    gap: 12,
-    marginTop: 14,
+    flexDirection: 'row',
+    gap: 10,
+    alignItems: 'center',
   },
-  cancelBtn: {
+  cancelButton: {
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 14,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cancelButtonText: {
+    fontFamily: FONT_FAMILIES.persian.bold,
+    fontSize: 12,
+  },
+  confirmButton: {
     flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 14,
+    ...Platform.select({
+      ios: {
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.3,
+        shadowRadius: 6,
+      },
+      android: {
+        elevation: 4,
+      },
+    }),
   },
-  confirmBtn: {
-    flex: 1.4,
+  confirmButtonText: {
+    fontFamily: FONT_FAMILIES.persian.bold,
+    fontSize: 12,
+    color: '#FFFFFF',
+    writingDirection: 'rtl',
   },
 });

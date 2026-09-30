@@ -8,19 +8,16 @@ import {
   ScrollView,
   Pressable,
   TouchableOpacity,
+  TextInput,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../theme/ThemeContext';
 import { FONT_FAMILIES } from '../theme/typography';
-import { rtlStyles } from '../utils/rtl';
+import { getRtlRow } from '../utils/rtl';
 import { Icon, IconName } from './Icon';
-import { NeumorphicCard } from './NeumorphicCard';
-import { NeumorphicButton } from './NeumorphicButton';
-import { NeumorphicInput } from './NeumorphicInput';
-import { NeumorphicTimePicker } from './NeumorphicTimePicker';
-import { NeumorphicDatePicker } from './NeumorphicDatePicker';
 import { SpringCalendarModal } from './SpringCalendarModal';
 import { hapticFeedback } from '../utils/haptics';
+import { toPersianDigits } from '../utils/jalali';
 
 export type WeekDay = 'شنبه' | 'یکشنبه' | 'دوشنبه' | 'سه‌شنبه' | 'چهارشنبه' | 'پنج‌شنبه';
 export type RecurrenceType = 'every_week' | 'even_weeks' | 'odd_weeks' | 'biweekly' | 'bi_weekly';
@@ -56,11 +53,19 @@ const WEEK_DAYS: WeekDay[] = [
   'پنج‌شنبه',
 ];
 
-const RECURRENCE_OPTIONS: { id: RecurrenceType; label: string; icon: IconName; isBiweekly: boolean }[] = [
-  { id: 'every_week', label: 'هر هفته', icon: 'repeat', isBiweekly: false },
-  { id: 'bi_weekly', label: 'یک هفته در میان', icon: 'calendar', isBiweekly: true },
-  { id: 'even_weeks', label: 'هفته‌های زوج', icon: 'calendar-check', isBiweekly: true },
-  { id: 'odd_weeks', label: 'هفته‌های فرد', icon: 'calendar', isBiweekly: true },
+const COMMON_SLOTS = [
+  '08:00 - 10:00',
+  '10:00 - 12:00',
+  '14:00 - 16:00',
+  '16:00 - 18:00',
+  '18:00 - 20:00',
+];
+
+const RECURRENCE_OPTIONS: { id: RecurrenceType; label: string; icon: string; isBiweekly: boolean }[] = [
+  { id: 'every_week', label: 'هر هفته', icon: '🔁', isBiweekly: false },
+  { id: 'even_weeks', label: 'هفته‌های زوج', icon: '✌️', isBiweekly: true },
+  { id: 'odd_weeks', label: 'هفته‌های فرد', icon: '☝️', isBiweekly: true },
+  { id: 'bi_weekly', label: 'یک هفته در میان', icon: '📅', isBiweekly: true },
 ];
 
 export const ClassFormModal: React.FC<ClassFormModalProps> = ({
@@ -73,7 +78,9 @@ export const ClassFormModal: React.FC<ClassFormModalProps> = ({
 
   const [name, setName] = useState(initialData?.name || '');
   const [day, setDay] = useState<WeekDay>(initialData?.day || 'شنبه');
-  const [time, setTime] = useState(initialData?.time || '08:00 - 10:00');
+  const [time, setTime] = useState(initialData?.time || COMMON_SLOTS[0]);
+  const [customTime, setCustomTime] = useState('');
+  const [isEnteringCustomTime, setIsEnteringCustomTime] = useState(false);
   const [recurrence, setRecurrence] = useState<RecurrenceType>(
     initialData?.recurrence || 'every_week'
   );
@@ -85,7 +92,7 @@ export const ClassFormModal: React.FC<ClassFormModalProps> = ({
   );
   const [anchorLabel, setAnchorLabel] = useState<string>(() => {
     if (initialData?.anchor_date) {
-      return `شروع دوره: ${initialData.anchor_date}`;
+      return `مبدأ دوره: ${initialData.anchor_date}`;
     }
     return '';
   });
@@ -96,28 +103,37 @@ export const ClassFormModal: React.FC<ClassFormModalProps> = ({
   const [errors, setErrors] = useState<{ name?: string; time?: string }>({});
 
   const [isSpringModalOpen, setIsSpringModalOpen] = useState(false);
+  const [springTargetField, setSpringTargetField] = useState<'anchor' | 'midterm' | 'final'>('anchor');
 
   const handleSelectRecurrence = (opt: typeof RECURRENCE_OPTIONS[0]) => {
     hapticFeedback.light();
     setRecurrence(opt.id);
 
     if (opt.isBiweekly && !anchorDate) {
+      setSpringTargetField('anchor');
       setIsSpringModalOpen(true);
     }
   };
 
-  const handleSelectAnchorDate = (dateStr: string, timestamp: number) => {
+  const handleSelectCalendarDate = (dateStr: string, timestamp: number, formattedLabel: string) => {
     hapticFeedback.success();
-    setAnchorDate(dateStr);
-    setAnchorTimestamp(timestamp);
-    setAnchorLabel(`شروع دوره: ${dateStr}`);
+    if (springTargetField === 'anchor') {
+      setAnchorDate(dateStr);
+      setAnchorTimestamp(timestamp);
+      setAnchorLabel(formattedLabel || `مبدأ دوره: ${dateStr}`);
+    } else if (springTargetField === 'midterm') {
+      setMidtermExamDate(dateStr);
+    } else if (springTargetField === 'final') {
+      setFinalExamDate(dateStr);
+    }
     setIsSpringModalOpen(false);
   };
 
   const handleSave = () => {
     const errs: { name?: string; time?: string } = {};
-    if (!name.trim()) errs.name = 'لطفاً نام کلاس را وارد کنید';
-    if (!time.trim()) errs.time = 'لطفاً ساعت برگزاری را مشخص کنید';
+    if (!name.trim()) errs.name = 'ورود نام کلاس الزامی است.';
+    const finalTime = customTime.trim() || time.trim();
+    if (!finalTime) errs.time = 'انتخاب زمان کلاس الزامی است.';
 
     if (Object.keys(errs).length > 0) {
       hapticFeedback.heavy();
@@ -125,11 +141,12 @@ export const ClassFormModal: React.FC<ClassFormModalProps> = ({
       return;
     }
 
+    hapticFeedback.success();
     onSave({
       id: initialData?.id,
       name: name.trim(),
       day,
-      time: time.trim(),
+      time: finalTime,
       recurrence,
       anchor_date: anchorDate || undefined,
       anchor_timestamp: anchorTimestamp || undefined,
@@ -139,6 +156,8 @@ export const ClassFormModal: React.FC<ClassFormModalProps> = ({
       finalExamDate: finalExamDate.trim() || undefined,
     });
   };
+
+  const cardBg = palette.isDark ? '#141A28' : palette.surfaceCard;
 
   return (
     <SafeAreaView edges={['top', 'bottom']} style={[styles.safeArea, { backgroundColor: palette.background }]}>
@@ -151,46 +170,87 @@ export const ClassFormModal: React.FC<ClassFormModalProps> = ({
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
         >
-          <NeumorphicCard style={styles.card} borderRadius={24}>
-            <View style={styles.header}>
-              <Text style={[styles.title, { color: palette.textPrimary }]}>
-                {isEditing ? 'ویرایش مشخصات کلاس' : 'افزودن کلاس جدید'}
-              </Text>
-              <Text style={[styles.subtitle, { color: palette.textSecondary }]}>
-                اطلاعات زمان‌بندی، تاریخ مبدأ جلسات و امتحانات را مشخص نمایید.
-              </Text>
+          <View
+            style={[
+              styles.card,
+              {
+                backgroundColor: cardBg,
+                borderColor: palette.borderLuminous,
+                borderTopColor: palette.isDark ? 'rgba(255, 255, 255, 0.2)' : 'rgba(255, 255, 255, 0.9)',
+              },
+            ]}
+          >
+            {/* Header matching Web */}
+            <View style={[styles.header, { borderBottomColor: palette.divider || 'rgba(255, 255, 255, 0.08)' }]}>
+              <View style={styles.headerTitleGroup}>
+                <Text style={[styles.title, { color: palette.textPrimary }]}>
+                  {isEditing ? 'ویرایش کلاس' : 'افزودن کلاس جدید'}
+                </Text>
+                <Text style={[styles.subtitle, { color: palette.textSecondary }]}>
+                  برنامه‌ریزی جلسات هفتگی و چرخشی با تطابق تقویم تحصیلی
+                </Text>
+              </View>
+              <TouchableOpacity
+                onPress={onCancel}
+                style={[styles.closeBtn, { backgroundColor: palette.surfaceInner, borderColor: palette.borderLuminous }]}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              >
+                <Icon name="close" size={16} color={palette.textSecondary} />
+              </TouchableOpacity>
             </View>
 
             <View style={styles.form}>
               {/* 1. Class Name */}
-              <NeumorphicInput
-                label="نام کلاس / درس"
-                placeholder="عنوان درس را وارد نمایید"
-                value={name}
-                onChangeText={(val) => {
-                  setName(val);
-                  if (errors.name) setErrors((prev) => ({ ...prev, name: undefined }));
-                }}
-                error={errors.name}
-              />
+              <View style={styles.sectionContainer}>
+                <Text style={[styles.sectionLabel, { color: palette.textPrimary }]}>
+                  نام درس <Text style={styles.requiredStar}>*</Text>
+                </Text>
+                <View
+                  style={[
+                    styles.inputContainer,
+                    {
+                      backgroundColor: palette.surfaceInner,
+                      borderColor: errors.name ? '#EF4444' : palette.borderLuminous,
+                    },
+                  ]}
+                >
+                  <TextInput
+                    placeholder="مثال: طراحی الگوریتم، ریاضی عمومی ۲"
+                    placeholderTextColor={palette.textMuted}
+                    value={name}
+                    onChangeText={(val) => {
+                      setName(val);
+                      if (errors.name) setErrors((prev) => ({ ...prev, name: undefined }));
+                    }}
+                    style={[
+                      styles.textInput,
+                      { color: palette.textPrimary, fontFamily: FONT_FAMILIES.persian.regular },
+                    ]}
+                  />
+                </View>
+                {errors.name && <Text style={styles.errorText}>{errors.name}</Text>}
+              </View>
 
               {/* 2. Day Selection */}
               <View style={styles.sectionContainer}>
                 <Text style={[styles.sectionLabel, { color: palette.textPrimary }]}>
-                  روز برگزاری کلاس <Text style={styles.requiredStar}>*</Text>
+                  روز برگزاری <Text style={styles.requiredStar}>*</Text>
                 </Text>
-                <View style={[styles.daysGrid, rtlStyles.row]}>
+                <View style={[styles.daysGrid, { flexDirection: getRtlRow() }]}>
                   {WEEK_DAYS.map((d) => {
                     const isSelected = day === d;
                     return (
                       <Pressable
                         key={d}
-                        onPress={() => setDay(d)}
+                        onPress={() => {
+                          hapticFeedback.selection();
+                          setDay(d);
+                        }}
                         style={[
                           styles.dayButton,
                           {
                             backgroundColor: isSelected ? palette.primary : palette.surfaceInner,
-                            borderColor: isSelected ? palette.primary : palette.border,
+                            borderColor: isSelected ? palette.primaryLight : palette.borderLuminous,
                           },
                         ]}
                       >
@@ -198,7 +258,7 @@ export const ClassFormModal: React.FC<ClassFormModalProps> = ({
                           style={[
                             styles.dayButtonText,
                             {
-                              color: isSelected ? '#ffffff' : palette.textPrimary,
+                              color: isSelected ? '#FFFFFF' : palette.textSecondary,
                               fontFamily: isSelected ? FONT_FAMILIES.persian.bold : FONT_FAMILIES.persian.medium,
                             },
                           ]}
@@ -211,153 +271,337 @@ export const ClassFormModal: React.FC<ClassFormModalProps> = ({
                 </View>
               </View>
 
-              {/* 3. Interactive TimePicker */}
-              <NeumorphicTimePicker
-                value={time}
-                onChange={(t) => {
-                  setTime(t);
-                  if (errors.time) setErrors((prev) => ({ ...prev, time: undefined }));
-                }}
-                error={errors.time}
-              />
+              {/* 3. Class Time Selection matching Web */}
+              <View style={styles.sectionContainer}>
+                <View style={[styles.labelRow, { flexDirection: getRtlRow() }]}>
+                  <Text style={[styles.sectionLabel, { color: palette.textPrimary }]}>
+                    بازه زمانی برگزاری (ساعت) <Text style={styles.requiredStar}>*</Text>
+                  </Text>
+                  <Text style={[styles.subHint, { color: palette.textMuted }]}>
+                    ۵ بازه استاندارد یا ساعت دلخواه
+                  </Text>
+                </View>
 
-              {/* 4. Recurrence Selector */}
+                {/* Common Slots Grid */}
+                <View style={[styles.slotsGrid, { flexDirection: getRtlRow() }]}>
+                  {COMMON_SLOTS.map((slot) => {
+                    const isSelected = time === slot && !customTime;
+                    return (
+                      <Pressable
+                        key={slot}
+                        onPress={() => {
+                          hapticFeedback.selection();
+                          setTime(slot);
+                          setCustomTime('');
+                          setIsEnteringCustomTime(false);
+                        }}
+                        style={[
+                          styles.slotButton,
+                          {
+                            backgroundColor: isSelected ? palette.primary : palette.surfaceInner,
+                            borderColor: isSelected ? palette.primaryLight : palette.borderLuminous,
+                          },
+                          isSelected && styles.selectedSlotGlow,
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.slotPersianText,
+                            {
+                              color: isSelected ? '#FFFFFF' : palette.textPrimary,
+                              fontFamily: FONT_FAMILIES.persian.bold,
+                            },
+                          ]}
+                        >
+                          {toPersianDigits(slot)}
+                        </Text>
+                        <Text
+                          style={[
+                            styles.slotLatinText,
+                            { color: isSelected ? 'rgba(255,255,255,0.85)' : palette.textMuted },
+                          ]}
+                        >
+                          {slot}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+
+                {/* Custom Time Option */}
+                {isEnteringCustomTime || customTime ? (
+                  <View
+                    style={[
+                      styles.customTimeWell,
+                      {
+                        backgroundColor: palette.surfaceInner,
+                        borderColor: palette.primary,
+                      },
+                    ]}
+                  >
+                    <View style={styles.customTimeInfo}>
+                      <Icon name="clock" size={16} color={palette.primary} />
+                      <TextInput
+                        placeholder="مثال: 07:30 - 09:15"
+                        placeholderTextColor={palette.textMuted}
+                        value={customTime}
+                        onChangeText={setCustomTime}
+                        style={[
+                          styles.customTimeInput,
+                          { color: palette.primaryLight, fontFamily: FONT_FAMILIES.english.bold },
+                        ]}
+                      />
+                    </View>
+                    <TouchableOpacity
+                      onPress={() => {
+                        setCustomTime('');
+                        setIsEnteringCustomTime(false);
+                        setTime(COMMON_SLOTS[0]);
+                      }}
+                      style={styles.clearCustomTimeBtn}
+                    >
+                      <Icon name="close" size={14} color="#EF4444" />
+                    </TouchableOpacity>
+                  </View>
+                ) : (
+                  <TouchableOpacity
+                    onPress={() => setIsEnteringCustomTime(true)}
+                    style={[
+                      styles.customTimeToggleBtn,
+                      { backgroundColor: palette.surfaceInner, borderColor: palette.borderLuminous },
+                    ]}
+                  >
+                    <Icon name="clock" size={15} color={palette.primaryLight} />
+                    <Text style={[styles.customTimeToggleText, { color: palette.textPrimary }]}>
+                      تنظیم ساعت دلخواه...
+                    </Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+
+              {/* 4. Recurrence Selector matching Web */}
               <View style={styles.sectionContainer}>
                 <Text style={[styles.sectionLabel, { color: palette.textPrimary }]}>
-                  دوره تکرار تشکیل کلاس (چرخشی / هفتگی)
+                  چرخه برگزاری کلاس <Text style={styles.requiredStar}>*</Text>
                 </Text>
-                <View style={[styles.recurrenceGrid, rtlStyles.row]}>
+                <View style={[styles.recurrenceGrid, { flexDirection: getRtlRow() }]}>
                   {RECURRENCE_OPTIONS.map((opt) => {
                     const isSelected = recurrence === opt.id;
-                    const iconColor = isSelected ? '#ffffff' : palette.textSecondary;
                     return (
-                      <TouchableOpacity
+                      <Pressable
                         key={opt.id}
                         onPress={() => handleSelectRecurrence(opt)}
-                        activeOpacity={0.7}
                         style={[
                           styles.recurrenceBtn,
                           {
                             backgroundColor: isSelected ? palette.primary : palette.surfaceInner,
-                            borderColor: isSelected ? palette.primary : palette.border,
+                            borderColor: isSelected ? palette.primaryLight : palette.borderLuminous,
                           },
                         ]}
                       >
-                        <Icon name={opt.icon} size={16} color={iconColor} style={styles.recurrenceIcon} />
+                        <Text style={styles.recurrenceIconText}>{opt.icon}</Text>
                         <Text
                           style={[
                             styles.recurrenceLabel,
                             {
-                              color: isSelected ? '#ffffff' : palette.textPrimary,
+                              color: isSelected ? '#FFFFFF' : palette.textSecondary,
                               fontFamily: isSelected ? FONT_FAMILIES.persian.bold : FONT_FAMILIES.persian.medium,
                             },
                           ]}
                         >
                           {opt.label}
                         </Text>
-                      </TouchableOpacity>
+                      </Pressable>
                     );
                   })}
                 </View>
 
-                {/* Anchor Date Quick Edit Trigger */}
-                {(recurrence === 'bi_weekly' || recurrence === 'biweekly' || recurrence === 'even_weeks' || recurrence === 'odd_weeks') && (
-                  <View style={[styles.anchorElevatedCard, { backgroundColor: palette.surfaceInner, borderColor: palette.borderLuminous }]}>
-                    <View style={[styles.anchorElevatedHeader, rtlStyles.row]}>
-                      <View style={[styles.anchorIconBadge, { backgroundColor: 'rgba(37, 99, 235, 0.15)' }]}>
-                        <Icon name="calendar-check" size={18} color={palette.primary} />
-                      </View>
-                      <View style={{ flex: 1, paddingHorizontal: 6 }}>
-                        <Text style={[styles.anchorBadgeTitle, { color: palette.primary }]}>
-                          تاریخ مبدأ چرخه ۱۴ روزه:
-                        </Text>
-                        <Text style={[styles.anchorBadgeValue, { color: palette.textPrimary }]}>
-                          {anchorLabel || (anchorDate ? `شروع دوره: ${anchorDate}` : 'انتخاب نشده (برای انتخاب ضربه بزنید)')}
+                {/* Soft-Inset Anchor Date Chip with 8-Session Projection */}
+                {recurrence !== 'every_week' && anchorDate ? (
+                  <View
+                    style={[
+                      styles.anchorChipCard,
+                      { backgroundColor: palette.surfaceInner, borderColor: palette.borderLuminous },
+                    ]}
+                  >
+                    <View style={[styles.anchorTopRow, { flexDirection: getRtlRow() }]}>
+                      <View style={styles.anchorLeftGroup}>
+                        <Icon name="calendar-check" size={16} color={palette.primaryLight} />
+                        <Text style={[styles.anchorLabelText, { color: palette.textPrimary }]}>
+                          {anchorLabel || `مبدأ دوره: ${anchorDate}`}
                         </Text>
                       </View>
                       <TouchableOpacity
                         onPress={() => {
-                          hapticFeedback.medium();
+                          setSpringTargetField('anchor');
                           setIsSpringModalOpen(true);
                         }}
-                        activeOpacity={0.7}
-                        style={[styles.anchorEditChip, { backgroundColor: palette.primary }]}
+                        style={[styles.changeAnchorBtn, { backgroundColor: palette.primary }]}
                       >
-                        <Text style={styles.anchorEditChipText}>انتخاب</Text>
+                        <Text style={styles.changeAnchorBtnText}>تغییر مبدأ</Text>
                       </TouchableOpacity>
                     </View>
+                    <Text style={styles.anchorProjectionText}>
+                      ✓ ۸ جلسه تحصیلی به فواصل ۱۴ روزه در تقویم ترم ثبت گردید.
+                    </Text>
                   </View>
-                )}
+                ) : recurrence !== 'every_week' ? (
+                  <TouchableOpacity
+                    onPress={() => {
+                      setSpringTargetField('anchor');
+                      setIsSpringModalOpen(true);
+                    }}
+                    style={[
+                      styles.promptAnchorBtn,
+                      { backgroundColor: 'rgba(245, 158, 11, 0.1)', borderColor: 'rgba(245, 158, 11, 0.3)' },
+                    ]}
+                  >
+                    <Icon name="alert" size={16} color="#F59E0B" />
+                    <Text style={styles.promptAnchorText}>
+                      برای کلاس چرخشی، لطفاً تاریخ اولین جلسه (مبدأ) را مشخص نمایید
+                    </Text>
+                  </TouchableOpacity>
+                ) : null}
               </View>
 
-              {/* 5. Exam Schedules */}
+              {/* 5. Exam Schedule Fields */}
               <View style={styles.sectionContainer}>
                 <Text style={[styles.sectionLabel, { color: palette.textPrimary }]}>
-                  تاریخ امتحانات درس (یادآور هوشمند)
+                  تاریخ امتحانات (اختیاری)
                 </Text>
-                <View style={styles.examsRow}>
-                  <NeumorphicDatePicker
-                    label="امتحان میان‌ترم"
-                    optional={true}
-                    value={midtermExamDate}
-                    onChange={setMidtermExamDate}
-                    placeholder="ثبت تاریخ میان‌ترم"
-                  />
-                  <NeumorphicDatePicker
-                    label="امتحان پایان‌ترم"
-                    optional={true}
-                    value={finalExamDate}
-                    onChange={setFinalExamDate}
-                    placeholder="ثبت تاریخ پایان‌ترم"
+                <View style={styles.examInputsRow}>
+                  {/* Midterm */}
+                  <TouchableOpacity
+                    onPress={() => {
+                      setSpringTargetField('midterm');
+                      setIsSpringModalOpen(true);
+                    }}
+                    style={[
+                      styles.examPickerBtn,
+                      { backgroundColor: palette.surfaceInner, borderColor: palette.borderLuminous },
+                    ]}
+                  >
+                    <Icon name="calendar" size={15} color={palette.primaryLight} />
+                    <Text style={[styles.examPickerText, { color: midtermExamDate ? palette.textPrimary : palette.textMuted }]}>
+                      {midtermExamDate ? `میان‌ترم: ${midtermExamDate}` : 'ثبت تاریخ میان‌ترم'}
+                    </Text>
+                  </TouchableOpacity>
+
+                  {/* Final */}
+                  <TouchableOpacity
+                    onPress={() => {
+                      setSpringTargetField('final');
+                      setIsSpringModalOpen(true);
+                    }}
+                    style={[
+                      styles.examPickerBtn,
+                      { backgroundColor: palette.surfaceInner, borderColor: palette.borderLuminous },
+                    ]}
+                  >
+                    <Icon name="calendar" size={15} color="#EF4444" />
+                    <Text style={[styles.examPickerText, { color: finalExamDate ? palette.textPrimary : palette.textMuted }]}>
+                      {finalExamDate ? `پایان‌ترم: ${finalExamDate}` : 'ثبت تاریخ پایان‌ترم'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              {/* 6. Professor & Location */}
+              <View style={styles.sectionContainer}>
+                <Text style={[styles.sectionLabel, { color: palette.textPrimary }]}>
+                  نام استاد (اختیاری)
+                </Text>
+                <View
+                  style={[
+                    styles.inputContainer,
+                    { backgroundColor: palette.surfaceInner, borderColor: palette.borderLuminous },
+                  ]}
+                >
+                  <TextInput
+                    placeholder="نام استاد را وارد نمایید"
+                    placeholderTextColor={palette.textMuted}
+                    value={professor}
+                    onChangeText={setProfessor}
+                    style={[
+                      styles.textInput,
+                      { color: palette.textPrimary, fontFamily: FONT_FAMILIES.persian.regular },
+                    ]}
                   />
                 </View>
               </View>
 
-              {/* 6. Optional Professor's Name */}
-              <NeumorphicInput
-                label="نام استاد"
-                optional={true}
-                placeholder="نام استاد (اختیاری)"
-                value={professor}
-                onChangeText={setProfessor}
-              />
-
-              {/* 7. Optional Class Location */}
-              <NeumorphicInput
-                label="محل برگزاری"
-                optional={true}
-                placeholder="شماره کلاس یا نام دانشکده (اختیاری)"
-                value={location}
-                onChangeText={setLocation}
-              />
+              <View style={styles.sectionContainer}>
+                <Text style={[styles.sectionLabel, { color: palette.textPrimary }]}>
+                  محل برگزاری (اختیاری)
+                </Text>
+                <View
+                  style={[
+                    styles.inputContainer,
+                    { backgroundColor: palette.surfaceInner, borderColor: palette.borderLuminous },
+                  ]}
+                >
+                  <TextInput
+                    placeholder="شماره کلاس یا نام دانشکده"
+                    placeholderTextColor={palette.textMuted}
+                    value={location}
+                    onChangeText={setLocation}
+                    style={[
+                      styles.textInput,
+                      { color: palette.textPrimary, fontFamily: FONT_FAMILIES.persian.regular },
+                    ]}
+                  />
+                </View>
+              </View>
             </View>
 
-            {/* Action Buttons */}
-            <View style={[styles.actionRow, rtlStyles.row]}>
-              <NeumorphicButton
-                title="انصراف"
-                size="md"
+            {/* Action Buttons matching Web */}
+            <View style={[styles.actionRow, { flexDirection: getRtlRow() }]}>
+              <TouchableOpacity
                 onPress={onCancel}
-                style={styles.actionBtn}
-              />
-              <NeumorphicButton
-                title={isEditing ? 'ذخیره تغییرات' : 'ثبت در برنامه'}
-                variant="primary"
-                size="md"
+                style={[
+                  styles.cancelBtn,
+                  { backgroundColor: palette.surfaceInner, borderColor: palette.borderLuminous },
+                ]}
+                activeOpacity={0.7}
+              >
+                <Text style={[styles.cancelBtnText, { color: palette.textSecondary }]}>انصراف</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
                 onPress={handleSave}
-                style={styles.actionBtn}
-              />
+                style={[
+                  styles.saveBtn,
+                  { backgroundColor: palette.primary, shadowColor: palette.primary },
+                ]}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.saveBtnText}>
+                  {isEditing ? 'ذخیره تغییرات' : 'ثبت کلاس'}
+                </Text>
+              </TouchableOpacity>
             </View>
-          </NeumorphicCard>
+          </View>
         </ScrollView>
       </KeyboardAvoidingView>
 
       <SpringCalendarModal
         visible={isSpringModalOpen}
         onClose={() => setIsSpringModalOpen(false)}
-        onSelectDate={handleSelectAnchorDate}
-        initialDate={anchorDate}
-        title="تاریخ اولین جلسه این کلاس را انتخاب کنید"
+        onSelectDate={handleSelectCalendarDate}
+        initialDate={
+          springTargetField === 'anchor'
+            ? anchorDate
+            : springTargetField === 'midterm'
+            ? midtermExamDate
+            : finalExamDate
+        }
+        title={
+          springTargetField === 'anchor'
+            ? 'تاریخ اولین جلسه این کلاس را انتخاب کنید'
+            : springTargetField === 'midterm'
+            ? 'تاریخ امتحان میان‌ترم را انتخاب کنید'
+            : 'تاریخ امتحان پایان‌ترم را انتخاب کنید'
+        }
       />
     </SafeAreaView>
   );
@@ -366,36 +610,109 @@ export const ClassFormModal: React.FC<ClassFormModalProps> = ({
 const styles = StyleSheet.create({
   safeArea: { flex: 1 },
   keyboardView: { flex: 1 },
-  scrollContent: { padding: 16, paddingBottom: 36 },
-  card: { padding: 18 },
-  header: { marginBottom: 18, alignItems: 'center' },
+  scrollContent: {
+    padding: 16,
+    paddingBottom: 40,
+    alignItems: 'center',
+  },
+  card: {
+    width: '100%',
+    maxWidth: 440,
+    borderRadius: 24,
+    padding: 20,
+    borderWidth: 1.2,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000000',
+        shadowOffset: { width: 0, height: 8 },
+        shadowOpacity: 0.4,
+        shadowRadius: 16,
+      },
+      android: {
+        elevation: 8,
+        shadowColor: '#000000',
+      },
+    }),
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingBottom: 14,
+    marginBottom: 16,
+    borderBottomWidth: 1,
+  },
+  headerTitleGroup: {
+    flex: 1,
+  },
   title: {
     fontFamily: FONT_FAMILIES.persian.bold,
-    fontSize: 18,
-    lineHeight: 26,
-    textAlign: 'center',
+    fontSize: 16,
+    lineHeight: 24,
+    textAlign: 'right',
     writingDirection: 'rtl',
   },
   subtitle: {
     fontFamily: FONT_FAMILIES.persian.regular,
-    fontSize: 12,
-    lineHeight: 18,
-    textAlign: 'center',
+    fontSize: 11,
+    lineHeight: 16,
+    textAlign: 'right',
     writingDirection: 'rtl',
-    marginTop: 4,
+    marginTop: 2,
   },
-  form: { gap: 4 },
+  closeBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  form: { width: '100%' },
   sectionContainer: { marginBottom: 16 },
   sectionLabel: {
     fontFamily: FONT_FAMILIES.persian.bold,
-    fontSize: 12.5,
+    fontSize: 12,
     lineHeight: 18,
-    marginBottom: 8,
+    marginBottom: 6,
     textAlign: 'right',
     writingDirection: 'rtl',
   },
-  requiredStar: { color: '#e11d48' },
-  daysGrid: { flexWrap: 'wrap', gap: 6 },
+  labelRow: {
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  subHint: {
+    fontFamily: FONT_FAMILIES.persian.regular,
+    fontSize: 10,
+    writingDirection: 'rtl',
+  },
+  requiredStar: { color: '#EF4444' },
+  inputContainer: {
+    borderRadius: 14,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  textInput: {
+    fontSize: 13,
+    textAlign: 'right',
+    writingDirection: 'rtl',
+    padding: 0,
+  },
+  errorText: {
+    fontFamily: FONT_FAMILIES.persian.regular,
+    fontSize: 11,
+    color: '#EF4444',
+    textAlign: 'right',
+    writingDirection: 'rtl',
+    marginTop: 4,
+  },
+  daysGrid: {
+    flexWrap: 'wrap',
+    gap: 6,
+  },
   dayButton: {
     flex: 1,
     minWidth: '30%',
@@ -411,68 +728,203 @@ const styles = StyleSheet.create({
     lineHeight: 16,
     writingDirection: 'rtl',
   },
-  recurrenceGrid: { flexWrap: 'wrap', gap: 6 },
-  recurrenceBtn: {
-    flex: 1,
-    minWidth: '45%',
-    paddingVertical: 10,
+  slotsGrid: {
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 8,
+  },
+  slotButton: {
+    width: '48%',
+    paddingVertical: 8,
     paddingHorizontal: 8,
-    borderRadius: 12,
+    borderRadius: 14,
+    borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1,
+    gap: 2,
   },
-  recurrenceIcon: { marginBottom: 4 },
-  recurrenceLabel: {
-    fontSize: 11,
+  selectedSlotGlow: {
+    ...Platform.select({
+      android: { elevation: 4 },
+      ios: { shadowOpacity: 0.3, shadowRadius: 6, shadowOffset: { width: 0, height: 2 } },
+    }),
+  },
+  slotPersianText: {
+    fontSize: 12,
     lineHeight: 16,
-    textAlign: 'center',
     writingDirection: 'rtl',
   },
-  anchorElevatedCard: {
-    marginTop: 10,
-    padding: 12,
+  slotLatinText: {
+    fontFamily: FONT_FAMILIES.english.regular,
+    fontSize: 10,
+  },
+  customTimeWell: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
     borderRadius: 14,
     borderWidth: 1,
   },
-  anchorElevatedHeader: {
+  customTimeInfo: {
+    flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
+    flex: 1,
   },
-  anchorIconBadge: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+  customTimeInput: {
+    fontSize: 12,
+    padding: 0,
+    flex: 1,
+  },
+  clearCustomTimeBtn: {
+    padding: 6,
+  },
+  customTimeToggleBtn: {
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 10,
+    borderRadius: 14,
+    borderWidth: 1,
   },
-  anchorBadgeTitle: {
+  customTimeToggleText: {
     fontFamily: FONT_FAMILIES.persian.medium,
-    fontSize: 10.5,
-    lineHeight: 14,
-    textAlign: 'right',
+    fontSize: 11.5,
     writingDirection: 'rtl',
   },
-  anchorBadgeValue: {
+  recurrenceGrid: {
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  recurrenceBtn: {
+    width: '48%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  recurrenceIconText: {
+    fontSize: 14,
+  },
+  recurrenceLabel: {
+    fontSize: 11.5,
+    writingDirection: 'rtl',
+  },
+  anchorChipCard: {
+    marginTop: 10,
+    borderRadius: 14,
+    borderWidth: 1,
+    padding: 12,
+    gap: 6,
+  },
+  anchorTopRow: {
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  anchorLeftGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flex: 1,
+  },
+  anchorLabelText: {
     fontFamily: FONT_FAMILIES.persian.bold,
     fontSize: 11.5,
-    lineHeight: 16,
-    marginTop: 2,
-    textAlign: 'right',
     writingDirection: 'rtl',
+    flex: 1,
   },
-  anchorEditChip: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+  changeAnchorBtn: {
+    paddingVertical: 5,
+    paddingHorizontal: 10,
     borderRadius: 10,
   },
-  anchorEditChipText: {
+  changeAnchorBtnText: {
     fontFamily: FONT_FAMILIES.persian.bold,
-    fontSize: 11,
+    fontSize: 10.5,
     color: '#FFFFFF',
     writingDirection: 'rtl',
   },
-  examsRow: { gap: 8 },
-  actionRow: { gap: 10, marginTop: 16 },
-  actionBtn: { flex: 1 },
+  anchorProjectionText: {
+    fontFamily: FONT_FAMILIES.persian.regular,
+    fontSize: 10.5,
+    color: '#10B981',
+    writingDirection: 'rtl',
+    marginTop: 2,
+  },
+  promptAnchorBtn: {
+    marginTop: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    padding: 10,
+    borderRadius: 14,
+    borderWidth: 1,
+  },
+  promptAnchorText: {
+    fontFamily: FONT_FAMILIES.persian.bold,
+    fontSize: 11,
+    color: '#F59E0B',
+    writingDirection: 'rtl',
+  },
+  examInputsRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  examPickerBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 11,
+    borderRadius: 14,
+    borderWidth: 1,
+  },
+  examPickerText: {
+    fontFamily: FONT_FAMILIES.persian.medium,
+    fontSize: 11,
+    writingDirection: 'rtl',
+  },
+  actionRow: {
+    gap: 12,
+    marginTop: 20,
+  },
+  cancelBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 16,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cancelBtnText: {
+    fontFamily: FONT_FAMILIES.persian.bold,
+    fontSize: 12.5,
+    writingDirection: 'rtl',
+  },
+  saveBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...Platform.select({
+      ios: { shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 6 },
+      android: { elevation: 4 },
+    }),
+  },
+  saveBtnText: {
+    fontFamily: FONT_FAMILIES.persian.bold,
+    fontSize: 12.5,
+    color: '#FFFFFF',
+    writingDirection: 'rtl',
+  },
 });

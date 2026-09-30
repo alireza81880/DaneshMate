@@ -13,9 +13,15 @@
     "build:rust:release": "cd backend && cargo build --release",
     "build:mobile:apk": "cd frontend && npm run build:android:apk",
     "build:mobile:aab": "cd frontend && npm run build:android:aab",
-    "bundle:mobile:android": "cd frontend && npm run bundle:android"
+    "bundle:mobile:android": "cd frontend && npm run bundle:android",
+    "cap:sync": "npm run build && npx cap sync android",
+    "cap:build:apk": "npm run cap:sync && cd android && ./gradlew assembleDebug"
   },
   "dependencies": {
+    "@capacitor/android": "^8.5.2",
+    "@capacitor/cli": "^8.5.2",
+    "@capacitor/core": "^8.5.2",
+    "@capacitor/status-bar": "^8.0.3",
     "@google/genai": "^2.4.0",
     "@react-native-async-storage/async-storage": "^3.1.1",
     "@tailwindcss/vite": "^4.3.3",

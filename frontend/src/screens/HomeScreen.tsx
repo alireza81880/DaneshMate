@@ -429,34 +429,41 @@ export const HomeScreen: React.FC = () => {
 
             <LiveDateCard />
 
-            {/* Overview Bento Cards */}
+            {/* Overview Bento Cards matching Web */}
             <View style={styles.overviewGrid}>
-              {userProfile.passedUnits ? (
-                <LiquidBentoCard style={styles.metricCard} borderRadius={24}>
-                  <Text style={[styles.metricLabel, { color: palette.textSecondary }]}>
-                    کل واحدهای گذرانده
-                  </Text>
-                  <Text style={[styles.metricValue, { color: palette.textPrimary }]}>
-                    {userProfile.passedUnits}
-                  </Text>
-                  <Text style={[styles.metricFootnote, { color: palette.textMuted }]}>
-                    واحدهای ثبت شده شما
-                  </Text>
-                </LiquidBentoCard>
-              ) : null}
-
-              <LiquidBentoCard
-                style={[styles.metricCard, !userProfile.passedUnits && styles.metricCardFull]}
-                borderRadius={24}
-              >
+              <LiquidBentoCard style={styles.metricCard} borderRadius={24}>
                 <Text style={[styles.metricLabel, { color: palette.textSecondary }]}>
-                  کلاس‌های ثبت‌شده
+                  واحدهای گذرانده
+                </Text>
+                <Text style={[styles.metricValue, { color: palette.textPrimary }]}>
+                  {userProfile.passedUnits || '—'}
+                </Text>
+                <Text style={[styles.metricFootnote, { color: palette.textMuted }]}>
+                  ثبت شده در پروفایل
+                </Text>
+              </LiquidBentoCard>
+
+              <LiquidBentoCard style={styles.metricCard} borderRadius={24}>
+                <Text style={[styles.metricLabel, { color: palette.textSecondary }]}>
+                  کلاس‌های فعال هفتگی
                 </Text>
                 <Text style={[styles.metricValue, { color: palette.primary }]}>
                   {classes.length} درس
                 </Text>
                 <Text style={[styles.metricFootnote, { color: palette.textMuted }]}>
-                  برنامه فعال هفتگی
+                  در برنامه مصوب
+                </Text>
+              </LiquidBentoCard>
+
+              <LiquidBentoCard style={styles.metricCard} borderRadius={24}>
+                <Text style={[styles.metricLabel, { color: palette.textSecondary }]}>
+                  لاگ‌های چندرسانه‌ای
+                </Text>
+                <Text style={[styles.metricValue, { color: palette.secondaryAccent || palette.primaryLight }]}>
+                  {sessionLogs.length} ثبت
+                </Text>
+                <Text style={[styles.metricFootnote, { color: palette.textMuted }]}>
+                  فایل‌ها، صوت و یادداشت‌ها
                 </Text>
               </LiquidBentoCard>
             </View>
@@ -469,7 +476,7 @@ export const HomeScreen: React.FC = () => {
               placeholder="جستجوی سریع درس یا نام استاد..."
             />
 
-            {/* Day Filter Carousel */}
+            {/* Day Filter Carousel matching Web */}
             <View style={styles.filterSection}>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterScroll}>
                 {DAYS_FILTER.map((d) => {
@@ -481,9 +488,9 @@ export const HomeScreen: React.FC = () => {
                       style={[
                         styles.filterTab,
                         {
-                          backgroundColor: isActive ? palette.surfaceInner : palette.surfaceCard,
-                          borderColor: isActive ? palette.primary : 'transparent',
-                          borderWidth: isActive ? 1.5 : 0,
+                          backgroundColor: isActive ? palette.primary : palette.surfaceInner,
+                          borderColor: isActive ? palette.primaryLight : palette.borderLuminous,
+                          borderWidth: 1,
                         },
                       ]}
                     >
@@ -491,8 +498,8 @@ export const HomeScreen: React.FC = () => {
                         style={[
                           styles.filterTabText,
                           {
-                            color: isActive ? palette.primary : palette.textSecondary,
-                            fontWeight: isActive ? '900' : '700',
+                            color: isActive ? '#FFFFFF' : palette.textPrimary,
+                            fontFamily: isActive ? FONT_FAMILIES.persian.bold : FONT_FAMILIES.persian.medium,
                           },
                         ]}
                       >
@@ -568,6 +575,10 @@ export const HomeScreen: React.FC = () => {
                     item={item}
                     onEdit={handleOpenEditClass}
                     onDelete={(id) => setDeletingClassId(id)}
+                    onRecordLog={(classId) => {
+                      setTargetClassForSession(classId);
+                      setIsSessionCaptureOpen(true);
+                    }}
                   />
                 ))}
               </View>

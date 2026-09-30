@@ -1,6 +1,8 @@
 import React from 'react';
 import { View, Text, StyleSheet, Pressable, Platform, Linking } from 'react-native';
 import { useTheme } from '../theme/ThemeContext';
+import { getRtlRowReverse } from '../utils/rtl';
+import { FONT_FAMILIES } from '../theme/typography';
 
 interface NullSparkleLinkProps {
   style?: any;
@@ -35,7 +37,7 @@ export const NullSparkleLink: React.FC<NullSparkleLinkProps> = ({ style }) => {
   };
 
   return (
-    <View style={[styles.wrapper, style]}>
+    <View style={[styles.wrapper, { flexDirection: getRtlRowReverse() }, style]}>
       {/* Neutral prefix strictly LTR without any wrapper box or background */}
       <Text style={[styles.prefixText, { color: palette.textSecondary }]}>
         Made by{' '}
@@ -46,6 +48,7 @@ export const NullSparkleLink: React.FC<NullSparkleLinkProps> = ({ style }) => {
         onPress={handleOpenLink}
         style={({ pressed }) => [
           styles.interactiveNull,
+          { flexDirection: getRtlRowReverse() },
           pressed && { opacity: 0.8, transform: [{ scale: 0.96 }] },
         ]}
         accessibilityRole="link"

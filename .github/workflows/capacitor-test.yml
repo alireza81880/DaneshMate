@@ -1,0 +1,86 @@
+name: DaneshMate Capacitor Android Test Build
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - 'src/**'
+      - 'android/**'
+      - 'capacitor.config.ts'
+      - 'package.json'
+      - 'vite.config.ts'
+      - '.github/workflows/capacitor-test.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build-capacitor-apk:
+    name: Build Capacitor Android APK (WebView Shell)
+    runs-on: ubuntu-latest
+    steps:
+      - name: 1. Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: 2. Set Up Node.js Environment
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: 3. Set Up Java JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: 17
+
+      - name: 4. Install Root Project Dependencies
+        run: |
+          npm install --no-audit --no-fund --legacy-peer-deps
+
+      - name: 5. Build Web Production Application (Vite + Tailwind)
+        run: |
+          npm run build
+
+      - name: 6. Sync Web Assets with Capacitor Android Shell
+        run: |
+          npx cap sync android
+
+      - name: 7. Verify Embedded Web Assets in Android Project
+        run: |
+          echo "[+] Checking assets copied to android/app/src/main/assets/public/ ..."
+          test -f android/app/src/main/assets/public/index.html || {
+            echo "[-] ERROR: Missing android/app/src/main/assets/public/index.html"
+            exit 1
+          }
+          echo "[✓] Web assets verified in Capacitor Android container."
+
+      - name: 8. Assemble Android Debug APK
+        run: |
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleDebug --stacktrace
+
+      - name: 9. Locate and Verify Generated APK
+        id: locate-apk
+        run: |
+          mkdir -p "${GITHUB_WORKSPACE}/artifacts"
+          APK_PATH=$(find android/app/build/outputs/apk/debug -name "*.apk" | head -n 1)
+          if [ -n "$APK_PATH" ] && [ -f "$APK_PATH" ]; then
+            echo "[✓] Located APK at: $APK_PATH"
+            cp "$APK_PATH" "${GITHUB_WORKSPACE}/artifacts/DaneshMate-Capacitor-Debug.apk"
+            echo "apk_path=${GITHUB_WORKSPACE}/artifacts/DaneshMate-Capacitor-Debug.apk" >> "$GITHUB_OUTPUT"
+            ls -lh "${GITHUB_WORKSPACE}/artifacts/DaneshMate-Capacitor-Debug.apk"
+          else
+            echo "[-] ERROR: APK was not generated!"
+            exit 1
+          fi
+
+      - name: 10. Upload Capacitor Test APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: DaneshMate-Capacitor-Debug-APK
+          path: artifacts/DaneshMate-Capacitor-Debug.apk
+          if-no-files-found: error

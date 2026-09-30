@@ -48,7 +48,7 @@ export const SettingsScreen: React.FC = () => {
         </Text>
       </View>
 
-      {/* Category Segmented Control */}
+      {/* Category Segmented Control matching Web */}
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.categoryRow}>
         {categories.map((cat) => {
           const isSelected = activeCategory === cat;
@@ -59,9 +59,9 @@ export const SettingsScreen: React.FC = () => {
               style={[
                 styles.categoryTab,
                 {
-                  backgroundColor: isSelected ? palette.surfaceInner : palette.surfaceCard,
-                  borderColor: isSelected ? palette.primary : palette.borderLuminous,
-                  borderWidth: isSelected ? 1.5 : 1,
+                  backgroundColor: isSelected ? palette.primary : palette.surfaceInner,
+                  borderColor: isSelected ? palette.primaryLight : palette.borderLuminous,
+                  borderWidth: 1,
                 },
               ]}
             >
@@ -69,8 +69,8 @@ export const SettingsScreen: React.FC = () => {
                 style={[
                   styles.categoryText,
                   {
-                    color: isSelected ? palette.primary : palette.textSecondary,
-                    fontWeight: isSelected ? '900' : '700',
+                    color: isSelected ? '#FFFFFF' : palette.textSecondary,
+                    fontFamily: isSelected ? FONT_FAMILIES.persian.bold : FONT_FAMILIES.persian.medium,
                   },
                 ]}
               >

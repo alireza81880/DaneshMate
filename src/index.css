@@ -8,14 +8,21 @@
     --accent-electric: #3B82F6;
     --accent-violet: #8B5CF6;
     --accent-emerald: #10B981;
+    --safe-area-inset-top: env(safe-area-inset-top, 0px);
+    --safe-area-inset-bottom: env(safe-area-inset-bottom, 0px);
   }
 
-  body {
+  html, body {
     background-color: var(--canvas-bg);
     color: inherit;
     user-select: none;
+    -webkit-user-select: none;
     -webkit-font-smoothing: antialiased;
     overflow-x: hidden;
+    overscroll-behavior-y: none;
+    -webkit-tap-highlight-color: transparent;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
   }
 }
 

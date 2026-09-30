@@ -3,7 +3,7 @@ import { View, TextInput, StyleSheet, Pressable, Platform } from 'react-native';
 import { useTheme } from '../theme/ThemeContext';
 import { Icon } from './Icon';
 import { FONT_FAMILIES } from '../theme/typography';
-import { rtlStyles } from '../utils/rtl';
+import { getRtlRow } from '../utils/rtl';
 
 interface NeumorphicSearchBarProps {
   value: string;
@@ -16,7 +16,7 @@ export const NeumorphicSearchBar: React.FC<NeumorphicSearchBarProps> = ({
   value,
   onChangeText,
   onClear,
-  placeholder = 'جستجوی کلاس یا نام استاد...',
+  placeholder = 'جستجوی سریع درس یا نام استاد...',
 }) => {
   const { palette } = useTheme();
 
@@ -30,14 +30,14 @@ export const NeumorphicSearchBar: React.FC<NeumorphicSearchBarProps> = ({
       <View
         style={[
           styles.searchWell,
-          rtlStyles.row,
           {
+            flexDirection: getRtlRow(),
             backgroundColor: palette.surfaceInner,
-            borderColor: palette.border,
+            borderColor: palette.borderLuminous,
           },
         ]}
       >
-        <Icon name="search" size={16} color={palette.textSecondary} style={styles.searchIcon} />
+        <Icon name="search" size={17} color={palette.textSecondary} style={styles.searchIcon} />
 
         <TextInput
           value={value}
@@ -48,6 +48,7 @@ export const NeumorphicSearchBar: React.FC<NeumorphicSearchBarProps> = ({
             styles.input,
             {
               color: palette.textPrimary,
+              fontFamily: FONT_FAMILIES.persian.regular,
             },
           ]}
           returnKeyType="search"
@@ -62,7 +63,7 @@ export const NeumorphicSearchBar: React.FC<NeumorphicSearchBarProps> = ({
             accessibilityLabel="پاک کردن جستجو"
             accessibilityRole="button"
           >
-            <Icon name="close" size={12} color={palette.textSecondary} />
+            <Icon name="close" size={13} color={palette.textSecondary} />
           </Pressable>
         )}
       </View>
@@ -77,23 +78,21 @@ const styles = StyleSheet.create({
   },
   searchWell: {
     alignItems: 'center',
-    borderRadius: 18,
-    paddingHorizontal: 14,
-    paddingVertical: Platform.OS === 'ios' ? 10 : 6,
-    borderWidth: 1,
+    borderRadius: 16,
+    paddingHorizontal: 12,
+    paddingVertical: Platform.OS === 'ios' ? 10 : 8,
+    borderWidth: 1.2,
     ...Platform.select({
       ios: {
         shadowColor: '#000000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.05,
-        shadowRadius: 2,
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.15,
+        shadowRadius: 4,
       },
       android: {
-        elevation: 1,
+        elevation: 2,
+        shadowColor: '#000000',
       },
-      web: {
-        boxShadow: 'inset 0 1px 3px rgba(0, 0, 0, 0.08)',
-      } as any,
     }),
   },
   searchIcon: {
@@ -101,13 +100,12 @@ const styles = StyleSheet.create({
   },
   input: {
     flex: 1,
-    fontFamily: FONT_FAMILIES.persian.regular,
-    fontSize: 13,
-    lineHeight: 20,
+    fontSize: 12.5,
+    lineHeight: 18,
     textAlign: 'right',
     writingDirection: 'rtl',
-    paddingVertical: 4,
-    marginHorizontal: 6,
+    paddingVertical: 2,
+    marginHorizontal: 8,
   },
   clearBtn: {
     width: 24,
@@ -116,6 +114,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.2)',
+    borderColor: 'rgba(255, 255, 255, 0.15)',
   },
 });
