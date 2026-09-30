@@ -37,11 +37,13 @@ export interface SessionLogData {
   createdAt: string;
   notesText: string;
   voiceMemoSeconds?: number;
+  voiceMemoUri?: string;
   attachedFiles?: AttachedFileData[];
   hasReminder?: boolean;
   reminderTrigger?: string;
   reminderTimeText?: string;
   snoozedUntil?: string;
+  notificationId?: number;
 }
 
 export interface AppSnapshot {

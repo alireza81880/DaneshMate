@@ -32,8 +32,13 @@ import {
   Database,
   RefreshCw,
 } from 'lucide-react';
+import { Capacitor } from '@capacitor/core';
 import { persistenceAdapter } from './storage/persistenceAdapter';
 import { syncBridge, SyncState } from './api/syncBridge';
+import { nativeStorageService } from './services/nativeStorageService';
+import { audioRecordingService } from './services/audioRecordingService';
+import { filePickerService } from './services/filePickerService';
+import { notificationService } from './services/notificationService';
 
 type WeekDay = 'شنبه' | 'یکشنبه' | 'دوشنبه' | 'سه‌شنبه' | 'چهارشنبه' | 'پنج‌شنبه';
 type RecurrenceType = 'every_week' | 'even_weeks' | 'odd_weeks' | 'bi_weekly' | 'biweekly';
@@ -72,10 +77,12 @@ interface ClassSessionLog {
   notesText: string;
   attachedFiles?: AttachedFile[];
   voiceMemoSeconds?: number;
+  voiceMemoUri?: string;
   hasReminder: boolean;
   reminderTrigger?: string;
   reminderTimeText?: string;
   snoozedUntil?: string;
+  notificationId?: number;
 }
 
 interface PaletteTheme {
@@ -536,6 +543,7 @@ const RECURRENCE_CONFIG: Record<
 
 // Preset Alert Triggers required by specs
 const ALERT_TRIGGERS = [
+  '1 minute (Test)',
   '24 hours before class',
   'Today',
   'Tomorrow',
@@ -544,17 +552,10 @@ const ALERT_TRIGGERS = [
 
 // Snooze Intervals
 const SNOOZE_OPTIONS = [
+  '+1 min (Test)',
   '+1 hour',
   '+4 hours',
   '+24 hours',
-];
-
-// College quick attachment sample presets
-const SAMPLE_FILES: AttachedFile[] = [
-  { id: 'f-1', name: 'Lecture-Slides-Ch4.pptx', type: 'powerpoint', sizeText: '4.8 MB' },
-  { id: 'f-2', name: 'Algorithm-Summary.pdf', type: 'pdf', sizeText: '1.2 MB' },
-  { id: 'f-3', name: 'Whiteboard-Formulas.png', type: 'image', sizeText: '2.4 MB' },
-  { id: 'f-4', name: 'Homework-Questions.docx', type: 'word', sizeText: '420 KB' },
 ];
 
 const NAME_REGEX = /^[a-zA-Z\u0600-\u06FF\uFB8A\u067E\u0686\u06AF\u200c\s]+$/;
@@ -717,7 +718,12 @@ export default function App() {
   const [sessionIsRecording, setSessionIsRecording] = useState(false);
   const [sessionRecordSeconds, setSessionRecordSeconds] = useState(0);
   const [sessionDuration, setSessionDuration] = useState<number | null>(null);
+  const [sessionVoiceUri, setSessionVoiceUri] = useState<string | null>(null);
   const [sessionIsPlayingAudio, setSessionIsPlayingAudio] = useState(false);
+
+  // Audio elements for real native/web audio playback
+  const chatAudioRef = useRef<HTMLAudioElement | null>(null);
+  const sessionAudioRef = useRef<HTMLAudioElement | null>(null);
 
   // Flexible Reminders & Snooze
   const [sessionHasReminder, setSessionHasReminder] = useState(true);
@@ -739,7 +745,10 @@ export default function App() {
       if (snapshot) {
         if (snapshot.studentProfile) setUserProfile(snapshot.studentProfile);
         if (snapshot.classes && snapshot.classes.length > 0) setClasses(snapshot.classes);
-        if (snapshot.sessionLogs && snapshot.sessionLogs.length > 0) setSessionLogs(snapshot.sessionLogs);
+        if (snapshot.sessionLogs && snapshot.sessionLogs.length > 0) {
+          setSessionLogs(snapshot.sessionLogs);
+          notificationService.syncPendingNotifications(snapshot.sessionLogs, snapshot.classes || []).catch(() => {});
+        }
         if (snapshot.activeThemeId && THEMES_2026[snapshot.activeThemeId]) {
           setCurrentThemeId(snapshot.activeThemeId);
         }
@@ -757,26 +766,101 @@ export default function App() {
     });
   }, []);
 
-  // Chat inline audio playback ticker
+  // Real inline audio playback via HTMLAudioElement
   useEffect(() => {
-    let t: ReturnType<typeof setInterval>;
-    const maxSec = selectedChatSessionLog?.voiceMemoSeconds || 60;
     if (chatAudioPlaying) {
-      t = setInterval(() => {
-        setChatAudioSeconds((prev) => {
-          if (prev >= maxSec) {
-            setChatAudioPlaying(false);
-            return 0;
-          }
-          return prev + 1;
-        });
-      }, 1000 / chatAudioSpeed);
+      if (chatAudioRef.current) {
+        chatAudioRef.current.pause();
+        chatAudioRef.current = null;
+      }
+      const rawUri =
+        selectedChatSessionLog?.voiceMemoUri ||
+        selectedChatSessionLog?.attachedFiles?.find((f) => f.type === 'audio')?.uri ||
+        selectedChatSessionLog?.attachedFiles?.find((f) => f.type === 'audio')?.url;
+
+      const playableUrl = nativeStorageService.getWebViewUrl(rawUri);
+      if (!playableUrl) {
+        setChatAudioPlaying(false);
+        setFileToast('فایل صوتی برای پخش در دسترس نیست یا حذف شده است.');
+        setTimeout(() => setFileToast(null), 3000);
+        return;
+      }
+
+      const audio = new Audio(playableUrl);
+      chatAudioRef.current = audio;
+      audio.playbackRate = chatAudioSpeed;
+
+      audio.onended = () => {
+        setChatAudioPlaying(false);
+        setChatAudioSeconds(0);
+      };
+      audio.ontimeupdate = () => {
+        setChatAudioSeconds(Math.floor(audio.currentTime));
+      };
+      audio.onerror = () => {
+        setChatAudioPlaying(false);
+        setFileToast('خطا در پخش فایل صوتی جلسه.');
+        setTimeout(() => setFileToast(null), 3000);
+      };
+
+      audio.play().catch((err) => {
+        console.warn('[AudioPlayback] play error:', err);
+        setChatAudioPlaying(false);
+      });
+    } else {
+      if (chatAudioRef.current) {
+        chatAudioRef.current.pause();
+      }
     }
-    return () => clearInterval(t);
-  }, [chatAudioPlaying, selectedChatSessionLog, chatAudioSpeed]);
+  }, [chatAudioPlaying, selectedChatSessionLog]);
+
+  useEffect(() => {
+    if (chatAudioRef.current) {
+      chatAudioRef.current.playbackRate = chatAudioSpeed;
+    }
+  }, [chatAudioSpeed]);
+
+  // Session capture audio playback effect
+  useEffect(() => {
+    if (sessionIsPlayingAudio) {
+      if (sessionAudioRef.current) {
+        sessionAudioRef.current.pause();
+        sessionAudioRef.current = null;
+      }
+      const rawUri =
+        sessionVoiceUri ||
+        sessionAttachedFiles.find((f) => f.type === 'audio')?.uri ||
+        sessionAttachedFiles.find((f) => f.type === 'audio')?.url;
+
+      const playableUrl = nativeStorageService.getWebViewUrl(rawUri || undefined);
+      if (!playableUrl) {
+        setSessionIsPlayingAudio(false);
+        setSessionError('فایل صوتی برای پخش در دسترس نیست.');
+        return;
+      }
+
+      const audio = new Audio(playableUrl);
+      sessionAudioRef.current = audio;
+      audio.onended = () => setSessionIsPlayingAudio(false);
+      audio.onerror = () => {
+        setSessionIsPlayingAudio(false);
+        setSessionError('خطا در پخش فایل صوتی.');
+      };
+      audio.play().catch(() => setSessionIsPlayingAudio(false));
+    } else {
+      if (sessionAudioRef.current) {
+        sessionAudioRef.current.pause();
+        sessionAudioRef.current = null;
+      }
+    }
+  }, [sessionIsPlayingAudio, sessionVoiceUri, sessionAttachedFiles]);
 
   // Reset chat viewer state when changing session
   useEffect(() => {
+    if (chatAudioRef.current) {
+      chatAudioRef.current.pause();
+      chatAudioRef.current = null;
+    }
     setChatAudioPlaying(false);
     setChatAudioSeconds(0);
     setChatFollowUps([]);
@@ -967,8 +1051,18 @@ export default function App() {
     setIsClassModalOpen(false);
   };
 
-  const handleConfirmDelete = () => {
+  const handleConfirmDelete = async () => {
     if (deletingId) {
+      const logsToDelete = sessionLogs.filter((l) => l.classId === deletingId);
+      for (const log of logsToDelete) {
+        await notificationService.cancelReminder(log.id);
+        if (log.voiceMemoUri) await nativeStorageService.deleteFile(log.voiceMemoUri);
+        if (log.attachedFiles) {
+          for (const f of log.attachedFiles) {
+            if (f.uri) await nativeStorageService.deleteFile(f.uri);
+          }
+        }
+      }
       const updatedClasses = classes.filter((c) => c.id !== deletingId);
       const updatedLogs = sessionLogs.filter((l) => l.classId !== deletingId);
       setClasses(updatedClasses);
@@ -978,84 +1072,104 @@ export default function App() {
     }
   };
 
-  // Universal File Upload & Quick Add
-  const handleNativeFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Pick real native files from Android storage
+  const handlePickNativeFiles = async () => {
+    try {
+      const picked = await filePickerService.pickFiles();
+      if (picked.length > 0) {
+        setSessionAttachedFiles((prev) => [...prev, ...picked]);
+        setFileToast(`${picked.length} فایل واقعی از حافظه دستگاه پیوست گردید.`);
+        setTimeout(() => setFileToast(null), 3000);
+      }
+    } catch (err: any) {
+      setSessionError(err?.message || 'خطا در انتخاب فایل');
+    }
+  };
+
+  // Universal File Upload & Quick Add (Web fallback)
+  const handleNativeFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
       const files: File[] = Array.from(e.target.files);
-      const newFiles: AttachedFile[] = files.map((file) => {
-        let type: FileCategory = 'other';
-        if (file.type.includes('image')) type = 'image';
-        else if (file.type.includes('pdf')) type = 'pdf';
-        else if (
-          file.type.includes('presentation') ||
-          file.name.endsWith('.pptx') ||
-          file.name.endsWith('.ppt')
-        )
-          type = 'powerpoint';
-        else if (
-          file.type.includes('word') ||
-          file.name.endsWith('.docx') ||
-          file.name.endsWith('.doc')
-        )
-          type = 'word';
-        else if (file.type.includes('audio')) type = 'audio';
-
-        const sizeKb = Math.round(file.size / 1024);
-        const sizeText = sizeKb > 1024 ? `${(sizeKb / 1024).toFixed(1)} MB` : `${sizeKb} KB`;
-
-        let objectUrl: string | undefined;
-        try {
-          objectUrl = URL.createObjectURL(file);
-        } catch {
-          // ignore
-        }
-
-        return {
-          id: `${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+      const newFiles: AttachedFile[] = [];
+      for (const file of files) {
+        const cat = filePickerService.determineCategory(file.name, file.type);
+        const sizeText = filePickerService.formatFileSize(file.size);
+        const saved = await nativeStorageService.saveAttachment(undefined, file.name, file);
+        newFiles.push({
+          id: `att_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
           name: file.name,
-          type,
+          type: cat,
           sizeText,
-          uri: objectUrl,
-          url: objectUrl,
-        };
-      });
-
+          uri: saved.persistentUri,
+          url: saved.webViewUrl,
+        });
+      }
       setSessionAttachedFiles((prev) => [...prev, ...newFiles]);
+      setFileToast(`${newFiles.length} فایل پیوست گردید.`);
+      setTimeout(() => setFileToast(null), 3000);
       e.target.value = '';
     }
   };
 
   const handleOpenFileWeb = (file: AttachedFile) => {
-    const sampleUrls: Record<FileCategory, string> = {
-      pdf: 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf',
-      powerpoint: 'https://view.officeapps.live.com/op/view.aspx?src=sample.pptx',
-      word: 'https://view.officeapps.live.com/op/view.aspx?src=sample.docx',
-      image: 'https://images.unsplash.com/photo-1516321318423-f06f85e504b3?w=1200&q=80',
-      audio: '',
-      other: '',
-    };
-    const targetUrl = file.uri || file.url || sampleUrls[file.type] || sampleUrls.pdf;
-    setFileToast(`در حال باز کردن «${file.name}» در نمایش‌دهنده پیش‌فرض...`);
-    setTimeout(() => setFileToast(null), 3000);
-    window.open(targetUrl, '_blank', 'noopener,noreferrer');
+    try {
+      setFileToast(`در حال باز کردن «${file.name}»...`);
+      setTimeout(() => setFileToast(null), 2500);
+      filePickerService.openFile(file);
+    } catch (e: any) {
+      setFileToast(e?.message || 'خطا در باز کردن فایل پیوست');
+      setTimeout(() => setFileToast(null), 3000);
+    }
   };
 
-  const handleDeleteSessionAudioWeb = () => {
+  const handleDeleteSessionAudioWeb = async () => {
     if (!selectedChatSessionLog) return;
+    if (selectedChatSessionLog.voiceMemoUri) {
+      await nativeStorageService.deleteFile(selectedChatSessionLog.voiceMemoUri);
+    }
+    const cleanAttached = (selectedChatSessionLog.attachedFiles || []).filter((f) => f.type !== 'audio');
     const updatedLog: ClassSessionLog = {
       ...selectedChatSessionLog,
       voiceMemoSeconds: undefined,
+      voiceMemoUri: undefined,
+      attachedFiles: cleanAttached,
     };
+    if (chatAudioRef.current) {
+      chatAudioRef.current.pause();
+      chatAudioRef.current = null;
+    }
+    setChatAudioPlaying(false);
+    setChatAudioSeconds(0);
     setSelectedChatSessionLog(updatedLog);
     const updatedLogs = sessionLogs.map((l) => (l.id === updatedLog.id ? updatedLog : l));
     setSessionLogs(updatedLogs);
     syncBridge.performOptimisticSync(userProfile, classes, updatedLogs, currentThemeId);
-    setFileToast('صوت ضبط شده جلسه حذف گردید.');
+    setFileToast('صوت ضبط شده جلسه و فایل فیزیکی آن حذف گردید.');
     setTimeout(() => setFileToast(null), 2500);
   };
 
   // Chat file input ref for native system file picking
   const chatFileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleChatNativeFilePicker = async () => {
+    if (!selectedChatSessionLog) return;
+    try {
+      const picked = await filePickerService.pickFiles();
+      if (picked.length > 0) {
+        const updatedFiles = [...(selectedChatSessionLog.attachedFiles || []), ...picked];
+        const updatedLog: ClassSessionLog = { ...selectedChatSessionLog, attachedFiles: updatedFiles };
+        setSelectedChatSessionLog(updatedLog);
+        const updatedLogs = sessionLogs.map((l) => (l.id === updatedLog.id ? updatedLog : l));
+        setSessionLogs(updatedLogs);
+        syncBridge.performOptimisticSync(userProfile, classes, updatedLogs, currentThemeId);
+        setFileToast(`${picked.length} فایل واقعی از حافظه دستگاه پیوست گردید.`);
+        setTimeout(() => setFileToast(null), 3000);
+      }
+    } catch (err: any) {
+      setFileToast(err?.message || 'خطا در افزودن فایل به جلسه');
+      setTimeout(() => setFileToast(null), 3000);
+    }
+  };
 
   const getJalaliDateNumeric = (d: Date = new Date()): string => {
     try {
@@ -1105,34 +1219,24 @@ export default function App() {
     return trigger || customText || '۲۴ ساعت قبل از کلاس';
   };
 
-  const handleChatSystemFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleChatSystemFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0 || !selectedChatSessionLog) return;
 
     const newAttached: AttachedFile[] = [];
-    Array.from(files).forEach((f) => {
-      let cat: FileCategory = 'other';
-      const ext = f.name.split('.').pop()?.toLowerCase() || '';
-      if (ext === 'pdf') cat = 'pdf';
-      else if (['ppt', 'pptx'].includes(ext)) cat = 'powerpoint';
-      else if (['doc', 'docx'].includes(ext)) cat = 'word';
-      else if (['jpg', 'jpeg', 'png', 'webp', 'gif'].includes(ext)) cat = 'image';
-      else if (['mp3', 'm4a', 'wav', 'aac', 'ogg'].includes(ext)) cat = 'audio';
-
-      const sizeInMB = f.size / (1024 * 1024);
-      const sizeText =
-        sizeInMB >= 1
-          ? `${sizeInMB.toFixed(1).replace('.', '/')} مگابایت`
-          : `${Math.round(f.size / 1024)} کیلوبایت`;
-
+    for (const f of Array.from(files)) {
+      const cat = filePickerService.determineCategory(f.name, f.type);
+      const sizeText = filePickerService.formatFileSize(f.size);
+      const saved = await nativeStorageService.saveAttachment(undefined, f.name, f);
       newAttached.push({
-        id: `sys-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+        id: `att_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
         name: f.name,
         type: cat,
         sizeText,
-        url: URL.createObjectURL(f),
+        uri: saved.persistentUri,
+        url: saved.webViewUrl,
       });
-    });
+    }
 
     const updatedFiles = [...(selectedChatSessionLog.attachedFiles || []), ...newAttached];
     const updatedLog: ClassSessionLog = { ...selectedChatSessionLog, attachedFiles: updatedFiles };
@@ -1146,8 +1250,12 @@ export default function App() {
     if (e.target) e.target.value = '';
   };
 
-  const handleDeleteSessionFileWeb = (fileId: string) => {
+  const handleDeleteSessionFileWeb = async (fileId: string) => {
     if (!selectedChatSessionLog) return;
+    const fileToDelete = (selectedChatSessionLog.attachedFiles || []).find((f) => f.id === fileId);
+    if (fileToDelete) {
+      await filePickerService.deleteFile(fileToDelete);
+    }
     const updatedFiles = (selectedChatSessionLog.attachedFiles || []).filter((f) => f.id !== fileId);
     const updatedLog: ClassSessionLog = {
       ...selectedChatSessionLog,
@@ -1173,25 +1281,66 @@ export default function App() {
     setChatInputText('');
   };
 
-  const handleToggleVoiceRecording = () => {
+  const handleToggleVoiceRecording = async () => {
     if (sessionIsRecording) {
-      setSessionIsRecording(false);
-      setSessionDuration(sessionRecordSeconds);
-      const audioAttachment: AttachedFile = {
-        id: `rec-${Date.now()}`,
-        name: `Audio-Memo-${formatTimer(sessionRecordSeconds)}.m4a`,
-        type: 'audio',
-        sizeText: `${Math.round((sessionRecordSeconds * 32) / 10)} KB`,
-      };
-      setSessionAttachedFiles((prev) => [audioAttachment, ...prev]);
+      try {
+        const result = await audioRecordingService.stop();
+        setSessionIsRecording(false);
+        setSessionDuration(result.durationSeconds);
+        setSessionVoiceUri(result.persistentUri);
+        const audioAttachment: AttachedFile = {
+          id: `rec-${Date.now()}`,
+          name: `Audio-Memo-${formatTimer(result.durationSeconds)}.aac`,
+          type: 'audio',
+          sizeText: `${Math.round((result.durationSeconds * 32) / 10)} KB`,
+          uri: result.persistentUri,
+          url: result.webViewUrl,
+        };
+        setSessionAttachedFiles((prev) => [audioAttachment, ...prev]);
+        setFileToast('صوت جلسه با میکروفون دستگاه با موفقیت ضبط و ذخیره گردید.');
+        setTimeout(() => setFileToast(null), 3000);
+      } catch (err: any) {
+        setSessionIsRecording(false);
+        setSessionError(err?.message || 'خطا در توقف و پردازش ضبط صدا');
+      }
     } else {
-      setSessionRecordSeconds(0);
-      setSessionDuration(null);
-      setSessionIsRecording(true);
+      try {
+        setSessionError(null);
+        await audioRecordingService.start();
+        setSessionRecordSeconds(0);
+        setSessionDuration(null);
+        setSessionVoiceUri(null);
+        setSessionIsRecording(true);
+      } catch (err: any) {
+        setSessionIsRecording(false);
+        setSessionError(err?.message || 'عدم دسترسی به میکروفون');
+      }
     }
   };
 
-  const handleSaveSessionLog = (e: React.FormEvent) => {
+  const handleDeleteFullSessionLog = async (log: ClassSessionLog) => {
+    // 1. Cancel notification
+    await notificationService.cancelReminder(log.id);
+    // 2. Delete physical audio
+    if (log.voiceMemoUri) {
+      await nativeStorageService.deleteFile(log.voiceMemoUri);
+    }
+    // 3. Delete physical attachments
+    if (log.attachedFiles) {
+      for (const f of log.attachedFiles) {
+        if (f.uri) await nativeStorageService.deleteFile(f.uri);
+      }
+    }
+    // 4. Update state and sync
+    setSelectedChatSessionLog(null);
+    const updatedLogs = sessionLogs.filter((l) => l.id !== log.id);
+    setSessionLogs(updatedLogs);
+    syncBridge.performOptimisticSync(userProfile, classes, updatedLogs, currentThemeId);
+    setFileToast('جلسه درسی و کلیه فایل‌ها و یادآورهای آن با موفقیت حذف گردید.');
+    setTimeout(() => setFileToast(null), 2500);
+  };
+
+  const handleSaveSessionLog = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!sessionClassId) {
       setSessionError('لطفاً کلاس مربوطه را انتخاب کنید.');
@@ -1208,18 +1357,42 @@ export default function App() {
       reminderText = `${sessionSelectedReminder} (Snoozed ${sessionActiveSnooze})`;
     }
 
+    const newLogId = Date.now().toString();
+
+    let notificationId: number | undefined;
+    if (sessionHasReminder) {
+      try {
+        const notifResult = await notificationService.scheduleReminder({
+          logId: newLogId,
+          className: currentClass?.name || 'کلاس عمومی',
+          notesText: sessionNotesText.trim(),
+          trigger: sessionSelectedReminder,
+          snoozedUntil: sessionActiveSnooze || undefined,
+          classTime: currentClass?.time,
+          classDay: currentClass?.day,
+        });
+        if (notifResult.scheduled) {
+          notificationId = notificationService.getNotificationId(newLogId);
+        }
+      } catch (notifErr: any) {
+        console.warn('[SessionCapture] Notification schedule notice:', notifErr);
+      }
+    }
+
     const newLog: ClassSessionLog = {
-      id: Date.now().toString(),
+      id: newLogId,
       classId: sessionClassId,
       className: currentClass?.name || 'کلاس عمومی',
       createdAt: new Date().toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' }),
       notesText: sessionNotesText.trim(),
       attachedFiles: sessionAttachedFiles,
       voiceMemoSeconds: sessionDuration || undefined,
+      voiceMemoUri: sessionVoiceUri || undefined,
       hasReminder: sessionHasReminder,
       reminderTrigger: sessionSelectedReminder,
       reminderTimeText: sessionHasReminder ? reminderText : undefined,
       snoozedUntil: sessionActiveSnooze || undefined,
+      notificationId,
     };
 
     const updatedLogs = [newLog, ...sessionLogs];
@@ -1228,12 +1401,15 @@ export default function App() {
     setSessionNotesText('');
     setSessionAttachedFiles([]);
     setSessionDuration(null);
+    setSessionVoiceUri(null);
     setSessionRecordSeconds(0);
     setSessionIsRecording(false);
     setSessionHasReminder(true);
     setSessionActiveSnooze(null);
     setSessionError(null);
     setIsSessionCaptureOpen(false);
+    setFileToast('جلسه درسی با موفقیت ذخیره گردید.');
+    setTimeout(() => setFileToast(null), 2500);
   };
 
   const formatTimer = (secs: number) => {
@@ -2491,9 +2667,12 @@ export default function App() {
                             </span>
                             <button
                               type="button"
-                              onClick={() =>
-                                setSessionAttachedFiles((prev) => prev.filter((f) => f.id !== file.id))
-                              }
+                              onClick={async () => {
+                                if (file.uri) {
+                                  await nativeStorageService.deleteFile(file.uri);
+                                }
+                                setSessionAttachedFiles((prev) => prev.filter((f) => f.id !== file.id));
+                              }}
                               className="text-slate-400 hover:text-rose-400 cursor-pointer p-0.5"
                             >
                               <X className="w-3.5 h-3.5" />
@@ -2513,6 +2692,12 @@ export default function App() {
 
                   {/* Clean Bottom-Anchored Neumorphic/Glass Action Button */}
                   <label
+                    onClick={(e) => {
+                      if (Capacitor.isNativePlatform()) {
+                        e.preventDefault();
+                        handlePickNativeFiles();
+                      }
+                    }}
                     style={{
                       backgroundColor: theme.innerBg,
                       borderColor: theme.primary,
@@ -3677,9 +3862,9 @@ export default function App() {
 
                   <button
                     onClick={() => {
-                      const idToDelete = selectedChatSessionLog.id;
-                      setSelectedChatSessionLog(null);
-                      setSessionLogs((prev) => prev.filter((l) => l.id !== idToDelete));
+                      if (selectedChatSessionLog) {
+                        handleDeleteFullSessionLog(selectedChatSessionLog);
+                      }
                     }}
                     className="flex items-center gap-1.5 text-rose-400 hover:text-rose-500 text-xs font-bold cursor-pointer py-1.5 px-3 rounded-xl bg-rose-500/10 border border-rose-500/20"
                   >
@@ -4077,7 +4262,13 @@ export default function App() {
               >
                 <button
                   type="button"
-                  onClick={() => chatFileInputRef.current?.click()}
+                  onClick={() => {
+                    if (Capacitor.isNativePlatform()) {
+                      handleChatNativeFilePicker();
+                    } else {
+                      chatFileInputRef.current?.click();
+                    }
+                  }}
                   style={{
                     backgroundColor: theme.cardBg,
                     borderColor: theme.borderLuminous,
