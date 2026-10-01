@@ -105,3 +105,11 @@
 ::-webkit-scrollbar-thumb:hover {
   background: rgba(59, 130, 246, 0.5);
 }
+
+/* Mobile Virtual Keyboard Stability & Inset Scroll Control (Part 14) */
+.modal-keyboard-safe {
+  max-height: 86dvh;
+  overscroll-behavior: contain;
+  scroll-padding-bottom: 5rem;
+  -webkit-overflow-scrolling: touch;
+}

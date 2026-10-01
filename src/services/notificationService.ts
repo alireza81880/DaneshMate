@@ -1,16 +1,13 @@
 import { Capacitor } from '@capacitor/core';
 import { LocalNotifications, ActionPerformed } from '@capacitor/local-notifications';
-import { persistenceAdapter } from '../storage/persistenceAdapter';
 
 const CHANNEL_ID = 'daneshmate-reminders';
-export const REMINDER_ACTION_TYPE_ID = 'DANESHMATE_REMINDER_ACTIONS';
 
 export interface ScheduleReminderOptions {
   id?: string;
   logId?: string;
   classId?: string;
   className: string;
-  classCode?: string;
   location?: string;
   notesText?: string;
   trigger?: string;
@@ -18,24 +15,32 @@ export interface ScheduleReminderOptions {
   minutesBefore?: number;
   exactTime?: string;
   exactTimestamp?: number;
-  snoozedUntil?: string;
+  sessionDateStr?: string;
+  snoozedUntil?: string; // Legacy compatibility only
   classTime?: string;
   classDay?: string;
   isClassReminder?: boolean;
 }
 
-export type NotificationActionListener = (actionId: 'snooze' | 'dismiss' | 'tap', data: {
+export type NotificationActionListener = (actionId: 'tap', data: {
   itemId: string;
   className: string;
-  classCode?: string;
   isClassReminder?: boolean;
+  logId?: string;
+  classId?: string;
+  occurrenceDate?: string;
+  occurrenceTimestamp?: number;
+  classTime?: string;
+  classDay?: string;
+  notesText?: string;
+  location?: string;
 }) => void;
 
 class NotificationService {
   private channelCreated = false;
-  private actionTypesRegistered = false;
   private listeners: Set<NotificationActionListener> = new Set();
   private setupListenerInitialized = false;
+  private pendingAction: { actionId: 'tap'; data: any } | null = null;
 
   constructor() {
     if (typeof window !== 'undefined') {
@@ -46,16 +51,29 @@ class NotificationService {
   }
 
   /**
-   * Register a callback listener in the React app for notification actions
+   * Register a callback listener in the React app for notification tap navigation
    */
   public addActionListener(fn: NotificationActionListener): () => void {
     this.listeners.add(fn);
+    if (this.pendingAction) {
+      const act = this.pendingAction;
+      this.pendingAction = null;
+      try {
+        fn(act.actionId, act.data);
+      } catch (err) {
+        console.warn('[NotificationService] Pending action dispatch error:', err);
+      }
+    }
     return () => {
       this.listeners.delete(fn);
     };
   }
 
-  private notifyActionListeners(actionId: 'snooze' | 'dismiss' | 'tap', data: any) {
+  private notifyActionListeners(actionId: 'tap', data: any) {
+    if (this.listeners.size === 0) {
+      this.pendingAction = { actionId, data };
+      return;
+    }
     for (const listener of this.listeners) {
       try {
         listener(actionId, data);
@@ -66,41 +84,35 @@ class NotificationService {
   }
 
   /**
-   * Listen to native notification action events (Dismiss / Snooze / Tap)
+   * Listen to native notification tap events (to open app and navigate to relevant session/class)
    */
   private initNativeActionListener() {
     if (!Capacitor.isNativePlatform() || this.setupListenerInitialized) return;
 
     try {
       LocalNotifications.addListener('localNotificationActionPerformed', async (action: ActionPerformed) => {
-        console.log('[NotificationService] localNotificationActionPerformed:', action);
-        const { actionId, notification } = action;
+        console.log('[NotificationService] localNotificationActionPerformed (Normal Tap):', action);
+        const { notification } = action;
         const extra = notification.extra || {};
         const itemId = extra.logId || extra.classId || extra.id || String(notification.id);
         const className = extra.className || notification.title || '';
-        const classCode = extra.classCode;
         const isClassReminder = Boolean(extra.isClassReminder);
+        const occurrenceDate = extra.occurrenceDate || new Date().toISOString().split('T')[0];
 
-        if (actionId === 'dismiss') {
-          // Action: "فهمیدم" (Problem 5: acknowledge/dismiss reminder and prevent it from firing again for this occurrence)
-          await this.acknowledgeReminder(itemId);
-          this.notifyActionListeners('dismiss', { itemId, className, classCode, isClassReminder });
-        } else if (actionId === 'snooze') {
-          // Action: "بعداً یادآوری کن" (Problem 4: snooze the reminder)
-          await this.snoozeReminder(itemId, '+10 min', {
-            className,
-            classCode,
-            isClassReminder,
-            classTime: extra.classTime,
-            classDay: extra.classDay,
-            notesText: extra.notesText,
-            location: extra.location,
-          });
-          this.notifyActionListeners('snooze', { itemId, className, classCode, isClassReminder });
-        } else {
-          // General tap on notification
-          this.notifyActionListeners('tap', { itemId, className, classCode, isClassReminder });
-        }
+        // Normal tap opens the app / navigates
+        this.notifyActionListeners('tap', {
+          itemId,
+          className,
+          isClassReminder,
+          logId: extra.logId,
+          classId: extra.classId,
+          occurrenceDate,
+          occurrenceTimestamp: extra.occurrenceTimestamp,
+          classTime: extra.classTime,
+          classDay: extra.classDay,
+          notesText: extra.notesText,
+          location: extra.location,
+        });
       });
 
       this.setupListenerInitialized = true;
@@ -123,7 +135,7 @@ class NotificationService {
   }
 
   /**
-   * Ensure dedicated high-priority notification channel & action types exist on Android
+   * Ensure dedicated high-priority notification channel exists on Android
    */
   public async ensureChannel(): Promise<void> {
     if (!Capacitor.isNativePlatform()) return;
@@ -133,7 +145,7 @@ class NotificationService {
         await LocalNotifications.createChannel({
           id: CHANNEL_ID,
           name: 'یادآورهای هوشمند دانش‌میت',
-          description: 'اعلان‌های صوتی و هشدارهای پیش از شروع کلاس‌ها',
+          description: 'اعلان‌های صوتی و هشدارهای پیش از شروع کلاس‌ها و جلسات درسی',
           importance: 4, // High importance
           visibility: 1, // Public visibility on lockscreen
           vibration: true,
@@ -143,32 +155,6 @@ class NotificationService {
         this.channelCreated = true;
       } catch (e) {
         console.warn('[NotificationService] Channel creation notice:', e);
-      }
-    }
-
-    if (!this.actionTypesRegistered) {
-      try {
-        // Register Action Types: "بعداً یادآوری کن" and "فهمیدم" (Problem 3)
-        await LocalNotifications.registerActionTypes({
-          types: [
-            {
-              id: REMINDER_ACTION_TYPE_ID,
-              actions: [
-                {
-                  id: 'dismiss',
-                  title: 'فهمیدم',
-                },
-                {
-                  id: 'snooze',
-                  title: 'بعداً یادآوری کن',
-                },
-              ],
-            },
-          ],
-        });
-        this.actionTypesRegistered = true;
-      } catch (e) {
-        console.warn('[NotificationService] registerActionTypes notice:', e);
       }
     }
   }
@@ -215,9 +201,6 @@ class NotificationService {
     if (!trigger) return 30; // default 30 minutes before class
 
     const trg = trigger.toLowerCase();
-    if (trg.includes('1 min') || trg.includes('۱ دقیقه') || trg.includes('test') || trg.includes('تست')) {
-      return -1; // special flag for immediate 1-minute test
-    }
     if (trg.includes('15') || trg.includes('۱۵')) return 15;
     if (trg.includes('30') || trg.includes('۳۰')) return 30;
     if (trg.includes('45') || trg.includes('۴۵')) return 45;
@@ -238,37 +221,11 @@ class NotificationService {
   }
 
   /**
-   * Parse snooze milliseconds
-   */
-  public parseSnoozeDurationMs(snoozeStr: string): number {
-    const s = snoozeStr.toLowerCase();
-    if (s.includes('1 min') || s.includes('۱ دقیقه')) return 60 * 1000;
-    if (s.includes('5 min') || s.includes('۵ دقیقه')) return 5 * 60 * 1000;
-    if (s.includes('10 min') || s.includes('۱۰ دقیقه')) return 10 * 60 * 1000;
-    if (s.includes('15 min') || s.includes('۱۵ دقیقه')) return 15 * 60 * 1000;
-    if (s.includes('30 min') || s.includes('۳۰ دقیقه')) return 30 * 60 * 1000;
-    if (s.includes('1 hour') || s.includes('۱ ساعت')) return 60 * 60 * 1000;
-    if (s.includes('2 hour') || s.includes('۲ ساعت')) return 2 * 60 * 60 * 1000;
-    if (s.includes('4 hour') || s.includes('۴ ساعت')) return 4 * 60 * 60 * 1000;
-    if (s.includes('24 hour') || s.includes('۲۴ ساعت')) return 24 * 60 * 60 * 1000;
-
-    const match = s.match(/(\d+)/);
-    if (match) {
-      const num = parseInt(match[1], 10);
-      if (s.includes('hour') || s.includes('ساعت')) return num * 60 * 60 * 1000;
-      if (s.includes('day') || s.includes('روز')) return num * 24 * 60 * 60 * 1000;
-      return num * 60 * 1000;
-    }
-
-    return 10 * 60 * 1000; // default 10 minutes
-  }
-
-  /**
-   * Calculate scheduled Date based on class weekday, class time, "before class" minutes, or exact time/timestamp (Problems 1 & 5)
+   * Calculate scheduled Date based on class weekday, class time, "before class" minutes, or exact timestamp
    */
   public calculateScheduleDate(
     trigger?: string,
-    snooze?: string,
+    _legacySnooze?: string,
     classTime?: string,
     classDay?: string,
     explicitMinutesBefore?: number,
@@ -277,24 +234,9 @@ class NotificationService {
   ): Date {
     const now = Date.now();
 
-    // 1. Handle exact timestamp directly if provided (e.g. for session timeline reminder)
+    // 1. Handle exact timestamp directly if provided (One-time session reminder)
     if (exactTimestamp && !isNaN(exactTimestamp) && exactTimestamp > 0) {
-      if (snooze) {
-        return new Date(now + this.parseSnoozeDurationMs(snooze));
-      }
       return new Date(exactTimestamp);
-    }
-
-    // 2. Handle Snooze first
-    if (snooze) {
-      const durationMs = this.parseSnoozeDurationMs(snooze);
-      return new Date(now + durationMs);
-    }
-
-    // 3. Handle Test 1-Minute trigger
-    const trg = (trigger || '').toLowerCase();
-    if (trg.includes('1 minute') || trg.includes('1 min') || trg.includes('test') || trg.includes('۱ دقیقه')) {
-      return new Date(now + 60 * 1000); // 1 minute test
     }
 
     // Map Persian weekday to JavaScript Date.getDay() (Sunday=0 ... Saturday=6)
@@ -310,7 +252,7 @@ class NotificationService {
     const targetDayIndex = classDay ? PERSIAN_DAY_TO_JS[classDay] : undefined;
     const nowDate = new Date(now);
 
-    // 4. Handle Mode B: Exact Clock Time (e.g. "08:40" or "14:15")
+    // 2. Handle Exact Clock Time for weekly class reminder (e.g. "18:30")
     if (exactTime && exactTime.includes(':')) {
       const parts = exactTime.split(':').map((s) => parseInt(s.trim().replace(/[۰-۹]/g, (d) => '۰۱۲۳۴۵۶۷۸۹'.indexOf(d).toString()), 10));
       if (parts.length === 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
@@ -358,7 +300,7 @@ class NotificationService {
       }
     }
 
-    // 5. Parse class start hour & minute (e.g. "08:00 - 10:00" -> 8:00)
+    // 3. Parse class start hour & minute (e.g. "08:00 - 10:00" -> 8:00)
     let classHour = 8;
     let classMin = 0;
     if (classTime) {
@@ -370,11 +312,6 @@ class NotificationService {
     }
 
     const minutesBefore = this.parseMinutesBefore(trigger, explicitMinutesBefore);
-
-    // If 1-minute test was detected by parseMinutesBefore
-    if (minutesBefore === -1) {
-      return new Date(now + 60 * 1000);
-    }
 
     if (targetDayIndex !== undefined) {
       // Calculate next occurrence of this weekday
@@ -389,7 +326,7 @@ class NotificationService {
         0
       );
 
-      // Subtract configurable "before class" minutes (Problem 1)
+      // Subtract configurable "before class" minutes
       let scheduledAt = new Date(targetClassDate.getTime() - minutesBefore * 60 * 1000);
 
       // If scheduled time has already passed for this week's occurrence, schedule for next week (+7 days)
@@ -409,7 +346,7 @@ class NotificationService {
       return scheduledAt;
     }
 
-    // If day is not explicitly specified, calculate relative to today or tomorrow
+    // Fallback relative to today/tomorrow
     let targetClassDate = new Date(
       nowDate.getFullYear(),
       nowDate.getMonth(),
@@ -421,19 +358,7 @@ class NotificationService {
     );
 
     let scheduledAt = new Date(targetClassDate.getTime() - minutesBefore * 60 * 1000);
-
-    if (trg.includes('tomorrow') || trg.includes('فردا')) {
-      scheduledAt.setDate(scheduledAt.getDate() + 1);
-      return scheduledAt;
-    }
-
-    if (trg.includes('2 days') || trg.includes('۲ روز')) {
-      scheduledAt.setDate(scheduledAt.getDate() + 2);
-      return scheduledAt;
-    }
-
     if (scheduledAt.getTime() <= now) {
-      // If today's time has passed, schedule for tomorrow
       scheduledAt.setDate(scheduledAt.getDate() + 1);
     }
 
@@ -441,7 +366,7 @@ class NotificationService {
   }
 
   /**
-   * Schedule a local notification with class identification and action buttons (Problems 1, 2, 3)
+   * Schedule a local notification (Clean, Informational, No Snooze Buttons)
    */
   public async scheduleReminder(opts: ScheduleReminderOptions): Promise<{ scheduled: boolean; at: Date }> {
     const hasPerm = await this.requestPermissions();
@@ -467,18 +392,23 @@ class NotificationService {
       opts.exactTimestamp
     );
 
-    // Problem 2: Identify class when class number / class code exists
-    const codePart = opts.classCode ? ` (کد: ${opts.classCode})` : (opts.location ? ` (${opts.location})` : '');
-    const notifTitle = `🎓 یادآور کلاس: ${opts.className}${codePart}`;
+    const occurrenceDate = scheduleDate.toISOString().split('T')[0];
+    const occurrenceTimestamp = scheduleDate.getTime();
 
+    // Concise, readable Persian notification titles & bodies (Part 8)
+    let notifTitle = '';
     let notifBody = '';
-    if (opts.notesText) {
-      notifBody = `${opts.notesText.substring(0, 90)}...`;
+
+    if (opts.isClassReminder) {
+      // CLASS REMINDER
+      notifTitle = '🎓 یادآوری کلاس';
+      notifBody = `کلاس ${opts.className}\nشروع: ${opts.classTime || ''}`;
     } else {
-      const codeInfo = opts.classCode ? ` با کد ${opts.classCode}` : '';
-      const locInfo = opts.location ? ` در ${opts.location}` : '';
-      const timeInfo = opts.classTime ? ` (ساعت ${opts.classTime})` : '';
-      notifBody = `زمان حضور در جلسه درس ${opts.className}${codeInfo}${locInfo}${timeInfo} نزدیک است.`;
+      // SESSION / TIMELINE REMINDER (One-time)
+      notifTitle = '📚 یادآوری جلسه';
+      const timeStr = opts.exactTime || scheduleDate.toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' });
+      const dateStr = opts.sessionDateStr || scheduleDate.toLocaleDateString('fa-IR');
+      notifBody = `مرور جلسه ${opts.className} را فراموش نکن.\nتاریخ: ${dateStr}\nساعت: ${timeStr}`;
     }
 
     if (Capacitor.isNativePlatform()) {
@@ -496,19 +426,19 @@ class NotificationService {
               channelId: CHANNEL_ID,
               smallIcon: 'ic_launcher_foreground',
               sound: 'beep.wav',
-              // Problem 3: Attach action type providing "بعداً یادآوری کن" and "فهمیدم"
-              actionTypeId: REMINDER_ACTION_TYPE_ID,
+              // No action buttons (Part 7: purely informational)
               extra: {
                 id: targetId,
                 logId: opts.logId,
                 classId: opts.classId,
                 className: opts.className,
-                classCode: opts.classCode,
                 location: opts.location,
                 classTime: opts.classTime,
                 classDay: opts.classDay,
                 isClassReminder: Boolean(opts.isClassReminder),
                 notesText: opts.notesText,
+                occurrenceDate,
+                occurrenceTimestamp,
               },
             },
           ],
@@ -526,7 +456,7 @@ class NotificationService {
   }
 
   /**
-   * Schedule class-level recurring reminder (Problems 1 & 5)
+   * Schedule class-level recurring reminder (Weekly occurrence)
    */
   public async scheduleClassReminder(classItem: any): Promise<{ scheduled: boolean; at: Date }> {
     const classId = classItem.id;
@@ -535,14 +465,13 @@ class NotificationService {
       id: `cls_${classId}`,
       classId,
       className: classItem.name,
-      classCode: classItem.classCode,
       location: classItem.location,
       trigger: classItem.reminderTriggerText,
       reminderMode: classItem.reminderMode,
       minutesBefore: isExact ? undefined : (classItem.reminderMinutesBefore ?? 30),
       exactTime: isExact ? classItem.reminderExactTime : undefined,
       classTime: classItem.time,
-      classDay: classItem.day,
+      classDay: classItem.reminderDay || classItem.day,
       isClassReminder: true,
     });
   }
@@ -576,50 +505,7 @@ class NotificationService {
   }
 
   /**
-   * Acknowledge/dismiss reminder ("فهمیدم") so it won't fire again for this occurrence (Problem 5)
-   */
-  public async acknowledgeReminder(itemId: string): Promise<void> {
-    try {
-      const todayStr = new Date().toISOString().split('T')[0];
-      const key = `${itemId}_${todayStr}`;
-      await persistenceAdapter.saveAcknowledgedReminder(key, Date.now());
-      await this.cancelReminder(itemId);
-      console.log(`[NotificationService] Reminder acknowledged and dismissed for key: ${key}`);
-    } catch (e) {
-      console.warn('[NotificationService] Failed to acknowledge reminder:', e);
-    }
-  }
-
-  /**
-   * Snooze reminder ("بعداً یادآوری کن") with selectable duration (Problem 4)
-   */
-  public async snoozeReminder(
-    itemId: string,
-    snoozeDuration: string = '+10 min',
-    extra: Partial<ScheduleReminderOptions> = {}
-  ): Promise<Date> {
-    const newScheduleDate = new Date(Date.now() + this.parseSnoozeDurationMs(snoozeDuration));
-
-    await this.scheduleReminder({
-      id: itemId,
-      logId: extra.logId || (!extra.isClassReminder ? itemId : undefined),
-      classId: extra.classId || (extra.isClassReminder ? itemId.replace('cls_', '') : undefined),
-      className: extra.className || 'کلاس',
-      classCode: extra.classCode,
-      location: extra.location,
-      notesText: extra.notesText,
-      trigger: `Snoozed ${snoozeDuration}`,
-      snoozedUntil: snoozeDuration,
-      classTime: extra.classTime,
-      classDay: extra.classDay,
-      isClassReminder: extra.isClassReminder,
-    });
-
-    return newScheduleDate;
-  }
-
-  /**
-   * Synchronize pending native notifications with local active session logs & classes
+   * Synchronize pending native notifications with local active session logs & classes (No Snooze)
    */
   public async syncPendingNotifications(sessionLogs: any[], classes: any[]): Promise<void> {
     if (!Capacitor.isNativePlatform()) return;
@@ -628,53 +514,47 @@ class NotificationService {
       await this.ensureChannel();
       const pending = await LocalNotifications.getPending();
       const pendingIds = new Set(pending.notifications.map((n) => n.id));
-      const todayStr = new Date().toISOString().split('T')[0];
+      const now = Date.now();
 
       const activeExpectedIds = new Set<number>();
 
-      // 1. Sync session logs reminders
-      const activeLogsWithReminder = sessionLogs.filter((l) => l.hasReminder);
+      // 1. Sync one-time session log reminders (if in future)
+      const activeLogsWithReminder = sessionLogs.filter(
+        (l) => l.hasReminder && l.reminderTimestamp && l.reminderTimestamp > now
+      );
       for (const log of activeLogsWithReminder) {
         const notifId = this.getNotificationId(log.id);
         activeExpectedIds.add(notifId);
 
-        const ackKey = `${log.id}_${todayStr}`;
-        const isAcked = await persistenceAdapter.isReminderAcknowledged(ackKey);
-
-        if (!isAcked && !pendingIds.has(notifId)) {
+        if (!pendingIds.has(notifId)) {
           const cls = classes.find((c) => c.id === log.classId);
           try {
             await this.scheduleReminder({
               id: log.id,
               logId: log.id,
               classId: log.classId,
-              className: log.className || cls?.name || 'کلاس',
-              classCode: log.classCode || cls?.classCode,
+              className: log.className || cls?.name || 'جلسه درسی',
               location: cls?.location,
               notesText: log.notesText,
               trigger: log.reminderTrigger,
               exactTimestamp: log.reminderTimestamp,
-              snoozedUntil: log.snoozedUntil,
               classTime: cls?.time,
               classDay: cls?.day,
             });
           } catch (e) {
-            console.warn('[NotificationService] Reschedule error for log:', e);
+            console.warn('[NotificationService] Reschedule error for session log:', e);
           }
         }
       }
 
-      // 2. Sync class-level reminders (Problem 1)
+      // 2. Sync class-level recurring reminders
       const activeClassesWithReminder = classes.filter((c) => c.hasReminder);
       for (const cls of activeClassesWithReminder) {
         const classTargetId = `cls_${cls.id}`;
         const notifId = this.getNotificationId(classTargetId);
         activeExpectedIds.add(notifId);
 
-        const ackKey = `${classTargetId}_${todayStr}`;
-        const isAcked = await persistenceAdapter.isReminderAcknowledged(ackKey);
-
-        if (!isAcked && !pendingIds.has(notifId)) {
+        if (!pendingIds.has(notifId)) {
           try {
             await this.scheduleClassReminder(cls);
           } catch (e) {

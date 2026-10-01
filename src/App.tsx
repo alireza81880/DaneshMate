@@ -32,6 +32,8 @@ import {
   WifiOff,
   Database,
   RefreshCw,
+  ChevronUp,
+  ChevronDown,
 } from 'lucide-react';
 import { Capacitor } from '@capacitor/core';
 import { persistenceAdapter, AppSnapshot } from './storage/persistenceAdapter';
@@ -40,6 +42,7 @@ import { nativeStorageService } from './services/nativeStorageService';
 import { audioRecordingService } from './services/audioRecordingService';
 import { filePickerService } from './services/filePickerService';
 import { notificationService } from './services/notificationService';
+import { SpringTimePicker } from './components/SpringTimePicker';
 
 type WeekDay = 'شنبه' | 'یکشنبه' | 'دوشنبه' | 'سه‌شنبه' | 'چهارشنبه' | 'پنج‌شنبه';
 type RecurrenceType = 'every_week' | 'even_weeks' | 'odd_weeks' | 'bi_weekly' | 'biweekly';
@@ -73,6 +76,7 @@ interface ClassItem {
   reminderMode?: 'before_class' | 'exact_time';
   reminderMinutesBefore?: number;
   reminderExactTime?: string;
+  reminderDay?: WeekDay;
   reminderTriggerText?: string;
 }
 
@@ -552,26 +556,30 @@ const RECURRENCE_CONFIG: Record<
   },
 };
 
-// Preset Alert Triggers required by specs
-const ALERT_TRIGGERS = [
-  '1 minute (Test)',
-  '24 hours before class',
-  'Today',
-  'Tomorrow',
-  '2 days before next class',
+// Clean Persian Alert Triggers for quick selection
+const QUICK_ALERT_TRIGGERS = [
+  '۱۵ دقیقه قبل',
+  '۳۰ دقیقه قبل',
+  '۱ ساعت قبل',
+  '۱ روز قبل',
 ];
 
-// Configurable "Before Class" Reminder Options (Problem 1 & Part 5 Mode A)
+// Configurable "Before Class" Reminder Options (Part 8 Mode A)
 const BEFORE_CLASS_OPTIONS = [
   { label: '۵ دقیقه قبل از شروع کلاس', minutes: 5 },
   { label: '۱۰ دقیقه قبل از شروع کلاس', minutes: 10 },
   { label: '۱۵ دقیقه قبل از شروع کلاس', minutes: 15 },
   { label: '۳۰ دقیقه قبل از شروع کلاس', minutes: 30 },
-  { label: '۴۵ دقیقه قبل از شروع کلاس', minutes: 45 },
   { label: '۱ ساعت قبل از شروع کلاس', minutes: 60 },
-  { label: '۲ ساعت قبل از شروع کلاس', minutes: 120 },
-  { label: '۲۴ ساعت (۱ روز) قبل از کلاس', minutes: 1440 },
-  { label: '۱ دقیقه قبل (تست سریع آلارم)', minutes: -1 },
+];
+
+// Compact 5-Option Primary Chips for Class Reminder UI (Part 8 Mode A)
+const PRIMARY_BEFORE_CLASS_CHIPS = [
+  { label: '۵ دقیقه', minutes: 5 },
+  { label: '۱۰ دقیقه', minutes: 10 },
+  { label: '۱۵ دقیقه', minutes: 15 },
+  { label: '۳۰ دقیقه', minutes: 30 },
+  { label: '۱ ساعت', minutes: 60 },
 ];
 
 /**
@@ -635,24 +643,6 @@ export function detectClassConflict(
   return { hasConflict: false };
 }
 
-// Snooze Intervals
-const SNOOZE_OPTIONS = [
-  '+1 min (Test)',
-  '+1 hour',
-  '+4 hours',
-  '+24 hours',
-];
-
-// Extended Selectable Snooze Durations (Problem 4)
-const EXTENDED_SNOOZE_OPTIONS = [
-  { label: '+۵ دقیقه', value: '+5 min' },
-  { label: '+۱۰ دقیقه', value: '+10 min' },
-  { label: '+۳۰ دقیقه', value: '+30 min' },
-  { label: '+۱ ساعت', value: '+1 hour' },
-  { label: '+۴ ساعت', value: '+4 hours' },
-  { label: '+۲۴ ساعت', value: '+24 hours' },
-];
-
 const NAME_REGEX = /^[a-zA-Z\u0600-\u06FF\uFB8A\u067E\u0686\u06AF\u200c\s]+$/;
 
 export default function App() {
@@ -687,10 +677,10 @@ export default function App() {
   const [isClassModalOpen, setIsClassModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [formName, setFormName] = useState('');
-  const [formClassCode, setFormClassCode] = useState('');
   const [formHasReminder, setFormHasReminder] = useState(false);
-  const [formReminderMode, setFormReminderMode] = useState<'before_class' | 'exact_time'>('before_class');
+  const [formReminderMode, setFormReminderMode] = useState<'before_class' | 'exact_time'>('exact_time');
   const [formReminderBefore, setFormReminderBefore] = useState<number>(30);
+  const [formReminderDay, setFormReminderDay] = useState<WeekDay>('شنبه');
   const [formReminderExactTime, setFormReminderExactTime] = useState<string>('08:40');
   const [isReminderTimePickerOpen, setIsReminderTimePickerOpen] = useState(false);
   const [reminderPickerHour, setReminderPickerHour] = useState(8);
@@ -712,18 +702,15 @@ export default function App() {
   const [formLocation, setFormLocation] = useState('');
   const [classErrors, setClassErrors] = useState<{ name?: string }>({});
 
-  // 2-Step Automated Custom Time Picker Modal (Zero-Error)
-  const [isTimePickerModalOpen, setIsTimePickerModalOpen] = useState(false);
-  const [timePickerStep, setTimePickerStep] = useState<1 | 2>(1);
-  const [pickerStartHour, setPickerStartHour] = useState(8);
-  const [pickerStartMin, setPickerStartMin] = useState(0);
-  const [pickerEndHour, setPickerEndHour] = useState(10);
-  const [pickerEndMin, setPickerEndMin] = useState(0);
-  const [timePickerError, setTimePickerError] = useState<string | null>(null);
+  // Class Start & End Time Pickers (reusing global SpringTimePicker)
+  const [isClassStartTimePickerOpen, setIsClassStartTimePickerOpen] = useState(false);
+  const [isClassEndTimePickerOpen, setIsClassEndTimePickerOpen] = useState(false);
+  const [classPickerStartHour, setClassPickerStartHour] = useState(8);
+  const [classPickerStartMin, setClassPickerStartMin] = useState(0);
+  const [classPickerEndHour, setClassPickerEndHour] = useState(10);
+  const [classPickerEndMin, setClassPickerEndMin] = useState(0);
 
-  const handleOpenCustomTimePicker = (existingTime?: string) => {
-    setTimePickerError(null);
-    setTimePickerStep(1);
+  const handleOpenClassStartTimePicker = (existingTime?: string) => {
     const target = existingTime || formCustomTime || (COMMON_SLOTS.includes(formTime) ? '' : formTime);
     if (target && target.includes('-')) {
       const parts = target.split('-').map((s) => s.trim());
@@ -731,29 +718,26 @@ export default function App() {
         const parseDigits = (str: string) => str.replace(/[۰-۹]/g, (d) => '۰۱۲۳۴۵۶۷۸۹'.indexOf(d).toString());
         const [sh, sm] = parts[0].split(':').map((n) => parseInt(parseDigits(n), 10));
         const [eh, em] = parts[1].split(':').map((n) => parseInt(parseDigits(n), 10));
-        if (!isNaN(sh)) setPickerStartHour(sh);
-        if (!isNaN(sm)) setPickerStartMin(sm);
-        if (!isNaN(eh)) setPickerEndHour(eh);
-        if (!isNaN(em)) setPickerEndMin(em);
+        if (!isNaN(sh)) setClassPickerStartHour(sh);
+        if (!isNaN(sm)) setClassPickerStartMin(sm);
+        if (!isNaN(eh)) setClassPickerEndHour(eh);
+        if (!isNaN(em)) setClassPickerEndMin(em);
       }
     } else {
-      setPickerStartHour(8);
-      setPickerStartMin(0);
-      setPickerEndHour(10);
-      setPickerEndMin(0);
+      setClassPickerStartHour(8);
+      setClassPickerStartMin(0);
+      setClassPickerEndHour(10);
+      setClassPickerEndMin(0);
     }
-    setIsTimePickerModalOpen(true);
+    setIsClassStartTimePickerOpen(true);
   };
 
-  const handleNextTimeStep = (hour?: number, min?: number) => {
-    const sHour = hour !== undefined ? hour : pickerStartHour;
-    const sMin = min !== undefined ? min : pickerStartMin;
-    setPickerStartHour(sHour);
-    setPickerStartMin(sMin);
-
-    // Auto-calculate end time: start + 1h 30m or start + 2h
-    let newEndHour = sHour + 1;
-    let newEndMin = sMin + 30;
+  const handleConfirmClassStartTime = (h: number, m: number) => {
+    setClassPickerStartHour(h);
+    setClassPickerStartMin(m);
+    // Auto calculate suggested end time: start + 1h 30m or start + 2h
+    let newEndHour = h + 1;
+    let newEndMin = m + 30;
     if (newEndMin >= 60) {
       newEndHour += 1;
       newEndMin -= 60;
@@ -762,38 +746,33 @@ export default function App() {
       newEndHour = 22;
       newEndMin = 0;
     }
-    setPickerEndHour(newEndHour);
-    setPickerEndMin(newEndMin);
-    setTimePickerError(null);
-    setTimePickerStep(2);
+    setClassPickerEndHour(newEndHour);
+    setClassPickerEndMin(newEndMin);
+    // Seamlessly transition to End Time Picker
+    setIsClassStartTimePickerOpen(false);
+    setTimeout(() => {
+      setIsClassEndTimePickerOpen(true);
+    }, 120);
   };
 
-  const handleApplyDurationShortcut = (addMinutes: number) => {
-    const totalStartMins = pickerStartHour * 60 + pickerStartMin;
-    const totalEndMins = totalStartMins + addMinutes;
-    let eHour = Math.floor(totalEndMins / 60);
-    let eMin = totalEndMins % 60;
-    if (eHour > 23) {
-      eHour = 23;
-      eMin = 59;
-    }
-    setPickerEndHour(eHour);
-    setPickerEndMin(eMin);
-    setTimePickerError(null);
-  };
-
-  const handleConfirmCustomTime = () => {
-    const startTotal = pickerStartHour * 60 + pickerStartMin;
-    const endTotal = pickerEndHour * 60 + pickerEndMin;
+  const handleConfirmClassEndTime = (h: number, m: number) => {
+    setClassPickerEndHour(h);
+    setClassPickerEndMin(m);
+    const startTotal = classPickerStartHour * 60 + classPickerStartMin;
+    const endTotal = h * 60 + m;
+    let finalEndHour = h;
+    let finalEndMin = m;
     if (endTotal <= startTotal) {
-      setTimePickerError('ساعت اتمام کلاس باید پس از ساعت شروع باشد.');
-      return;
+      finalEndHour = (classPickerStartHour + 1) % 24;
+      finalEndMin = classPickerStartMin;
     }
-    const formatted = `${pickerStartHour.toString().padStart(2, '0')}:${pickerStartMin.toString().padStart(2, '0')} - ${pickerEndHour.toString().padStart(2, '0')}:${pickerEndMin.toString().padStart(2, '0')}`;
-    setFormCustomTime(formatted);
-    setFormTime(formatted);
+    const formattedStart = `${classPickerStartHour.toString().padStart(2, '0')}:${classPickerStartMin.toString().padStart(2, '0')}`;
+    const formattedEndSafe = `${finalEndHour.toString().padStart(2, '0')}:${finalEndMin.toString().padStart(2, '0')}`;
+    const finalFormatted = `${formattedStart} - ${formattedEndSafe}`;
+    setFormCustomTime(finalFormatted);
+    setFormTime(finalFormatted);
     setConflictError(null);
-    setIsTimePickerModalOpen(false);
+    setIsClassEndTimePickerOpen(false);
   };
 
   const handleClearCustomTime = () => {
@@ -833,22 +812,19 @@ export default function App() {
   const chatAudioRef = useRef<HTMLAudioElement | null>(null);
   const sessionAudioRef = useRef<HTMLAudioElement | null>(null);
 
-  // Flexible Reminders & Snooze
+  // Session Reminders
   const [sessionHasReminder, setSessionHasReminder] = useState(true);
-  const [sessionSelectedReminder, setSessionSelectedReminder] = useState<string>(ALERT_TRIGGERS[0]);
-  const [sessionActiveSnooze, setSessionActiveSnooze] = useState<string | null>(null);
+  const [sessionSelectedReminder, setSessionSelectedReminder] = useState<string>(QUICK_ALERT_TRIGGERS[0]);
   const [sessionError, setSessionError] = useState<string | null>(null);
 
   // In-App File & Media Preview State (Problem 7)
   const [previewFile, setPreviewFile] = useState<AttachedFile | null>(null);
 
-  // Snooze Selector Modal State (Problem 4)
-  const [snoozeModalTarget, setSnoozeModalTarget] = useState<{ id: string; name: string; isClass?: boolean; log?: ClassSessionLog } | null>(null);
-
-  // Manual Session Timeline Reminder Configurator (Problem 6 & Part 6)
+  // Manual Session Timeline Reminder Configurator (Date + Time)
   const [isTimelineReminderOpen, setIsTimelineReminderOpen] = useState(false);
-  const [timelineReminderTrigger, setTimelineReminderTrigger] = useState<string>(ALERT_TRIGGERS[0]);
-  const [isSessionDatetimePickerOpen, setIsSessionDatetimePickerOpen] = useState(false);
+  const [timelineReminderTrigger, setTimelineReminderTrigger] = useState<string>(QUICK_ALERT_TRIGGERS[0]);
+  const [isSessionDatePickerOpen, setIsSessionDatePickerOpen] = useState(false);
+  const [isSessionTimePickerOpen, setIsSessionTimePickerOpen] = useState(false);
   const [sessionPickerYear, setSessionPickerYear] = useState(1405);
   const [sessionPickerMonth, setSessionPickerMonth] = useState(7);
   const [sessionPickerDay, setSessionPickerDay] = useState(4);
@@ -898,14 +874,13 @@ export default function App() {
       }).catch(() => {});
     }, 1000);
 
-    // Native notification action listener ("فهمیدم" and "بعداً یادآوری کن")
+    // Native notification tap listener (navigates to relevant session if applicable)
     const unsubscribeAction = notificationService.addActionListener((actionId, data) => {
-      if (actionId === 'dismiss') {
-        setFileToast(`یادآور درس «${data.className}» تأیید و بسته شد (فهمیدم).`);
-        setTimeout(() => setFileToast(null), 3500);
-      } else if (actionId === 'snooze') {
-        setFileToast(`یادآور درس «${data.className}» با موفقیت به تعویق افتاد.`);
-        setTimeout(() => setFileToast(null), 3500);
+      if (actionId === 'tap' && data.logId) {
+        const found = sessionLogs.find((l) => l.id === data.logId);
+        if (found) {
+          setSelectedChatSessionLog(found);
+        }
       }
     });
 
@@ -1087,11 +1062,11 @@ export default function App() {
   const handleOpenAdd = () => {
     setEditingId(null);
     setFormName('');
-    setFormClassCode('');
     setFormHasReminder(false);
     setFormReminderMode('before_class');
     setFormReminderBefore(30);
     setFormReminderExactTime('08:40');
+    setFormReminderDay('شنبه');
     setReminderPickerHour(8);
     setReminderPickerMin(40);
     setIsReminderTimePickerOpen(false);
@@ -1113,10 +1088,10 @@ export default function App() {
   const handleOpenEdit = (item: ClassItem) => {
     setEditingId(item.id);
     setFormName(item.name);
-    setFormClassCode(item.classCode || '');
     setFormHasReminder(Boolean(item.hasReminder));
     setFormReminderMode(item.reminderMode || (item.reminderExactTime ? 'exact_time' : 'before_class'));
     setFormReminderBefore(item.reminderMinutesBefore ?? 30);
+    setFormReminderDay(item.reminderDay || item.day || 'شنبه');
     setFormReminderExactTime(item.reminderExactTime || '08:40');
     if (item.reminderExactTime && item.reminderExactTime.includes(':')) {
       const parts = item.reminderExactTime.split(':').map((s) => parseInt(s.trim().replace(/[۰-۹]/g, (d) => '۰۱۲۳۴۵۶۷۸۹'.indexOf(d).toString()), 10));
@@ -1193,10 +1168,7 @@ export default function App() {
         ? 'bi_weekly'
         : 'weekly';
 
-    const isExactTime = formReminderMode === 'exact_time';
-    const reminderTriggerText = isExactTime
-      ? `ساعت ${toPersianDigits(formReminderExactTime)} روز کلاس`
-      : (BEFORE_CLASS_OPTIONS.find((o) => o.minutes === formReminderBefore)?.label || `${formReminderBefore} دقیقه قبل از کلاس`);
+    const reminderTriggerText = `ساعت ${toPersianDigits(formReminderExactTime)} روز ${formReminderDay}`;
 
     let updatedClasses: ClassItem[];
     let classForNotif: ClassItem;
@@ -1205,7 +1177,6 @@ export default function App() {
       const updatedClass: ClassItem = {
         id: editingId,
         name: formName.trim(),
-        classCode: formClassCode.trim() || undefined,
         day: formDay,
         time: finalTime,
         recurrence: formRecurrence,
@@ -1217,9 +1188,9 @@ export default function App() {
         professor: formProfessor.trim() || undefined,
         location: formLocation.trim() || undefined,
         hasReminder: formHasReminder,
-        reminderMode: formHasReminder ? formReminderMode : undefined,
-        reminderMinutesBefore: formHasReminder && !isExactTime ? formReminderBefore : undefined,
-        reminderExactTime: formHasReminder && isExactTime ? formReminderExactTime : undefined,
+        reminderMode: 'exact_time',
+        reminderDay: formHasReminder ? formReminderDay : undefined,
+        reminderExactTime: formHasReminder ? formReminderExactTime : undefined,
         reminderTriggerText: formHasReminder ? reminderTriggerText : undefined,
       };
       classForNotif = updatedClass;
@@ -1229,7 +1200,6 @@ export default function App() {
       const newClass: ClassItem = {
         id: newClassId,
         name: formName.trim(),
-        classCode: formClassCode.trim() || undefined,
         day: formDay,
         time: finalTime,
         recurrence: formRecurrence,
@@ -1241,9 +1211,9 @@ export default function App() {
         professor: formProfessor.trim() || undefined,
         location: formLocation.trim() || undefined,
         hasReminder: formHasReminder,
-        reminderMode: formHasReminder ? formReminderMode : undefined,
-        reminderMinutesBefore: formHasReminder && !isExactTime ? formReminderBefore : undefined,
-        reminderExactTime: formHasReminder && isExactTime ? formReminderExactTime : undefined,
+        reminderMode: 'exact_time',
+        reminderDay: formHasReminder ? formReminderDay : undefined,
+        reminderExactTime: formHasReminder ? formReminderExactTime : undefined,
         reminderTriggerText: formHasReminder ? reminderTriggerText : undefined,
       };
       classForNotif = newClass;
@@ -1347,29 +1317,31 @@ export default function App() {
     if (!selectedChatSessionLog) return;
     const currentClass = classes.find((c) => c.id === selectedChatSessionLog.classId);
     try {
+      const jDateStr = `${toPersianDigits(sessionPickerYear)}/${toPersianDigits(sessionPickerMonth.toString().padStart(2, '0'))}/${toPersianDigits(sessionPickerDay.toString().padStart(2, '0'))}`;
+      const jTimeStr = `${toPersianDigits(sessionPickerHour.toString().padStart(2, '0'))}:${toPersianDigits(sessionPickerMin.toString().padStart(2, '0'))}`;
+      const reminderTimeText = `${jDateStr} - ساعت ${jTimeStr}`;
+
       await notificationService.scheduleReminder({
         id: selectedChatSessionLog.id,
         logId: selectedChatSessionLog.id,
         classId: selectedChatSessionLog.classId,
         className: selectedChatSessionLog.className,
-        classCode: selectedChatSessionLog.classCode || currentClass?.classCode,
         location: currentClass?.location,
         notesText: selectedChatSessionLog.notesText,
         trigger: 'زمان مشخص',
         exactTimestamp: timestamp,
+        exactTime: jTimeStr,
+        sessionDateStr: jDateStr,
         classTime: currentClass?.time,
         classDay: currentClass?.day,
       });
 
-      const d = new Date(timestamp);
-      const reminderTimeText = `ساعت ${toPersianDigits(d.toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' }))} مورخ ${getPersianDateString(d)}`;
       const updatedLog: ClassSessionLog = {
         ...selectedChatSessionLog,
         hasReminder: true,
         reminderTimestamp: timestamp,
         reminderTrigger: 'زمان مشخص',
         reminderTimeText,
-        snoozedUntil: undefined,
         notificationId: notificationService.getNotificationId(selectedChatSessionLog.id),
       };
       setSelectedChatSessionLog(updatedLog);
@@ -1378,7 +1350,8 @@ export default function App() {
       persistenceAdapter.saveSessionLogs(updatedLogs);
       syncBridge.performOptimisticSync(userProfile, classes, updatedLogs, currentThemeId);
       setIsTimelineReminderOpen(false);
-      setIsSessionDatetimePickerOpen(false);
+      setIsSessionDatePickerOpen(false);
+      setIsSessionTimePickerOpen(false);
       setFileToast('یادآور دقیق جلسه با موفقیت تنظیم شد.');
       setTimeout(() => setFileToast(null), 2500);
     } catch (err: any) {
@@ -1389,111 +1362,26 @@ export default function App() {
 
   const handleToggleTimelineReminder = async () => {
     if (!selectedChatSessionLog) return;
-    const currentClass = classes.find((c) => c.id === selectedChatSessionLog.classId);
 
     if (selectedChatSessionLog.hasReminder) {
       await notificationService.cancelReminder(selectedChatSessionLog.id);
       const updatedLog: ClassSessionLog = {
         ...selectedChatSessionLog,
         hasReminder: false,
+        reminderTimestamp: undefined,
         reminderTrigger: undefined,
         reminderTimeText: undefined,
-        snoozedUntil: undefined,
       };
       setSelectedChatSessionLog(updatedLog);
       const updatedLogs = sessionLogs.map((l) => (l.id === updatedLog.id ? updatedLog : l));
       setSessionLogs(updatedLogs);
       persistenceAdapter.saveSessionLogs(updatedLogs);
       syncBridge.performOptimisticSync(userProfile, classes, updatedLogs, currentThemeId);
-      setFileToast('یادآور این جلسه غیرفعال گردید.');
+      setFileToast('یادآور این جلسه لغو شد.');
       setTimeout(() => setFileToast(null), 2500);
     } else {
-      try {
-        await notificationService.scheduleReminder({
-          id: selectedChatSessionLog.id,
-          logId: selectedChatSessionLog.id,
-          classId: selectedChatSessionLog.classId,
-          className: selectedChatSessionLog.className,
-          classCode: selectedChatSessionLog.classCode || currentClass?.classCode,
-          location: currentClass?.location,
-          notesText: selectedChatSessionLog.notesText,
-          trigger: timelineReminderTrigger,
-          classTime: currentClass?.time,
-          classDay: currentClass?.day,
-        });
-
-        const updatedLog: ClassSessionLog = {
-          ...selectedChatSessionLog,
-          hasReminder: true,
-          reminderTrigger: timelineReminderTrigger,
-          reminderTimeText: formatPersianReminderText(timelineReminderTrigger),
-          snoozedUntil: undefined,
-          notificationId: notificationService.getNotificationId(selectedChatSessionLog.id),
-        };
-        setSelectedChatSessionLog(updatedLog);
-        const updatedLogs = sessionLogs.map((l) => (l.id === updatedLog.id ? updatedLog : l));
-        setSessionLogs(updatedLogs);
-        persistenceAdapter.saveSessionLogs(updatedLogs);
-        syncBridge.performOptimisticSync(userProfile, classes, updatedLogs, currentThemeId);
-        setIsTimelineReminderOpen(false);
-        setFileToast('یادآور برای این جلسه فعال و زمان‌بندی شد.');
-        setTimeout(() => setFileToast(null), 2500);
-      } catch (err: any) {
-        setFileToast(err?.message || 'خطا در فعال‌سازی یادآور');
-        setTimeout(() => setFileToast(null), 3000);
-      }
+      setIsSessionDatePickerOpen(true);
     }
-  };
-
-  const handleSnoozeTimelineReminder = async (snoozeDuration: string) => {
-    if (!selectedChatSessionLog) return;
-    const currentClass = classes.find((c) => c.id === selectedChatSessionLog.classId);
-    try {
-      await notificationService.snoozeReminder(selectedChatSessionLog.id, snoozeDuration, {
-        logId: selectedChatSessionLog.id,
-        className: selectedChatSessionLog.className,
-        classCode: selectedChatSessionLog.classCode || currentClass?.classCode,
-        location: currentClass?.location,
-        notesText: selectedChatSessionLog.notesText,
-        classTime: currentClass?.time,
-        classDay: currentClass?.day,
-      });
-
-      const updatedLog: ClassSessionLog = {
-        ...selectedChatSessionLog,
-        hasReminder: true,
-        snoozedUntil: snoozeDuration,
-      };
-      setSelectedChatSessionLog(updatedLog);
-      const updatedLogs = sessionLogs.map((l) => (l.id === updatedLog.id ? updatedLog : l));
-      setSessionLogs(updatedLogs);
-      persistenceAdapter.saveSessionLogs(updatedLogs);
-      syncBridge.performOptimisticSync(userProfile, classes, updatedLogs, currentThemeId);
-      setSnoozeModalTarget(null);
-      setFileToast(`یادآور جلسه به مدت ${snoozeDuration} به تعویق افتاد.`);
-      setTimeout(() => setFileToast(null), 2500);
-    } catch (err: any) {
-      setFileToast(err?.message || 'خطا در تعویق یادآور');
-      setTimeout(() => setFileToast(null), 3000);
-    }
-  };
-
-  const handleAcknowledgeReminder = async (log: ClassSessionLog) => {
-    await notificationService.acknowledgeReminder(log.id);
-    const updatedLog: ClassSessionLog = {
-      ...log,
-      hasReminder: false,
-      acknowledgedAt: Date.now(),
-    };
-    if (selectedChatSessionLog?.id === log.id) {
-      setSelectedChatSessionLog(updatedLog);
-    }
-    const updatedLogs = sessionLogs.map((l) => (l.id === log.id ? updatedLog : l));
-    setSessionLogs(updatedLogs);
-    persistenceAdapter.saveSessionLogs(updatedLogs);
-    syncBridge.performOptimisticSync(userProfile, classes, updatedLogs, currentThemeId);
-    setFileToast('یادآور تأیید و بسته شد (فهمیدم).');
-    setTimeout(() => setFileToast(null), 2500);
   };
 
   const handleDeleteSessionAudioWeb = async () => {
@@ -1730,15 +1618,17 @@ export default function App() {
     }
 
     const currentClass = classes.find((c) => c.id === sessionClassId);
-    let reminderText = sessionSelectedReminder;
-    if (sessionActiveSnooze) {
-      reminderText = `${sessionSelectedReminder} (تعویق ${sessionActiveSnooze})`;
-    }
+    const [gy, gm, gd] = jalaliToGregorian(sessionPickerYear, sessionPickerMonth, sessionPickerDay);
+    const targetDate = new Date(gy, gm - 1, gd, sessionPickerHour, sessionPickerMin, 0);
+    const exactTimestamp = targetDate.getTime();
+    const jDateStr = `${toPersianDigits(sessionPickerYear)}/${toPersianDigits(sessionPickerMonth.toString().padStart(2, '0'))}/${toPersianDigits(sessionPickerDay.toString().padStart(2, '0'))}`;
+    const jTimeStr = `${toPersianDigits(sessionPickerHour.toString().padStart(2, '0'))}:${toPersianDigits(sessionPickerMin.toString().padStart(2, '0'))}`;
+    const reminderTimeText = `${jDateStr} - ساعت ${jTimeStr}`;
 
     const newLogId = Date.now().toString();
     const notificationId = sessionHasReminder ? notificationService.getNotificationId(newLogId) : undefined;
 
-    // Part 11 & 12: Clean up any duplicate records where attachedFiles contains the session voice memo
+    // Clean up any duplicate records where attachedFiles contains the session voice memo
     const cleanAttachedFiles = sessionAttachedFiles.filter(
       (f) => !sessionVoiceUri || (f.uri !== sessionVoiceUri && f.url !== sessionVoiceUri)
     );
@@ -1754,9 +1644,9 @@ export default function App() {
       voiceMemoSeconds: sessionDuration || undefined,
       voiceMemoUri: sessionVoiceUri || undefined,
       hasReminder: sessionHasReminder,
-      reminderTrigger: sessionSelectedReminder,
-      reminderTimeText: sessionHasReminder ? reminderText : undefined,
-      snoozedUntil: sessionActiveSnooze || undefined,
+      reminderTimestamp: sessionHasReminder ? exactTimestamp : undefined,
+      reminderTrigger: 'زمان مشخص',
+      reminderTimeText: sessionHasReminder ? reminderTimeText : undefined,
       notificationId,
       chatMessages: [],
     };
@@ -1771,7 +1661,6 @@ export default function App() {
     setSessionRecordSeconds(0);
     setSessionIsRecording(false);
     setSessionHasReminder(true);
-    setSessionActiveSnooze(null);
     setSessionError(null);
     setIsSessionCaptureOpen(false);
     setFileToast('جلسه درسی با موفقیت ذخیره گردید.');
@@ -1786,11 +1675,12 @@ export default function App() {
             logId: newLogId,
             classId: sessionClassId,
             className: currentClass?.name || 'کلاس عمومی',
-            classCode: currentClass?.classCode,
             location: currentClass?.location,
             notesText: sessionNotesText.trim(),
-            trigger: sessionSelectedReminder,
-            snoozedUntil: sessionActiveSnooze || undefined,
+            trigger: 'زمان مشخص',
+            exactTimestamp,
+            exactTime: jTimeStr,
+            sessionDateStr: jDateStr,
             classTime: currentClass?.time,
             classDay: currentClass?.day,
           });
@@ -2385,18 +2275,6 @@ export default function App() {
                                   <h4 style={{ color: theme.textPrimary }} className="font-extrabold text-sm">
                                     {cls.name}
                                   </h4>
-                                  {cls.classCode && (
-                                    <span
-                                      style={{
-                                        backgroundColor: theme.cardBg,
-                                        color: theme.primary,
-                                        borderColor: theme.borderLuminous,
-                                      }}
-                                      className="px-2 py-0.5 rounded-lg text-[10px] font-mono font-bold border"
-                                    >
-                                      کد: {cls.classCode}
-                                    </span>
-                                  )}
                                 </div>
                                 <div className="flex items-center gap-1.5 text-xs font-semibold" style={{ color: theme.textSecondary }}>
                                   <Clock className="w-3.5 h-3.5" />
@@ -2627,34 +2505,10 @@ export default function App() {
                                 style={{
                                   borderTopColor: theme.isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(15, 23, 42, 0.08)',
                                 }}
-                                className="flex flex-wrap items-center justify-between gap-2 pt-2 mt-2 border-t"
+                                className="flex items-center gap-1.5 pt-2 mt-2 border-t text-[11px] font-bold text-rose-500"
                               >
-                                <div className="flex items-center gap-1 text-[11px] font-bold text-rose-500">
-                                  <Bell className="w-3.5 h-3.5" />
-                                  <span>یادآور: {formatPersianReminderText(log.reminderTrigger, log.reminderTimeText)}</span>
-                                  {log.snoozedUntil && (
-                                    <span className="mr-1 px-1.5 py-0.5 rounded text-[9px] font-black bg-rose-500/20 text-rose-400">
-                                      تعویق: {log.snoozedUntil}
-                                    </span>
-                                  )}
-                                </div>
-
-                                <div className="flex items-center gap-1.5">
-                                  <button
-                                    type="button"
-                                    onClick={() => setSnoozeModalTarget({ id: log.id, name: log.className, log })}
-                                    className="px-2 py-0.5 rounded-lg text-[10px] font-bold bg-amber-500/15 text-amber-400 border border-amber-500/25 cursor-pointer hover:bg-amber-500/25 transition-colors"
-                                  >
-                                    بعداً یادآوری کن
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => handleAcknowledgeReminder(log)}
-                                    className="px-2 py-0.5 rounded-lg text-[10px] font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/25 cursor-pointer hover:bg-emerald-500/25 transition-colors"
-                                  >
-                                    فهمیدم
-                                  </button>
-                                </div>
+                                <Bell className="w-3.5 h-3.5 flex-shrink-0" />
+                                <span>یادآوری: {log.reminderTimeText || formatPersianReminderText(log.reminderTrigger, log.reminderTimeText)}</span>
                               </div>
                             )}
 
@@ -3229,11 +3083,11 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* 5. Flexible Smart Reminders & Alert Triggers */}
+                {/* 5. Session Reminder & Alert Triggers */}
                 <div>
                   <div className="flex items-center justify-between mb-2">
                     <span style={{ color: theme.textPrimary }} className="text-xs font-bold">
-                      تنظیم یادآور هوشمند (Smart Reminders)
+                      تنظیم یادآور جلسه
                     </span>
                     <button
                       type="button"
@@ -3243,72 +3097,63 @@ export default function App() {
                         borderColor: theme.borderLuminous,
                         color: sessionHasReminder ? '#FFFFFF' : theme.textMuted,
                       }}
-                      className="px-3 py-1 rounded-xl text-xs font-bold border cursor-pointer"
+                      className="px-3 py-1 rounded-xl text-xs font-bold border cursor-pointer transition-all"
                     >
                       {sessionHasReminder ? 'فعال ✓' : 'غیرفعال'}
                     </button>
                   </div>
 
                   {sessionHasReminder && (
-                    <div className="space-y-3 pt-1">
+                    <div className="space-y-2 pt-1">
                       <div className="grid grid-cols-2 gap-2">
-                        {ALERT_TRIGGERS.map((rem) => {
-                          const isSel = sessionSelectedReminder === rem;
-                          return (
-                            <button
-                              type="button"
-                              key={rem}
-                              onClick={() => setSessionSelectedReminder(rem)}
-                              style={{
-                                backgroundColor: isSel ? theme.primary : theme.innerBg,
-                                borderColor: isSel ? theme.primaryLight : theme.borderLuminous,
-                                color: isSel ? '#FFFFFF' : theme.textPrimary,
-                              }}
-                              className="px-2.5 py-2 rounded-xl text-xs font-bold border cursor-pointer text-center"
-                            >
-                              {rem}
-                            </button>
-                          );
-                        })}
+                        {/* Date Selector Button */}
+                        <button
+                          type="button"
+                          onClick={() => setIsSessionDatePickerOpen(true)}
+                          style={{
+                            backgroundColor: theme.innerBg,
+                            borderColor: theme.borderLuminous,
+                            color: theme.textPrimary,
+                          }}
+                          className="p-2.5 rounded-xl border text-right transition-all cursor-pointer hover:border-sky-400/50 flex flex-col gap-0.5 group active:scale-98"
+                        >
+                          <span style={{ color: theme.textMuted }} className="text-[9.5px] font-bold">
+                            تاریخ یادآوری
+                          </span>
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-black font-mono text-sky-400">
+                              {toPersianDigits(sessionPickerYear)}/{toPersianDigits(sessionPickerMonth.toString().padStart(2, '0'))}/{toPersianDigits(sessionPickerDay.toString().padStart(2, '0'))}
+                            </span>
+                            <Calendar className="w-3.5 h-3.5 text-sky-400 group-hover:scale-110 transition-transform" />
+                          </div>
+                        </button>
+
+                        {/* Time Selector Button */}
+                        <button
+                          type="button"
+                          onClick={() => setIsSessionTimePickerOpen(true)}
+                          style={{
+                            backgroundColor: theme.innerBg,
+                            borderColor: theme.borderLuminous,
+                            color: theme.textPrimary,
+                          }}
+                          className="p-2.5 rounded-xl border text-right transition-all cursor-pointer hover:border-sky-400/50 flex flex-col gap-0.5 group active:scale-98"
+                        >
+                          <span style={{ color: theme.textMuted }} className="text-[9.5px] font-bold">
+                            ساعت یادآوری
+                          </span>
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs font-black font-mono text-sky-400 [direction:ltr]">
+                              {toPersianDigits(sessionPickerHour.toString().padStart(2, '0'))}:{toPersianDigits(sessionPickerMin.toString().padStart(2, '0'))}
+                            </span>
+                            <Clock className="w-3.5 h-3.5 text-sky-400 group-hover:scale-110 transition-transform" />
+                          </div>
+                        </button>
                       </div>
 
-                      {/* Snooze Action Section */}
-                      <div style={{ borderColor: theme.borderLuminous }} className="pt-2 border-t">
-                        <div className="flex items-center justify-between mb-1.5">
-                          <span style={{ color: theme.textSecondary }} className="text-[11px] font-bold">
-                            گزینه تعویق هشدار (Snooze Handler):
-                          </span>
-                          {sessionActiveSnooze && (
-                            <button
-                              type="button"
-                              onClick={() => setSessionActiveSnooze(null)}
-                              className="text-[10px] text-rose-400 hover:underline"
-                            >
-                              لغو تعویق ✕
-                            </button>
-                          )}
-                        </div>
-                        <div className="flex gap-2">
-                          {SNOOZE_OPTIONS.map((snz) => {
-                            const isSnoozed = sessionActiveSnooze === snz;
-                            return (
-                              <button
-                                type="button"
-                                key={snz}
-                                onClick={() => setSessionActiveSnooze(isSnoozed ? null : snz)}
-                                style={{
-                                  backgroundColor: isSnoozed ? theme.primary : theme.innerBg,
-                                  borderColor: isSnoozed ? theme.primaryLight : theme.borderLuminous,
-                                  color: isSnoozed ? '#FFFFFF' : theme.textSecondary,
-                                }}
-                                className="flex-1 py-1.5 rounded-xl text-xs font-bold border cursor-pointer text-center"
-                              >
-                                {snz}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
+                      <p style={{ color: theme.textMuted }} className="text-[10px] text-right font-medium">
+                        💡 یادآور یک‌باره این جلسه در تاریخ {toPersianDigits(sessionPickerDay)} {PERSIAN_MONTHS[sessionPickerMonth - 1]} رأس ساعت {toPersianDigits(sessionPickerHour.toString().padStart(2, '0'))}:{toPersianDigits(sessionPickerMin.toString().padStart(2, '0'))} ارسال خواهد شد.
+                      </p>
                     </div>
                   )}
                 </div>
@@ -3496,7 +3341,7 @@ export default function App() {
                       <div className="flex items-center gap-1.5">
                         <button
                           type="button"
-                          onClick={() => handleOpenCustomTimePicker(formCustomTime)}
+                          onClick={() => handleOpenClassStartTimePicker(formCustomTime)}
                           style={{
                             backgroundColor: theme.cardBg,
                             borderColor: theme.borderLuminous,
@@ -3520,7 +3365,7 @@ export default function App() {
                   ) : (
                     <button
                       type="button"
-                      onClick={() => handleOpenCustomTimePicker()}
+                      onClick={() => handleOpenClassStartTimePicker()}
                       style={{
                         backgroundColor: theme.innerBg,
                         borderColor: theme.borderLuminous,
@@ -3656,25 +3501,6 @@ export default function App() {
                   </div>
                 </div>
 
-                <div>
-                  <label style={{ color: theme.textPrimary }} className="block text-xs font-bold mb-1.5 text-right">
-                    کد درس یا شماره کلاس (اختیاری)
-                  </label>
-                  <div
-                    style={{ backgroundColor: theme.innerBg, borderColor: theme.borderLuminous }}
-                    className="rounded-2xl p-3 border"
-                  >
-                    <input
-                      type="text"
-                      placeholder="مثلاً: ۴۰۲ یا ریاضی-۱۰۱"
-                      value={formClassCode}
-                      onChange={(e) => setFormClassCode(e.target.value)}
-                      style={{ color: theme.textPrimary }}
-                      className="w-full bg-transparent text-sm font-semibold outline-none text-right placeholder-slate-500 font-mono"
-                    />
-                  </div>
-                </div>
-
                 {/* Smart Class Reminder Setup (Problem 1) */}
                 <div
                   style={{ backgroundColor: theme.innerBg, borderColor: theme.borderLuminous }}
@@ -3711,196 +3537,87 @@ export default function App() {
 
                   {formHasReminder && (
                     <div className="space-y-3 pt-2.5 border-t border-white/5">
-                      {/* Reminder Mode Switcher */}
-                      <div className="flex items-center gap-1.5 p-1 rounded-xl bg-black/20 border border-white/5">
-                        <button
-                          type="button"
-                          onClick={() => setFormReminderMode('before_class')}
-                          style={{
-                            backgroundColor: formReminderMode === 'before_class' ? theme.primary : 'transparent',
-                            color: formReminderMode === 'before_class' ? '#FFFFFF' : theme.textSecondary,
-                          }}
-                          className="flex-1 py-1.5 px-2 rounded-lg text-[11px] font-bold transition-all text-center cursor-pointer"
-                        >
-                          فاصله تا شروع کلاس
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setFormReminderMode('exact_time')}
-                          style={{
-                            backgroundColor: formReminderMode === 'exact_time' ? theme.primary : 'transparent',
-                            color: formReminderMode === 'exact_time' ? '#FFFFFF' : theme.textSecondary,
-                          }}
-                          className="flex-1 py-1.5 px-2 rounded-lg text-[11px] font-bold transition-all text-center cursor-pointer"
-                        >
-                          ساعت مشخص یادآوری
-                        </button>
+                      {/* Day of study reminder */}
+                      <div className="space-y-1.5">
+                        <label style={{ color: theme.textPrimary }} className="block text-[11px] font-bold text-right">
+                          روز یادآوری مطالعه:
+                        </label>
+                        <div className="flex flex-wrap gap-1">
+                          {WEEK_DAYS.map((d: WeekDay) => {
+                            const isSel = formReminderDay === d;
+                            return (
+                              <button
+                                key={d}
+                                type="button"
+                                onClick={() => setFormReminderDay(d)}
+                                style={{
+                                  backgroundColor: isSel ? theme.primary : theme.innerBg,
+                                  color: isSel ? '#FFFFFF' : theme.textPrimary,
+                                  borderColor: isSel ? theme.primaryLight : theme.borderLuminous,
+                                  boxShadow: isSel ? `0 0 10px ${theme.glowColor}` : 'none',
+                                }}
+                                className="flex-1 min-w-[40px] py-1.5 px-1.5 rounded-xl border text-[11px] font-bold text-center transition-all cursor-pointer hover:opacity-90 active:scale-95"
+                              >
+                                {d}
+                              </button>
+                            );
+                          })}
+                        </div>
                       </div>
 
-                      {/* Mode A: Relative before class start */}
-                      {formReminderMode === 'before_class' ? (
-                        <div className="space-y-2">
-                          <label style={{ color: theme.textPrimary }} className="block text-[11px] font-bold text-right">
-                            زمان یادآوری قبل از آغاز کلاس:
-                          </label>
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-                            {BEFORE_CLASS_OPTIONS.map((opt) => (
-                              <button
-                                key={opt.minutes}
-                                type="button"
-                                onClick={() => setFormReminderBefore(opt.minutes)}
-                                style={{
-                                  backgroundColor: formReminderBefore === opt.minutes ? theme.primary : theme.cardBg,
-                                  color: formReminderBefore === opt.minutes ? '#fff' : theme.textPrimary,
-                                  borderColor: formReminderBefore === opt.minutes ? theme.primary : theme.borderLuminous,
-                                }}
-                                className="p-2 rounded-xl border text-xs font-bold text-right transition-all cursor-pointer flex items-center justify-between"
-                              >
-                                <span>{opt.label}</span>
-                                {formReminderBefore === opt.minutes && <Check className="w-3.5 h-3.5 flex-shrink-0" />}
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-                      ) : (
-                        /* Mode B: Exact custom clock time */
-                        <div className="space-y-2.5">
-                          <label style={{ color: theme.textPrimary }} className="block text-[11px] font-bold text-right">
-                            انتخاب دقیق ساعت زنگ یادآور:
-                          </label>
+                      {/* Time of study reminder */}
+                      <div className="space-y-1.5">
+                        <label style={{ color: theme.textPrimary }} className="block text-[11px] font-bold text-right">
+                          ساعت مشخص یادآوری:
+                        </label>
 
-                          <div
-                            style={{ backgroundColor: theme.cardBg, borderColor: theme.borderLuminous }}
-                            className="p-3 rounded-2xl border flex items-center justify-between gap-3"
-                          >
-                            <div className="flex items-center gap-2">
-                              <div
-                                style={{ backgroundColor: `${theme.primary}20`, color: theme.primary }}
-                                className="w-8 h-8 rounded-xl flex items-center justify-center"
-                              >
-                                <Clock className="w-4 h-4" />
-                              </div>
-                              <div className="text-right">
-                                <span style={{ color: theme.textMuted }} className="text-[10px] block">ساعت یادآوری در روز {formDay}:</span>
-                                <span style={{ color: theme.primaryLight }} className="text-sm font-black font-mono dir-ltr">
-                                  {toPersianDigits(formReminderExactTime)}
-                                </span>
-                              </div>
-                            </div>
-
-                            <button
-                              type="button"
-                              onClick={() => setIsReminderTimePickerOpen(!isReminderTimePickerOpen)}
-                              style={{ backgroundColor: theme.primary }}
-                              className="px-3 py-1.5 rounded-xl text-xs font-bold text-white shadow-sm hover:opacity-90 cursor-pointer"
-                            >
-                              {isReminderTimePickerOpen ? 'بستن انتخابگر' : 'تغییر ساعت'}
-                            </button>
-                          </div>
-
-                          {/* Time Picker Controls */}
-                          {isReminderTimePickerOpen && (
+                        <div
+                          onClick={() => setIsReminderTimePickerOpen(true)}
+                          style={{ backgroundColor: theme.innerBg, borderColor: theme.borderLuminous }}
+                          className="p-3 rounded-2xl border flex items-center justify-between gap-3 cursor-pointer hover:border-sky-400/50 transition-all group"
+                        >
+                          <div className="flex items-center gap-2.5">
                             <div
-                              style={{ backgroundColor: theme.cardBg, borderColor: theme.borderLuminous }}
-                              className="p-3 rounded-2xl border space-y-3"
+                              style={{ backgroundColor: `${theme.primary}20`, color: theme.primary }}
+                              className="w-9 h-9 rounded-xl flex items-center justify-center shadow-sm"
                             >
-                              {/* Quick Presets */}
-                              <div>
-                                <span style={{ color: theme.textMuted }} className="text-[10.5px] font-bold block mb-1.5 text-right">
-                                  ساعت‌های متداول دانشگاهی:
-                                </span>
-                                <div className="flex flex-wrap gap-1.5">
-                                  {['07:00', '07:30', '08:00', '08:30', '09:00', '10:00', '11:30', '13:00', '14:00', '15:30'].map((preset) => {
-                                    const isSel = formReminderExactTime === preset;
-                                    return (
-                                      <button
-                                        type="button"
-                                        key={preset}
-                                        onClick={() => {
-                                          setFormReminderExactTime(preset);
-                                          const [h, m] = preset.split(':').map((n) => parseInt(n, 10));
-                                          setReminderPickerHour(h);
-                                          setReminderPickerMin(m);
-                                        }}
-                                        style={{
-                                          backgroundColor: isSel ? theme.primary : theme.innerBg,
-                                          borderColor: isSel ? theme.primaryLight : theme.borderLuminous,
-                                          color: isSel ? '#FFFFFF' : theme.textSecondary,
-                                        }}
-                                        className="px-2.5 py-1 rounded-xl text-xs font-bold font-mono border cursor-pointer transition-all"
-                                      >
-                                        {toPersianDigits(preset)}
-                                      </button>
-                                    );
-                                  })}
-                                </div>
-                              </div>
-
-                              {/* Hours Selector */}
-                              <div>
-                                <span style={{ color: theme.textMuted }} className="text-[10.5px] font-bold block mb-1 text-right">
-                                  ساعت (Hour):
-                                </span>
-                                <div className="grid grid-cols-6 sm:grid-cols-8 gap-1">
-                                  {[6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21].map((h) => {
-                                    const isSel = reminderPickerHour === h;
-                                    return (
-                                      <button
-                                        type="button"
-                                        key={h}
-                                        onClick={() => {
-                                          setReminderPickerHour(h);
-                                          const newTime = `${h.toString().padStart(2, '0')}:${reminderPickerMin.toString().padStart(2, '0')}`;
-                                          setFormReminderExactTime(newTime);
-                                        }}
-                                        style={{
-                                          backgroundColor: isSel ? theme.primary : theme.innerBg,
-                                          borderColor: isSel ? theme.primaryLight : theme.borderLuminous,
-                                          color: isSel ? '#FFFFFF' : theme.textSecondary,
-                                        }}
-                                        className="py-1 rounded-xl text-xs font-bold font-mono border cursor-pointer transition-all"
-                                      >
-                                        {toPersianDigits(h.toString().padStart(2, '0'))}
-                                      </button>
-                                    );
-                                  })}
-                                </div>
-                              </div>
-
-                              {/* Minutes Selector */}
-                              <div>
-                                <span style={{ color: theme.textMuted }} className="text-[10.5px] font-bold block mb-1 text-right">
-                                  دقیقه (Minute):
-                                </span>
-                                <div className="grid grid-cols-4 sm:grid-cols-8 gap-1">
-                                  {[0, 10, 15, 20, 30, 40, 45, 50].map((m) => {
-                                    const isSel = reminderPickerMin === m;
-                                    return (
-                                      <button
-                                        type="button"
-                                        key={m}
-                                        onClick={() => {
-                                          setReminderPickerMin(m);
-                                          const newTime = `${reminderPickerHour.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
-                                          setFormReminderExactTime(newTime);
-                                        }}
-                                        style={{
-                                          backgroundColor: isSel ? theme.primary : theme.innerBg,
-                                          borderColor: isSel ? theme.primaryLight : theme.borderLuminous,
-                                          color: isSel ? '#FFFFFF' : theme.textSecondary,
-                                        }}
-                                        className="py-1 rounded-xl text-xs font-bold font-mono border cursor-pointer transition-all"
-                                      >
-                                        {toPersianDigits(m.toString().padStart(2, '0'))}
-                                      </button>
-                                    );
-                                  })}
-                                </div>
-                              </div>
+                              <Clock className="w-4 h-4" />
                             </div>
-                          )}
+                            <div className="text-right">
+                              <span style={{ color: theme.textMuted }} className="text-[10px] block">
+                                یادآوری در روز {formReminderDay}:
+                              </span>
+                              <span
+                                style={{
+                                  color: theme.primaryLight,
+                                  textShadow: `0 0 8px ${theme.glowColor}`,
+                                }}
+                                className="text-base font-black font-mono tracking-wider dir-ltr"
+                              >
+                                {toPersianDigits(formReminderExactTime)}
+                              </span>
+                            </div>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setIsReminderTimePickerOpen(true);
+                            }}
+                            style={{
+                              backgroundColor: theme.primary,
+                              boxShadow: `0 0 10px ${theme.glowColor}`,
+                            }}
+                            className="px-3.5 py-1.5 rounded-xl text-xs font-bold text-white shadow-sm hover:opacity-90 cursor-pointer active:scale-95 transition-all"
+                          >
+                            تغییر ساعت
+                          </button>
                         </div>
-                      )}
+                        <p style={{ color: theme.textMuted }} className="text-[10px] text-right font-medium">
+                          💡 یادآور جهت مطالعه و مرور این کلاس هر هفته در روز {formReminderDay} رأس ساعت {toPersianDigits(formReminderExactTime)} فعال خواهد شد.
+                        </p>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -3927,400 +3644,68 @@ export default function App() {
           </div>
         )}
 
-        {/* 2-STEP AUTOMATED CUSTOM TIME PICKER MODAL (Zero-Error) */}
-        {isTimePickerModalOpen && (
-          <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[60] flex items-center justify-center p-4">
-            <div
-              style={{
-                backgroundColor: theme.cardBg,
-                borderColor: theme.borderLuminous,
-              }}
-              className="liquid-glass rounded-3xl p-6 max-w-md w-full border shadow-2xl transition-all"
-            >
-              {/* Header */}
-              <div className="flex items-center justify-between pb-3 mb-4 border-b border-white/10">
-                <div className="flex items-center gap-2">
-                  <div
-                    style={{ backgroundColor: theme.primary }}
-                    className="w-8 h-8 rounded-xl flex items-center justify-center text-white"
-                  >
-                    <Clock className="w-4 h-4" />
-                  </div>
-                  <div className="text-right">
-                    <h3 style={{ color: theme.textPrimary }} className="text-sm font-black">
-                      تنظیم خودکار ساعت دلخواه
-                    </h3>
-                    <p style={{ color: theme.textSecondary }} className="text-[10.5px]">
-                      فرآیند ۲ مرحله‌ای با اعتبارسنجی خودکار و امکان خطای صفر
-                    </p>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setIsTimePickerModalOpen(false)}
-                  style={{ color: theme.textSecondary }}
-                  className="p-1 rounded-lg hover:opacity-75 cursor-pointer"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
+        {/* REUSABLE SPRING TIME PICKER MODAL FOR CLASS START TIME */}
+        <SpringTimePicker
+          isOpen={isClassStartTimePickerOpen}
+          onClose={() => setIsClassStartTimePickerOpen(false)}
+          initialHour={classPickerStartHour}
+          initialMinute={classPickerStartMin}
+          title="تنظیم ساعت شروع کلاس"
+          subtitle="ساعت و دقیقه شروع این درس"
+          confirmText="تأیید و انتخاب ساعت اتمام ➔"
+          theme={theme}
+          onConfirm={handleConfirmClassStartTime}
+        />
 
-              {/* Step Navigation Indicator */}
-              <div className="flex items-center gap-2 mb-4 p-1 rounded-2xl bg-black/20 border border-white/5">
-                <button
-                  type="button"
-                  onClick={() => setTimePickerStep(1)}
-                  style={{
-                    backgroundColor: timePickerStep === 1 ? theme.primary : 'transparent',
-                    color: timePickerStep === 1 ? '#FFFFFF' : theme.textSecondary,
-                  }}
-                  className="flex-1 py-1.5 px-2 rounded-xl text-xs font-bold transition-all text-center flex items-center justify-center gap-1.5 cursor-pointer"
-                >
-                  <span className="w-4 h-4 rounded-full bg-white/20 text-[10px] flex items-center justify-center font-mono">
-                    ۱
-                  </span>
-                  <span>ساعت شروع</span>
-                  {timePickerStep === 2 && <Check className="w-3.5 h-3.5 text-emerald-400" />}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (timePickerStep === 1) {
-                      handleNextTimeStep();
-                    }
-                  }}
-                  style={{
-                    backgroundColor: timePickerStep === 2 ? theme.primary : 'transparent',
-                    color: timePickerStep === 2 ? '#FFFFFF' : theme.textSecondary,
-                  }}
-                  className="flex-1 py-1.5 px-2 rounded-xl text-xs font-bold transition-all text-center flex items-center justify-center gap-1.5 cursor-pointer"
-                >
-                  <span className="w-4 h-4 rounded-full bg-white/20 text-[10px] flex items-center justify-center font-mono">
-                    ۲
-                  </span>
-                  <span>ساعت اتمام</span>
-                </button>
-              </div>
+        {/* REUSABLE SPRING TIME PICKER MODAL FOR CLASS END TIME */}
+        <SpringTimePicker
+          isOpen={isClassEndTimePickerOpen}
+          onClose={() => setIsClassEndTimePickerOpen(false)}
+          initialHour={classPickerEndHour}
+          initialMinute={classPickerEndMin}
+          title="تنظیم ساعت پایان کلاس"
+          subtitle="ساعت و دقیقه اتمام این درس"
+          confirmText="تأیید و ثبت زمان کلاس"
+          theme={theme}
+          onConfirm={handleConfirmClassEndTime}
+        />
 
-              {/* STEP 1: Select Start Time */}
-              {timePickerStep === 1 && (
-                <div className="space-y-4">
-                  <div
-                    style={{ backgroundColor: theme.innerBg, borderColor: theme.borderLuminous }}
-                    className="p-3 rounded-2xl border text-center"
-                  >
-                    <span style={{ color: theme.textMuted }} className="text-xs font-bold block mb-1">
-                      ساعت شروع انتخابی:
-                    </span>
-                    <div
-                      style={{ color: theme.primaryLight }}
-                      className="text-2xl font-black font-mono tracking-wider dir-ltr"
-                    >
-                      {toPersianDigits(pickerStartHour.toString().padStart(2, '0'))}:
-                      {toPersianDigits(pickerStartMin.toString().padStart(2, '0'))}
-                      <span className="text-xs font-normal opacity-60 mr-2">
-                        ({pickerStartHour.toString().padStart(2, '0')}:{pickerStartMin.toString().padStart(2, '0')})
-                      </span>
-                    </div>
-                  </div>
+        {/* REUSABLE SPRING TIME PICKER MODAL FOR CLASS REMINDER */}
+        <SpringTimePicker
+          isOpen={isReminderTimePickerOpen}
+          onClose={() => setIsReminderTimePickerOpen(false)}
+          initialHour={reminderPickerHour}
+          initialMinute={reminderPickerMin}
+          title="تنظیم ساعت یادآوری"
+          subtitle="زمان دلخواه برای یادآوری این کلاس"
+          theme={theme}
+          onConfirm={(h, m, formatted) => {
+            setReminderPickerHour(h);
+            setReminderPickerMin(m);
+            setFormReminderExactTime(formatted);
+          }}
+        />
 
-                  {/* Hours Grid */}
-                  <div>
-                    <label style={{ color: theme.textPrimary }} className="block text-xs font-bold mb-1.5 text-right">
-                      ساعت شروع:
-                    </label>
-                    <div className="grid grid-cols-5 sm:grid-cols-7 gap-1.5">
-                      {[7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20].map((h) => {
-                        const isSel = pickerStartHour === h;
-                        return (
-                          <button
-                            type="button"
-                            key={h}
-                            onClick={() => {
-                              setPickerStartHour(h);
-                              if (pickerEndHour <= h) {
-                                setPickerEndHour(Math.min(h + 2, 22));
-                              }
-                            }}
-                            style={{
-                              backgroundColor: isSel ? theme.primary : theme.innerBg,
-                              borderColor: isSel ? theme.primaryLight : theme.borderLuminous,
-                              color: isSel ? '#FFFFFF' : theme.textSecondary,
-                              boxShadow: isSel ? `0 0 10px ${theme.glowColor}` : 'none',
-                            }}
-                            className="py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer font-mono text-center hover:opacity-90 active:scale-95"
-                          >
-                            {toPersianDigits(h.toString().padStart(2, '0'))}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  {/* Minutes Grid */}
-                  <div>
-                    <label style={{ color: theme.textPrimary }} className="block text-xs font-bold mb-1.5 text-right">
-                      دقیقه شروع:
-                    </label>
-                    <div className="grid grid-cols-4 gap-2">
-                      {[0, 15, 30, 45].map((m) => {
-                        const isSel = pickerStartMin === m;
-                        return (
-                          <button
-                            type="button"
-                            key={m}
-                            onClick={() => setPickerStartMin(m)}
-                            style={{
-                              backgroundColor: isSel ? theme.primary : theme.innerBg,
-                              borderColor: isSel ? theme.primaryLight : theme.borderLuminous,
-                              color: isSel ? '#FFFFFF' : theme.textSecondary,
-                            }}
-                            className="py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer font-mono text-center hover:opacity-90"
-                          >
-                            :{toPersianDigits(m.toString().padStart(2, '0'))}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  <p style={{ color: theme.textMuted }} className="text-[11px] text-right leading-relaxed">
-                    💡 با زدن دکمه زیر، مستقیماً به انتخاب ساعت اتمام می‌روید و بازه زمانی کلاس به طور خودکار آماده می‌شود.
-                  </p>
-
-                  <div className="flex items-center gap-2 pt-2">
-                    <button
-                      type="button"
-                      onClick={() => setIsTimePickerModalOpen(false)}
-                      style={{ backgroundColor: theme.innerBg, borderColor: theme.borderLuminous }}
-                      className="px-4 py-2.5 rounded-2xl text-xs font-bold border text-slate-400 cursor-pointer"
-                    >
-                      انصراف
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleNextTimeStep()}
-                      style={{ backgroundColor: theme.primary }}
-                      className="flex-1 py-2.5 rounded-2xl text-xs font-black text-white shadow-md cursor-pointer hover:opacity-95 flex items-center justify-center gap-1.5"
-                    >
-                      <span>مرحله بعدی: انتخاب ساعت اتمام</span>
-                      <span>➔</span>
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {/* STEP 2: Select End Time */}
-              {timePickerStep === 2 && (
-                <div className="space-y-3.5">
-                  {/* Confirmed Start Time Chip */}
-                  <div
-                    style={{ backgroundColor: theme.innerBg, borderColor: theme.borderLuminous }}
-                    className="p-2.5 rounded-2xl border flex items-center justify-between"
-                  >
-                    <div className="flex items-center gap-2">
-                      <span className="w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center text-xs">
-                        ✓
-                      </span>
-                      <span style={{ color: theme.textSecondary }} className="text-xs">
-                        ساعت شروع کلاس:
-                      </span>
-                      <strong style={{ color: theme.textPrimary }} className="text-xs font-mono dir-ltr font-black">
-                        {toPersianDigits(pickerStartHour.toString().padStart(2, '0'))}:
-                        {toPersianDigits(pickerStartMin.toString().padStart(2, '0'))}
-                      </strong>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setTimePickerStep(1)}
-                      style={{ color: theme.primaryLight }}
-                      className="text-xs font-bold hover:underline cursor-pointer"
-                    >
-                      ویرایش شروع
-                    </button>
-                  </div>
-
-                  {/* Fast Duration Shortcuts */}
-                  <div>
-                    <label style={{ color: theme.textPrimary }} className="block text-[11px] font-bold mb-1.5 text-right">
-                      تنظیم سریع بر اساس طول استاندارد کلاس:
-                    </label>
-                    <div className="grid grid-cols-3 gap-1.5">
-                      {[
-                        { label: '+۱:۳۰ ساعت', mins: 90 },
-                        { label: '+۱:۴۵ ساعت', mins: 105 },
-                        { label: '+۲:۰۰ ساعت', mins: 120 },
-                      ].map((item) => (
-                        <button
-                          type="button"
-                          key={item.mins}
-                          onClick={() => handleApplyDurationShortcut(item.mins)}
-                          style={{
-                            backgroundColor: theme.innerBg,
-                            borderColor: theme.borderLuminous,
-                            color: theme.textPrimary,
-                          }}
-                          className="py-1.5 px-2 rounded-xl text-[11px] font-bold border transition-all cursor-pointer hover:border-sky-400 hover:text-sky-400 text-center"
-                        >
-                          {item.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* End Hour Grid */}
-                  <div>
-                    <label style={{ color: theme.textPrimary }} className="block text-xs font-bold mb-1.5 text-right">
-                      ساعت اتمام:
-                    </label>
-                    <div className="grid grid-cols-5 sm:grid-cols-7 gap-1.5">
-                      {[8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21].map((h) => {
-                        const isSel = pickerEndHour === h;
-                        const isTooEarly = h < pickerStartHour;
-                        return (
-                          <button
-                            type="button"
-                            key={h}
-                            disabled={isTooEarly}
-                            onClick={() => {
-                              setPickerEndHour(h);
-                              setTimePickerError(null);
-                            }}
-                            style={{
-                              backgroundColor: isSel
-                                ? theme.primary
-                                : isTooEarly
-                                ? 'rgba(255, 255, 255, 0.03)'
-                                : theme.innerBg,
-                              borderColor: isSel ? theme.primaryLight : theme.borderLuminous,
-                              color: isSel ? '#FFFFFF' : isTooEarly ? 'rgba(148, 163, 184, 0.3)' : theme.textSecondary,
-                              boxShadow: isSel ? `0 0 10px ${theme.glowColor}` : 'none',
-                              opacity: isTooEarly ? 0.4 : 1,
-                              cursor: isTooEarly ? 'not-allowed' : 'pointer',
-                            }}
-                            className="py-2 rounded-xl text-xs font-bold border transition-all font-mono text-center hover:opacity-90 active:scale-95"
-                          >
-                            {toPersianDigits(h.toString().padStart(2, '0'))}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  {/* End Minute Grid */}
-                  <div>
-                    <label style={{ color: theme.textPrimary }} className="block text-xs font-bold mb-1.5 text-right">
-                      دقیقه اتمام:
-                    </label>
-                    <div className="grid grid-cols-4 gap-2">
-                      {[0, 15, 30, 45].map((m) => {
-                        const isSel = pickerEndMin === m;
-                        return (
-                          <button
-                            type="button"
-                            key={m}
-                            onClick={() => {
-                              setPickerEndMin(m);
-                              setTimePickerError(null);
-                            }}
-                            style={{
-                              backgroundColor: isSel ? theme.primary : theme.innerBg,
-                              borderColor: isSel ? theme.primaryLight : theme.borderLuminous,
-                              color: isSel ? '#FFFFFF' : theme.textSecondary,
-                            }}
-                            className="py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer font-mono text-center hover:opacity-90"
-                          >
-                            :{toPersianDigits(m.toString().padStart(2, '0'))}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  {/* Validation State & Preview Banner */}
-                  {(() => {
-                    const startTotal = pickerStartHour * 60 + pickerStartMin;
-                    const endTotal = pickerEndHour * 60 + pickerEndMin;
-                    const isValid = endTotal > startTotal;
-                    const durationMins = endTotal - startTotal;
-                    const durHours = Math.floor(durationMins / 60);
-                    const durMins = durationMins % 60;
-
-                    if (!isValid) {
-                      return (
-                        <div className="p-2.5 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-400 text-xs text-right font-bold flex items-center gap-2">
-                          <AlertTriangle className="w-4 h-4 shrink-0" />
-                          <span>ساعت اتمام باید بعد از ساعت شروع باشد.</span>
-                        </div>
-                      );
-                    }
-
-                    return (
-                      <div
-                        style={{ backgroundColor: theme.innerBg, borderColor: theme.borderLuminous }}
-                        className="p-2.5 rounded-xl border text-center space-y-1"
-                      >
-                        <div style={{ color: theme.primaryLight }} className="text-xs font-bold">
-                          بازه تأییدشده: از{' '}
-                          <span className="font-mono dir-ltr">
-                            {toPersianDigits(pickerStartHour.toString().padStart(2, '0'))}:
-                            {toPersianDigits(pickerStartMin.toString().padStart(2, '0'))}
-                          </span>{' '}
-                          تا{' '}
-                          <span className="font-mono dir-ltr">
-                            {toPersianDigits(pickerEndHour.toString().padStart(2, '0'))}:
-                            {toPersianDigits(pickerEndMin.toString().padStart(2, '0'))}
-                          </span>
-                        </div>
-                        <div style={{ color: theme.textMuted }} className="text-[10.5px]">
-                          طول جلسه:{' '}
-                          {durHours > 0 ? `${toPersianDigits(durHours)} ساعت` : ''}{' '}
-                          {durMins > 0 ? `و ${toPersianDigits(durMins)} دقیقه` : ''}
-                        </div>
-                      </div>
-                    );
-                  })()}
-
-                  {timePickerError && (
-                    <div className="text-xs text-rose-500 font-bold text-right">{timePickerError}</div>
-                  )}
-
-                  {/* Actions */}
-                  <div className="flex items-center gap-2 pt-2">
-                    <button
-                      type="button"
-                      onClick={() => setTimePickerStep(1)}
-                      style={{ backgroundColor: theme.innerBg, borderColor: theme.borderLuminous }}
-                      className="px-4 py-2.5 rounded-2xl text-xs font-bold border text-slate-400 cursor-pointer"
-                    >
-                      مرحله قبل
-                    </button>
-                    <button
-                      type="button"
-                      disabled={pickerEndHour * 60 + pickerEndMin <= pickerStartHour * 60 + pickerStartMin}
-                      onClick={handleConfirmCustomTime}
-                      style={{
-                        backgroundColor:
-                          pickerEndHour * 60 + pickerEndMin > pickerStartHour * 60 + pickerStartMin
-                            ? theme.primary
-                            : '#64748B',
-                        opacity: pickerEndHour * 60 + pickerEndMin > pickerStartHour * 60 + pickerStartMin ? 1 : 0.5,
-                        cursor:
-                          pickerEndHour * 60 + pickerEndMin > pickerStartHour * 60 + pickerStartMin
-                            ? 'pointer'
-                            : 'not-allowed',
-                      }}
-                      className="flex-1 py-2.5 rounded-2xl text-xs font-black text-white shadow-md flex items-center justify-center gap-1.5"
-                    >
-                      <Check className="w-4 h-4" />
-                      <span>تأیید و ذخیره ساعت انتخابی</span>
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
+        {/* REUSABLE SPRING TIME PICKER MODAL FOR SESSION TIMELINE REMINDER */}
+        <SpringTimePicker
+          isOpen={isSessionTimePickerOpen}
+          onClose={() => setIsSessionTimePickerOpen(false)}
+          initialHour={sessionPickerHour}
+          initialMinute={sessionPickerMin}
+          title="تنظیم ساعت یادآور جلسه"
+          subtitle="ساعت موعد یادآوری این جلسه تحصیلی"
+          confirmText="ذخیره یادآور جلسه"
+          theme={theme}
+          onConfirm={(h, m, formatted) => {
+            setSessionPickerHour(h);
+            setSessionPickerMin(m);
+            if (selectedChatSessionLog) {
+              const [gy, gm, gd] = jalaliToGregorian(sessionPickerYear, sessionPickerMonth, sessionPickerDay);
+              const targetDate = new Date(gy, gm - 1, gd, h, m, 0);
+              handleSaveExactSessionReminder(targetDate.getTime());
+            }
+          }}
+        />
 
         {/* SPRING-ANIMATED JALALI CALENDAR MODAL (tension: 50, friction: 7) */}
         {isJalaliSpringModalOpen && (
@@ -4485,6 +3870,176 @@ export default function App() {
                 >
                   <Check className="w-4 h-4" />
                   <span>تأیید و ذخیره تاریخ مبدأ</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* SESSION REMINDER JALALI DATE PICKER MODAL */}
+        {isSessionDatePickerOpen && (
+          <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[75] flex items-center justify-center p-4">
+            <div
+              style={{
+                backgroundColor: theme.cardBg,
+                borderColor: theme.borderLuminous,
+              }}
+              className="liquid-glass rounded-3xl p-6 max-w-sm w-full border shadow-2xl transition-all animate-in fade-in zoom-in-95 duration-200"
+            >
+              {/* Modal Header */}
+              <div className="flex items-center justify-between pb-3 mb-3 border-b border-white/10">
+                <div className="flex items-center gap-2">
+                  <div
+                    style={{ backgroundColor: theme.primary }}
+                    className="w-8 h-8 rounded-xl flex items-center justify-center text-white shrink-0"
+                  >
+                    <Calendar className="w-4 h-4" />
+                  </div>
+                  <div className="text-right">
+                    <h3 style={{ color: theme.textPrimary }} className="text-sm font-black">
+                      انتخاب تاریخ یادآور جلسه
+                    </h3>
+                    <p style={{ color: theme.textSecondary }} className="text-[10px]">
+                      تاریخ شمسی مورد نظر برای ارسال آلارم
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsSessionDatePickerOpen(false)}
+                  style={{ color: theme.textSecondary }}
+                  className="p-1 rounded-lg hover:opacity-75 cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Month Navigation Row */}
+              <div
+                style={{ backgroundColor: theme.innerBg, borderColor: theme.borderLuminous }}
+                className="flex items-center justify-between p-2 rounded-2xl border mb-3 text-xs font-bold"
+              >
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (sessionPickerMonth === 1) {
+                      setSessionPickerYear((y) => y - 1);
+                      setSessionPickerMonth(12);
+                    } else {
+                      setSessionPickerMonth((m) => m - 1);
+                    }
+                  }}
+                  className="px-2 py-1 rounded-lg text-sky-400 hover:bg-white/5 cursor-pointer"
+                >
+                  ‹ ماه قبل
+                </button>
+                <span style={{ color: theme.textPrimary }} className="font-extrabold text-sm">
+                  {PERSIAN_MONTHS[sessionPickerMonth - 1]} {toPersianDigits(sessionPickerYear)}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (sessionPickerMonth === 12) {
+                      setSessionPickerYear((y) => y + 1);
+                      setSessionPickerMonth(1);
+                    } else {
+                      setSessionPickerMonth((m) => m + 1);
+                    }
+                  }}
+                  className="px-2 py-1 rounded-lg text-sky-400 hover:bg-white/5 cursor-pointer"
+                >
+                  ماه بعد ›
+                </button>
+              </div>
+
+              {/* Neumorphic Inset Well for Date Grid */}
+              <div
+                style={{
+                  backgroundColor: theme.innerBg,
+                  borderColor: theme.borderLuminous,
+                  boxShadow: 'inset 0 2px 6px rgba(0,0,0,0.3)',
+                }}
+                className="p-3 rounded-2xl border mb-3"
+              >
+                {/* Week Day Labels */}
+                <div className="grid grid-cols-7 gap-1 text-center pb-2 mb-2 border-b border-white/5 text-[11px] font-bold text-slate-400">
+                  <span>ش</span>
+                  <span>ی</span>
+                  <span>د</span>
+                  <span>س</span>
+                  <span>چ</span>
+                  <span>پ</span>
+                  <span className="text-rose-400">ج</span>
+                </div>
+
+                {/* Days Grid */}
+                {(() => {
+                  const [gy, gm, gd] = jalaliToGregorian(sessionPickerYear, sessionPickerMonth, 1);
+                  const firstDay = new Date(gy, gm - 1, gd).getDay();
+                  const offset = (firstDay + 1) % 7;
+                  const totalDays = getDaysInJalaliMonth(sessionPickerYear, sessionPickerMonth);
+
+                  return (
+                    <div className="grid grid-cols-7 gap-1 text-center">
+                      {Array.from({ length: offset }).map((_, i) => (
+                        <div key={`empty-sess-${i}`} className="h-8" />
+                      ))}
+                      {Array.from({ length: totalDays }).map((_, i) => {
+                        const dayNum = i + 1;
+                        const isSel = sessionPickerDay === dayNum;
+                        return (
+                          <button
+                            type="button"
+                            key={dayNum}
+                            onClick={() => setSessionPickerDay(dayNum)}
+                            style={{
+                              backgroundColor: isSel ? theme.primary : 'transparent',
+                              color: isSel ? '#FFFFFF' : theme.textPrimary,
+                              boxShadow: isSel ? `0 0 10px ${theme.glowColor}` : 'none',
+                            }}
+                            className="h-8 rounded-xl text-xs font-bold font-mono transition-all flex items-center justify-center cursor-pointer hover:bg-white/10 active:scale-95"
+                          >
+                            {toPersianDigits(dayNum)}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
+              </div>
+
+              {/* Selected Date Preview */}
+              <div
+                style={{ backgroundColor: theme.innerBg, borderColor: theme.borderLuminous }}
+                className="p-2.5 rounded-xl border text-center space-y-0.5 mb-3"
+              >
+                <div style={{ color: theme.primaryLight }} className="text-xs font-bold">
+                  تاریخ انتخابی: {toPersianDigits(sessionPickerDay)} {PERSIAN_MONTHS[sessionPickerMonth - 1]} {toPersianDigits(sessionPickerYear)}
+                </div>
+              </div>
+
+              {/* Actions */}
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsSessionDatePickerOpen(false)}
+                  style={{ backgroundColor: theme.innerBg, borderColor: theme.borderLuminous }}
+                  className="px-4 py-2.5 rounded-2xl text-xs font-bold border text-slate-400 cursor-pointer"
+                >
+                  انصراف
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsSessionDatePickerOpen(false);
+                    // Open time picker right after date selection for a streamlined flow
+                    setTimeout(() => setIsSessionTimePickerOpen(true), 120);
+                  }}
+                  style={{ backgroundColor: theme.primary }}
+                  className="flex-1 py-2.5 rounded-2xl text-xs font-black text-white shadow-md flex items-center justify-center gap-1.5 cursor-pointer hover:opacity-95"
+                >
+                  <Check className="w-4 h-4" />
+                  <span>تأیید تاریخ و انتخاب ساعت ➔</span>
                 </button>
               </div>
             </div>
@@ -4900,51 +4455,42 @@ export default function App() {
                       >
                         <div className="flex items-center justify-between pb-2 mb-2 border-b border-white/5">
                           <span className="text-xs font-black text-rose-400 flex items-center gap-1.5">
-                            <span>یادآور فعال جلسه</span>
-                            {selectedChatSessionLog.snoozedUntil && (
-                              <span className="px-1.5 py-0.5 rounded text-[9px] font-black bg-rose-500/20 text-rose-300">
-                                تعویق: {selectedChatSessionLog.snoozedUntil}
-                              </span>
-                            )}
+                            <span>یادآور این جلسه</span>
                           </span>
                           <span style={{ color: theme.textMuted }} className="text-[10px] font-mono">
                             {selectedChatSessionLog.createdAt.includes('/') ? selectedChatSessionLog.createdAt.split('-')[0].trim() : getJalaliDateNumeric()}
                           </span>
                         </div>
 
-                        <p style={{ color: theme.textPrimary }} className="text-xs font-bold py-1">
-                          زمان هشدار: {formatPersianReminderText(selectedChatSessionLog.reminderTrigger, selectedChatSessionLog.reminderTimeText)}
-                        </p>
+                        <div className="text-right py-1 space-y-0.5">
+                          <span style={{ color: theme.textMuted }} className="text-[10px] font-bold block">
+                            یادآوری:
+                          </span>
+                          <div className="text-xs font-black text-sky-400">
+                            {selectedChatSessionLog.reminderTimeText || formatPersianReminderText(selectedChatSessionLog.reminderTrigger, selectedChatSessionLog.reminderTimeText)}
+                          </div>
+                        </div>
 
-                        {/* Action buttons: "فهمیدم" (Problem 5), "بعداً یادآوری کن" (Problem 4), "تغییر زمان" (Problem 6), "غیرفعال‌سازی" */}
-                        <div className="flex flex-wrap items-center gap-1.5 pt-2 mt-2 border-t border-white/5">
+                        {/* Action buttons: [ ویرایش ] and [ لغو یادآور ] (Part 12) */}
+                        <div className="flex items-center gap-2 pt-2 mt-2 border-t border-white/5">
                           <button
                             type="button"
-                            onClick={() => handleAcknowledgeReminder(selectedChatSessionLog)}
-                            className="px-2.5 py-1 rounded-xl text-[11px] font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/25 hover:bg-emerald-500/25 cursor-pointer transition-colors"
+                            onClick={() => setIsSessionDatePickerOpen(true)}
+                            style={{
+                              backgroundColor: theme.innerBg,
+                              borderColor: theme.borderLuminous,
+                              color: theme.textPrimary,
+                            }}
+                            className="flex-1 py-1.5 px-2.5 rounded-xl text-xs font-bold border hover:border-white/30 cursor-pointer transition-colors text-center"
                           >
-                            ✓ فهمیدم
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setSnoozeModalTarget({ id: selectedChatSessionLog.id, name: selectedChatSessionLog.className, log: selectedChatSessionLog })}
-                            className="px-2.5 py-1 rounded-xl text-[11px] font-bold bg-amber-500/15 text-amber-400 border border-amber-500/25 hover:bg-amber-500/25 cursor-pointer transition-colors"
-                          >
-                            ⏰ بعداً یادآوری کن
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setIsTimelineReminderOpen(!isTimelineReminderOpen)}
-                            className="px-2.5 py-1 rounded-xl text-[11px] font-bold bg-white/5 text-slate-300 border border-white/10 hover:bg-white/10 cursor-pointer transition-colors"
-                          >
-                            ✏️ تغییر زمان
+                            ✏️ ویرایش
                           </button>
                           <button
                             type="button"
                             onClick={handleToggleTimelineReminder}
-                            className="px-2.5 py-1 rounded-xl text-[11px] font-bold bg-rose-500/10 text-rose-400 border border-rose-500/20 hover:bg-rose-500/20 cursor-pointer transition-colors"
+                            className="flex-1 py-1.5 px-2.5 rounded-xl text-xs font-bold bg-rose-500/10 text-rose-400 border border-rose-500/20 hover:bg-rose-500/20 cursor-pointer transition-colors text-center"
                           >
-                            🔕 حذف
+                            🔕 لغو یادآور
                           </button>
                         </div>
                       </div>
@@ -4962,80 +4508,18 @@ export default function App() {
                           <Bell className="w-3.5 h-3.5" />
                         </div>
                         <span style={{ color: theme.textSecondary }} className="text-xs font-semibold">
-                          یادآور برای این جلسه تنظیم نشده است
+                          برای این جلسه یادآور تنظیم نشده است
                         </span>
                       </div>
                       <button
                         type="button"
-                        onClick={() => setIsTimelineReminderOpen(!isTimelineReminderOpen)}
+                        onClick={() => setIsSessionDatePickerOpen(true)}
                         style={{ backgroundColor: theme.primary }}
                         className="py-1.5 px-3 rounded-xl text-xs font-black text-white cursor-pointer hover:opacity-90 transition-all flex items-center gap-1 shadow-sm"
                       >
                         <Plus className="w-3.5 h-3.5" />
                         <span>تنظیم یادآور</span>
                       </button>
-                    </div>
-                  )}
-
-                  {/* Expandable Manual Reminder Picker inside Timeline */}
-                  {isTimelineReminderOpen && (
-                    <div
-                      style={{
-                        backgroundColor: theme.cardBg,
-                        borderColor: theme.primary,
-                      }}
-                      className="mt-2.5 rounded-2xl p-3.5 border shadow-lg space-y-2.5 max-w-[94%]"
-                    >
-                      <div className="flex items-center justify-between pb-1.5 border-b border-white/5">
-                        <span style={{ color: theme.textPrimary }} className="text-xs font-black">
-                          انتخاب زمان یادآور برای این جلسه:
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => setIsTimelineReminderOpen(false)}
-                          className="text-slate-400 hover:text-white text-xs cursor-pointer"
-                        >
-                          ✕
-                        </button>
-                      </div>
-
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-                        {ALERT_TRIGGERS.map((trg) => (
-                          <button
-                            key={trg}
-                            type="button"
-                            onClick={() => setTimelineReminderTrigger(trg)}
-                            style={{
-                              backgroundColor: timelineReminderTrigger === trg ? theme.primary : theme.innerBg,
-                              color: timelineReminderTrigger === trg ? '#fff' : theme.textPrimary,
-                              borderColor: timelineReminderTrigger === trg ? theme.primary : theme.borderLuminous,
-                            }}
-                            className="p-2 rounded-xl border text-xs font-bold text-right transition-all cursor-pointer flex items-center justify-between"
-                          >
-                            <span>{trg}</span>
-                            {timelineReminderTrigger === trg && <Check className="w-3.5 h-3.5 flex-shrink-0" />}
-                          </button>
-                        ))}
-                      </div>
-
-                      <div className="flex items-center justify-end gap-2 pt-1">
-                        <button
-                          type="button"
-                          onClick={() => setIsTimelineReminderOpen(false)}
-                          style={{ backgroundColor: theme.innerBg, borderColor: theme.borderLuminous }}
-                          className="py-1.5 px-3 rounded-xl text-xs font-semibold border text-slate-400 cursor-pointer"
-                        >
-                          انصراف
-                        </button>
-                        <button
-                          type="button"
-                          onClick={handleToggleTimelineReminder}
-                          style={{ backgroundColor: theme.primary }}
-                          className="py-1.5 px-4 rounded-xl text-xs font-black text-white cursor-pointer hover:opacity-95 shadow-md"
-                        >
-                          ذخیره و فعال‌سازی یادآور
-                        </button>
-                      </div>
                     </div>
                   )}
                 </div>
@@ -5246,79 +4730,10 @@ export default function App() {
           </div>
         )}
 
-        {/* SELECTABLE SNOOZE DURATION MODAL (Problem 4) */}
-        {snoozeModalTarget && (
-          <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[70] flex items-center justify-center p-4">
-            <div
-              style={{
-                backgroundColor: theme.cardBg,
-                borderColor: theme.borderLuminous,
-              }}
-              className="liquid-glass rounded-3xl p-5 max-w-sm w-full border shadow-2xl transition-all space-y-4"
-            >
-              <div className="flex items-center justify-between pb-3 border-b border-white/10">
-                <div className="flex items-center gap-2">
-                  <div className="w-8 h-8 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center">
-                    <Clock className="w-4 h-4" />
-                  </div>
-                  <div>
-                    <h3 style={{ color: theme.textPrimary }} className="text-sm font-black">
-                      بعداً یادآوری کن
-                    </h3>
-                    <span style={{ color: theme.textSecondary }} className="text-[10px]">
-                      {snoozeModalTarget.name}
-                    </span>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setSnoozeModalTarget(null)}
-                  className="text-slate-400 hover:text-white text-xs cursor-pointer"
-                >
-                  ✕
-                </button>
-              </div>
-
-              <div className="space-y-1.5">
-                <span style={{ color: theme.textSecondary }} className="block text-xs font-bold text-right mb-2">
-                  مدت زمان تعویق یادآور را انتخاب نمایید:
-                </span>
-                <div className="grid grid-cols-2 gap-2">
-                  {EXTENDED_SNOOZE_OPTIONS.map((opt) => (
-                    <button
-                      key={opt.value}
-                      type="button"
-                      onClick={() => handleSnoozeTimelineReminder(opt.value)}
-                      style={{
-                        backgroundColor: theme.innerBg,
-                        borderColor: theme.borderLuminous,
-                        color: theme.textPrimary,
-                      }}
-                      className="p-2.5 rounded-xl border text-xs font-bold cursor-pointer hover:border-amber-400/50 hover:bg-amber-500/10 transition-all flex items-center justify-center"
-                    >
-                      {opt.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="pt-2">
-                <button
-                  type="button"
-                  onClick={() => setSnoozeModalTarget(null)}
-                  style={{ backgroundColor: theme.innerBg, borderColor: theme.borderLuminous }}
-                  className="w-full py-2.5 rounded-xl text-xs font-bold border text-slate-400 cursor-pointer"
-                >
-                  انصراف
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
       </main>
 
       {/* FLOATING CIRCULAR RADIAL MENU (CIRCLE MENU) - Hidden when modal is active */}
-      {!selectedChatSessionLog && !isSessionCaptureOpen && !isClassModalOpen && !isEditingProfile && !deletingId && !previewFile && !snoozeModalTarget && (
+      {!selectedChatSessionLog && !isSessionCaptureOpen && !isClassModalOpen && !isEditingProfile && !deletingId && !previewFile && (
         <>
           {/* Backdrop blur dismiss layer */}
           {isRadialOpen && (
