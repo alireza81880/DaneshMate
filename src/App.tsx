@@ -18,6 +18,7 @@ import {
   Home,
   AlertTriangle,
   GraduationCap,
+  BookOpen,
   Palette,
   FileText,
   Upload,
@@ -58,6 +59,7 @@ export interface AttachedFile {
 interface ClassItem {
   id: string;
   name: string;
+  classCode?: string;
   day: WeekDay;
   time: string;
   recurrence: RecurrenceType;
@@ -67,12 +69,16 @@ interface ClassItem {
   scheduled_session_timestamps?: number[];
   professor?: string;
   location?: string;
+  hasReminder?: boolean;
+  reminderMinutesBefore?: number;
+  reminderTriggerText?: string;
 }
 
 interface ClassSessionLog {
   id: string;
   classId: string;
   className: string;
+  classCode?: string;
   createdAt: string;
   notesText: string;
   attachedFiles?: AttachedFile[];
@@ -83,6 +89,8 @@ interface ClassSessionLog {
   reminderTimeText?: string;
   snoozedUntil?: string;
   notificationId?: number;
+  chatMessages?: Array<{ id: string; text: string; time: string }>;
+  acknowledgedAt?: number;
 }
 
 interface PaletteTheme {
@@ -550,12 +558,33 @@ const ALERT_TRIGGERS = [
   '2 days before next class',
 ];
 
+// Configurable "Before Class" Reminder Options (Problem 1)
+const BEFORE_CLASS_OPTIONS = [
+  { label: '۱۵ دقیقه قبل از شروع کلاس', minutes: 15 },
+  { label: '۳۰ دقیقه قبل از شروع کلاس', minutes: 30 },
+  { label: '۴۵ دقیقه قبل از شروع کلاس', minutes: 45 },
+  { label: '۱ ساعت قبل از شروع کلاس', minutes: 60 },
+  { label: '۲ ساعت قبل از شروع کلاس', minutes: 120 },
+  { label: '۲۴ ساعت (۱ روز) قبل از کلاس', minutes: 1440 },
+  { label: '۱ دقیقه قبل (تست سریع آلارم)', minutes: -1 },
+];
+
 // Snooze Intervals
 const SNOOZE_OPTIONS = [
   '+1 min (Test)',
   '+1 hour',
   '+4 hours',
   '+24 hours',
+];
+
+// Extended Selectable Snooze Durations (Problem 4)
+const EXTENDED_SNOOZE_OPTIONS = [
+  { label: '+۵ دقیقه', value: '+5 min' },
+  { label: '+۱۰ دقیقه', value: '+10 min' },
+  { label: '+۳۰ دقیقه', value: '+30 min' },
+  { label: '+۱ ساعت', value: '+1 hour' },
+  { label: '+۴ ساعت', value: '+4 hours' },
+  { label: '+۲۴ ساعت', value: '+24 hours' },
 ];
 
 const NAME_REGEX = /^[a-zA-Z\u0600-\u06FF\uFB8A\u067E\u0686\u06AF\u200c\s]+$/;
@@ -590,6 +619,9 @@ export default function App() {
   const [isClassModalOpen, setIsClassModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [formName, setFormName] = useState('');
+  const [formClassCode, setFormClassCode] = useState('');
+  const [formHasReminder, setFormHasReminder] = useState(false);
+  const [formReminderBefore, setFormReminderBefore] = useState<number>(30);
   const [formDay, setFormDay] = useState<WeekDay>('شنبه');
   const [formTime, setFormTime] = useState(COMMON_SLOTS[0]);
   const [formCustomTime, setFormCustomTime] = useState('');
@@ -731,6 +763,16 @@ export default function App() {
   const [sessionActiveSnooze, setSessionActiveSnooze] = useState<string | null>(null);
   const [sessionError, setSessionError] = useState<string | null>(null);
 
+  // In-App File & Media Preview State (Problem 7)
+  const [previewFile, setPreviewFile] = useState<AttachedFile | null>(null);
+
+  // Snooze Selector Modal State (Problem 4)
+  const [snoozeModalTarget, setSnoozeModalTarget] = useState<{ id: string; name: string; isClass?: boolean; log?: ClassSessionLog } | null>(null);
+
+  // Manual Session Timeline Reminder Configurator (Problem 6)
+  const [isTimelineReminderOpen, setIsTimelineReminderOpen] = useState(false);
+  const [timelineReminderTrigger, setTimelineReminderTrigger] = useState<string>(ALERT_TRIGGERS[0]);
+
   // Live Date
   const [currentDate, setCurrentDate] = useState(new Date());
 
@@ -739,7 +781,7 @@ export default function App() {
     return () => clearInterval(timer);
   }, []);
 
-  // Offline-First Snapshot Hydration & Cloud Sync
+  // Offline-First Snapshot Hydration & Cloud Sync & Native Notification Action Listener
   useEffect(() => {
     persistenceAdapter.loadAppSnapshot().then((snapshot) => {
       if (snapshot) {
@@ -764,6 +806,21 @@ export default function App() {
         }
       }).catch(() => {});
     });
+
+    // Native notification action listener ("فهمیدم" and "بعداً یادآوری کن")
+    const unsubscribeAction = notificationService.addActionListener((actionId, data) => {
+      if (actionId === 'dismiss') {
+        setFileToast(`یادآور درس «${data.className}» تأیید و بسته شد (فهمیدم).`);
+        setTimeout(() => setFileToast(null), 3500);
+      } else if (actionId === 'snooze') {
+        setFileToast(`یادآور درس «${data.className}» با موفقیت به تعویق افتاد.`);
+        setTimeout(() => setFileToast(null), 3500);
+      }
+    });
+
+    return () => {
+      unsubscribeAction();
+    };
   }, []);
 
   // Real inline audio playback via HTMLAudioElement
@@ -863,7 +920,8 @@ export default function App() {
     }
     setChatAudioPlaying(false);
     setChatAudioSeconds(0);
-    setChatFollowUps([]);
+    setChatFollowUps(selectedChatSessionLog?.chatMessages || []);
+    setIsTimelineReminderOpen(false);
     setFileToast(null);
   }, [selectedChatSessionLog?.id]);
 
@@ -937,6 +995,9 @@ export default function App() {
   const handleOpenAdd = () => {
     setEditingId(null);
     setFormName('');
+    setFormClassCode('');
+    setFormHasReminder(false);
+    setFormReminderBefore(30);
     setFormDay('شنبه');
     setFormTime(COMMON_SLOTS[0]);
     setFormCustomTime('');
@@ -954,6 +1015,9 @@ export default function App() {
   const handleOpenEdit = (item: ClassItem) => {
     setEditingId(item.id);
     setFormName(item.name);
+    setFormClassCode(item.classCode || '');
+    setFormHasReminder(Boolean(item.hasReminder));
+    setFormReminderBefore(item.reminderMinutesBefore ?? 30);
     setFormDay(item.day);
     setFormTime(item.time);
     setFormCustomTime(!COMMON_SLOTS.includes(item.time) ? item.time : '');
@@ -991,7 +1055,7 @@ export default function App() {
     setIsJalaliSpringModalOpen(false);
   };
 
-  const handleSaveClass = (e: React.FormEvent) => {
+  const handleSaveClass = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formName.trim()) {
       setClassErrors({ name: 'ورود نام کلاس الزامی است' });
@@ -1008,31 +1072,14 @@ export default function App() {
         ? 'bi_weekly'
         : 'weekly';
 
+    const selectedBeforeOpt = BEFORE_CLASS_OPTIONS.find((o) => o.minutes === formReminderBefore);
+    const reminderTriggerText = selectedBeforeOpt ? selectedBeforeOpt.label : `${formReminderBefore} دقیقه قبل از کلاس`;
+
     if (editingId) {
-      const updatedClasses = classes.map((c) =>
-        c.id === editingId
-          ? {
-              ...c,
-              name: formName.trim(),
-              day: formDay,
-              time: finalTime,
-              recurrence: formRecurrence,
-              recurrence_type: recType,
-              anchor_date: formAnchorDate || undefined,
-              anchor_timestamp: formAnchorTimestamp,
-              scheduled_session_timestamps:
-                formScheduledSessions.length > 0 ? formScheduledSessions : undefined,
-              professor: formProfessor.trim() || undefined,
-              location: formLocation.trim() || undefined,
-            }
-          : c
-      );
-      setClasses(updatedClasses);
-      syncBridge.performOptimisticSync(userProfile, updatedClasses, sessionLogs, currentThemeId);
-    } else {
-      const newClass: ClassItem = {
-        id: Date.now().toString(),
+      const updatedClass: ClassItem = {
+        id: editingId,
         name: formName.trim(),
+        classCode: formClassCode.trim() || undefined,
         day: formDay,
         time: finalTime,
         recurrence: formRecurrence,
@@ -1043,9 +1090,53 @@ export default function App() {
           formScheduledSessions.length > 0 ? formScheduledSessions : undefined,
         professor: formProfessor.trim() || undefined,
         location: formLocation.trim() || undefined,
+        hasReminder: formHasReminder,
+        reminderMinutesBefore: formHasReminder ? formReminderBefore : undefined,
+        reminderTriggerText: formHasReminder ? reminderTriggerText : undefined,
       };
+
+      if (formHasReminder) {
+        await notificationService.scheduleClassReminder(updatedClass).catch((err) => {
+          console.warn('[ClassReminder] Schedule error:', err);
+        });
+      } else {
+        await notificationService.cancelClassReminder(editingId).catch(() => {});
+      }
+
+      const updatedClasses = classes.map((c) => (c.id === editingId ? updatedClass : c));
+      setClasses(updatedClasses);
+      persistenceAdapter.saveClasses(updatedClasses);
+      syncBridge.performOptimisticSync(userProfile, updatedClasses, sessionLogs, currentThemeId);
+    } else {
+      const newClassId = Date.now().toString();
+      const newClass: ClassItem = {
+        id: newClassId,
+        name: formName.trim(),
+        classCode: formClassCode.trim() || undefined,
+        day: formDay,
+        time: finalTime,
+        recurrence: formRecurrence,
+        recurrence_type: recType,
+        anchor_date: formAnchorDate || undefined,
+        anchor_timestamp: formAnchorTimestamp,
+        scheduled_session_timestamps:
+          formScheduledSessions.length > 0 ? formScheduledSessions : undefined,
+        professor: formProfessor.trim() || undefined,
+        location: formLocation.trim() || undefined,
+        hasReminder: formHasReminder,
+        reminderMinutesBefore: formHasReminder ? formReminderBefore : undefined,
+        reminderTriggerText: formHasReminder ? reminderTriggerText : undefined,
+      };
+
+      if (formHasReminder) {
+        await notificationService.scheduleClassReminder(newClass).catch((err) => {
+          console.warn('[ClassReminder] Schedule error:', err);
+        });
+      }
+
       const updatedClasses = [newClass, ...classes];
       setClasses(updatedClasses);
+      persistenceAdapter.saveClasses(updatedClasses);
       syncBridge.performOptimisticSync(userProfile, updatedClasses, sessionLogs, currentThemeId);
     }
     setIsClassModalOpen(false);
@@ -1053,6 +1144,7 @@ export default function App() {
 
   const handleConfirmDelete = async () => {
     if (deletingId) {
+      await notificationService.cancelClassReminder(deletingId).catch(() => {});
       const logsToDelete = sessionLogs.filter((l) => l.classId === deletingId);
       for (const log of logsToDelete) {
         await notificationService.cancelReminder(log.id);
@@ -1067,6 +1159,8 @@ export default function App() {
       const updatedLogs = sessionLogs.filter((l) => l.classId !== deletingId);
       setClasses(updatedClasses);
       setSessionLogs(updatedLogs);
+      persistenceAdapter.saveClasses(updatedClasses);
+      persistenceAdapter.saveSessionLogs(updatedLogs);
       syncBridge.performOptimisticSync(userProfile, updatedClasses, updatedLogs, currentThemeId);
       setDeletingId(null);
     }
@@ -1112,14 +1206,116 @@ export default function App() {
   };
 
   const handleOpenFileWeb = (file: AttachedFile) => {
-    try {
-      setFileToast(`در حال باز کردن «${file.name}»...`);
+    setPreviewFile(file);
+  };
+
+  const handleToggleTimelineReminder = async () => {
+    if (!selectedChatSessionLog) return;
+    const currentClass = classes.find((c) => c.id === selectedChatSessionLog.classId);
+
+    if (selectedChatSessionLog.hasReminder) {
+      await notificationService.cancelReminder(selectedChatSessionLog.id);
+      const updatedLog: ClassSessionLog = {
+        ...selectedChatSessionLog,
+        hasReminder: false,
+        reminderTrigger: undefined,
+        reminderTimeText: undefined,
+        snoozedUntil: undefined,
+      };
+      setSelectedChatSessionLog(updatedLog);
+      const updatedLogs = sessionLogs.map((l) => (l.id === updatedLog.id ? updatedLog : l));
+      setSessionLogs(updatedLogs);
+      persistenceAdapter.saveSessionLogs(updatedLogs);
+      syncBridge.performOptimisticSync(userProfile, classes, updatedLogs, currentThemeId);
+      setFileToast('یادآور این جلسه غیرفعال گردید.');
       setTimeout(() => setFileToast(null), 2500);
-      filePickerService.openFile(file);
-    } catch (e: any) {
-      setFileToast(e?.message || 'خطا در باز کردن فایل پیوست');
+    } else {
+      try {
+        await notificationService.scheduleReminder({
+          id: selectedChatSessionLog.id,
+          logId: selectedChatSessionLog.id,
+          classId: selectedChatSessionLog.classId,
+          className: selectedChatSessionLog.className,
+          classCode: selectedChatSessionLog.classCode || currentClass?.classCode,
+          location: currentClass?.location,
+          notesText: selectedChatSessionLog.notesText,
+          trigger: timelineReminderTrigger,
+          classTime: currentClass?.time,
+          classDay: currentClass?.day,
+        });
+
+        const updatedLog: ClassSessionLog = {
+          ...selectedChatSessionLog,
+          hasReminder: true,
+          reminderTrigger: timelineReminderTrigger,
+          reminderTimeText: formatPersianReminderText(timelineReminderTrigger),
+          snoozedUntil: undefined,
+          notificationId: notificationService.getNotificationId(selectedChatSessionLog.id),
+        };
+        setSelectedChatSessionLog(updatedLog);
+        const updatedLogs = sessionLogs.map((l) => (l.id === updatedLog.id ? updatedLog : l));
+        setSessionLogs(updatedLogs);
+        persistenceAdapter.saveSessionLogs(updatedLogs);
+        syncBridge.performOptimisticSync(userProfile, classes, updatedLogs, currentThemeId);
+        setIsTimelineReminderOpen(false);
+        setFileToast('یادآور برای این جلسه فعال و زمان‌بندی شد.');
+        setTimeout(() => setFileToast(null), 2500);
+      } catch (err: any) {
+        setFileToast(err?.message || 'خطا در فعال‌سازی یادآور');
+        setTimeout(() => setFileToast(null), 3000);
+      }
+    }
+  };
+
+  const handleSnoozeTimelineReminder = async (snoozeDuration: string) => {
+    if (!selectedChatSessionLog) return;
+    const currentClass = classes.find((c) => c.id === selectedChatSessionLog.classId);
+    try {
+      await notificationService.snoozeReminder(selectedChatSessionLog.id, snoozeDuration, {
+        logId: selectedChatSessionLog.id,
+        className: selectedChatSessionLog.className,
+        classCode: selectedChatSessionLog.classCode || currentClass?.classCode,
+        location: currentClass?.location,
+        notesText: selectedChatSessionLog.notesText,
+        classTime: currentClass?.time,
+        classDay: currentClass?.day,
+      });
+
+      const updatedLog: ClassSessionLog = {
+        ...selectedChatSessionLog,
+        hasReminder: true,
+        snoozedUntil: snoozeDuration,
+      };
+      setSelectedChatSessionLog(updatedLog);
+      const updatedLogs = sessionLogs.map((l) => (l.id === updatedLog.id ? updatedLog : l));
+      setSessionLogs(updatedLogs);
+      persistenceAdapter.saveSessionLogs(updatedLogs);
+      syncBridge.performOptimisticSync(userProfile, classes, updatedLogs, currentThemeId);
+      setSnoozeModalTarget(null);
+      setFileToast(`یادآور جلسه به مدت ${snoozeDuration} به تعویق افتاد.`);
+      setTimeout(() => setFileToast(null), 2500);
+    } catch (err: any) {
+      setFileToast(err?.message || 'خطا در تعویق یادآور');
       setTimeout(() => setFileToast(null), 3000);
     }
+  };
+
+  const handleAcknowledgeReminder = async (log: ClassSessionLog) => {
+    await notificationService.acknowledgeReminder(log.id);
+    const updatedLog: ClassSessionLog = {
+      ...log,
+      hasReminder: false,
+      acknowledgedAt: Date.now(),
+    };
+    if (selectedChatSessionLog?.id === log.id) {
+      setSelectedChatSessionLog(updatedLog);
+    }
+    const updatedLogs = sessionLogs.map((l) => (l.id === log.id ? updatedLog : l));
+    setSessionLogs(updatedLogs);
+    persistenceAdapter.saveSessionLogs(updatedLogs);
+    syncBridge.performOptimisticSync(userProfile, classes, updatedLogs, currentThemeId);
+    setFileToast('یادآور تأیید و بسته شد (فهمیدم).');
+    setTimeout(() => setFileToast(null), 2500);
   };
 
   const handleDeleteSessionAudioWeb = async () => {
@@ -1271,14 +1467,25 @@ export default function App() {
 
   const handleSendChatFollowUp = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!chatInputText.trim()) return;
+    if (!chatInputText.trim() || !selectedChatSessionLog) return;
     const newMsg = {
       id: Date.now().toString(),
       text: chatInputText.trim(),
       time: new Date().toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' }),
     };
-    setChatFollowUps((prev) => [...prev, newMsg]);
+    const updatedMessages = [...(selectedChatSessionLog.chatMessages || []), newMsg];
+    setChatFollowUps(updatedMessages);
     setChatInputText('');
+
+    const updatedLog: ClassSessionLog = {
+      ...selectedChatSessionLog,
+      chatMessages: updatedMessages,
+    };
+    setSelectedChatSessionLog(updatedLog);
+    const updatedLogs = sessionLogs.map((l) => (l.id === updatedLog.id ? updatedLog : l));
+    setSessionLogs(updatedLogs);
+    persistenceAdapter.saveSessionLogs(updatedLogs);
+    syncBridge.performOptimisticSync(userProfile, classes, updatedLogs, currentThemeId);
   };
 
   const handleToggleVoiceRecording = async () => {
@@ -1354,7 +1561,7 @@ export default function App() {
     const currentClass = classes.find((c) => c.id === sessionClassId);
     let reminderText = sessionSelectedReminder;
     if (sessionActiveSnooze) {
-      reminderText = `${sessionSelectedReminder} (Snoozed ${sessionActiveSnooze})`;
+      reminderText = `${sessionSelectedReminder} (تعویق ${sessionActiveSnooze})`;
     }
 
     const newLogId = Date.now().toString();
@@ -1363,8 +1570,12 @@ export default function App() {
     if (sessionHasReminder) {
       try {
         const notifResult = await notificationService.scheduleReminder({
+          id: newLogId,
           logId: newLogId,
+          classId: sessionClassId,
           className: currentClass?.name || 'کلاس عمومی',
+          classCode: currentClass?.classCode,
+          location: currentClass?.location,
           notesText: sessionNotesText.trim(),
           trigger: sessionSelectedReminder,
           snoozedUntil: sessionActiveSnooze || undefined,
@@ -1383,6 +1594,7 @@ export default function App() {
       id: newLogId,
       classId: sessionClassId,
       className: currentClass?.name || 'کلاس عمومی',
+      classCode: currentClass?.classCode,
       createdAt: new Date().toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' }),
       notesText: sessionNotesText.trim(),
       attachedFiles: sessionAttachedFiles,
@@ -1393,10 +1605,12 @@ export default function App() {
       reminderTimeText: sessionHasReminder ? reminderText : undefined,
       snoozedUntil: sessionActiveSnooze || undefined,
       notificationId,
+      chatMessages: [],
     };
 
     const updatedLogs = [newLog, ...sessionLogs];
     setSessionLogs(updatedLogs);
+    persistenceAdapter.saveSessionLogs(updatedLogs);
     syncBridge.performOptimisticSync(userProfile, classes, updatedLogs, currentThemeId);
     setSessionNotesText('');
     setSessionAttachedFiles([]);
@@ -1953,9 +2167,9 @@ export default function App() {
                           borderColor: theme.borderLuminous,
                           color: theme.primary,
                         }}
-                        className="w-14 h-14 rounded-2xl flex items-center justify-center border text-2xl shadow-sm"
+                        className="w-14 h-14 rounded-2xl flex items-center justify-center border shadow-sm"
                       >
-                        ✦
+                        <BookOpen className="w-7 h-7" />
                       </div>
                       <h4 style={{ color: theme.textPrimary }} className="text-sm font-black">
                         {searchQuery ? `نتیجه‌ای برای «${searchQuery}» یافت نشد` : 'هنوز کلاسی ثبت نکرده‌اید'}
@@ -1990,24 +2204,46 @@ export default function App() {
                           >
                             <div className="flex items-start justify-between gap-2 mb-2">
                               <div>
-                                <h4 style={{ color: theme.textPrimary }} className="font-extrabold text-sm mb-1">
-                                  {cls.name}
-                                </h4>
+                                <div className="flex items-center gap-2 mb-1">
+                                  <h4 style={{ color: theme.textPrimary }} className="font-extrabold text-sm">
+                                    {cls.name}
+                                  </h4>
+                                  {cls.classCode && (
+                                    <span
+                                      style={{
+                                        backgroundColor: theme.cardBg,
+                                        color: theme.primary,
+                                        borderColor: theme.borderLuminous,
+                                      }}
+                                      className="px-2 py-0.5 rounded-lg text-[10px] font-mono font-bold border"
+                                    >
+                                      کد: {cls.classCode}
+                                    </span>
+                                  )}
+                                </div>
                                 <div className="flex items-center gap-1.5 text-xs font-semibold" style={{ color: theme.textSecondary }}>
                                   <Clock className="w-3.5 h-3.5" />
                                   <span>{cls.day} • {cls.time}</span>
                                 </div>
                               </div>
 
-                              <span
-                                style={{
-                                  backgroundColor: recCfg.bg,
-                                  color: theme.isDark ? recCfg.color : recCfg.lightColor,
-                                }}
-                                className="px-2 py-0.5 rounded-lg text-[10px] font-black"
-                              >
-                                {recCfg.label}
-                              </span>
+                              <div className="flex flex-col items-end gap-1">
+                                <span
+                                  style={{
+                                    backgroundColor: recCfg.bg,
+                                    color: theme.isDark ? recCfg.color : recCfg.lightColor,
+                                  }}
+                                  className="px-2 py-0.5 rounded-lg text-[10px] font-black"
+                                >
+                                  {recCfg.label}
+                                </span>
+                                {cls.hasReminder && (
+                                  <span className="px-2 py-0.5 rounded-lg bg-rose-500/15 text-rose-500 text-[10px] font-bold flex items-center gap-1 border border-rose-500/20">
+                                    <Bell className="w-3 h-3" />
+                                    <span>یادآور فعال</span>
+                                  </span>
+                                )}
+                              </div>
                             </div>
 
                             {(cls.professor || cls.location) && (
@@ -2161,21 +2397,26 @@ export default function App() {
                                 {log.attachedFiles.map((file) => (
                                   <div
                                     key={file.id}
+                                    onClick={() => handleOpenFileWeb(file)}
                                     style={{
                                       backgroundColor: theme.cardBg,
                                       borderColor: theme.borderLuminous,
                                     }}
-                                    className="flex items-center justify-between p-2 rounded-xl border text-xs"
+                                    className="flex items-center justify-between p-2 rounded-xl border text-xs cursor-pointer hover:border-blue-500/40 transition-all group"
+                                    title="مشاهده یا باز کردن فایل پیوست"
                                   >
                                     <div className="flex items-center gap-2 overflow-hidden flex-1 min-w-0 mr-2">
                                       {renderFileTypeTag(file.type)}
-                                      <span style={{ color: theme.textPrimary }} className="font-semibold truncate">
+                                      <span style={{ color: theme.textPrimary }} className="font-semibold truncate group-hover:text-blue-400 transition-colors">
                                         {truncateFileNameMiddle(file.name, 24)}
                                       </span>
                                     </div>
-                                    <span style={{ color: theme.textSecondary }} className="text-[10px] font-semibold whitespace-nowrap">
-                                      {file.sizeText}
-                                    </span>
+                                    <div className="flex items-center gap-1.5 flex-shrink-0">
+                                      <span style={{ color: theme.textSecondary }} className="text-[10px] font-semibold whitespace-nowrap">
+                                        {file.sizeText}
+                                      </span>
+                                      <ExternalLink className="w-3 h-3 text-slate-400 group-hover:text-blue-400 transition-colors" />
+                                    </div>
                                   </div>
                                 ))}
                               </div>
@@ -2201,17 +2442,34 @@ export default function App() {
                                 style={{
                                   borderTopColor: theme.isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(15, 23, 42, 0.08)',
                                 }}
-                                className="flex items-center justify-between pt-2 mt-2 border-t"
+                                className="flex flex-wrap items-center justify-between gap-2 pt-2 mt-2 border-t"
                               >
                                 <div className="flex items-center gap-1 text-[11px] font-bold text-rose-500">
                                   <Bell className="w-3.5 h-3.5" />
                                   <span>یادآور: {formatPersianReminderText(log.reminderTrigger, log.reminderTimeText)}</span>
+                                  {log.snoozedUntil && (
+                                    <span className="mr-1 px-1.5 py-0.5 rounded text-[9px] font-black bg-rose-500/20 text-rose-400">
+                                      تعویق: {log.snoozedUntil}
+                                    </span>
+                                  )}
                                 </div>
-                                {log.snoozedUntil && (
-                                  <span className="px-2 py-0.5 rounded text-[10px] font-black bg-rose-500/20 text-rose-600 dark:text-rose-300">
-                                    تعویق: {log.snoozedUntil}
-                                  </span>
-                                )}
+
+                                <div className="flex items-center gap-1.5">
+                                  <button
+                                    type="button"
+                                    onClick={() => setSnoozeModalTarget({ id: log.id, name: log.className, log })}
+                                    className="px-2 py-0.5 rounded-lg text-[10px] font-bold bg-amber-500/15 text-amber-400 border border-amber-500/25 cursor-pointer hover:bg-amber-500/25 transition-colors"
+                                  >
+                                    بعداً یادآوری کن
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleAcknowledgeReminder(log)}
+                                    className="px-2 py-0.5 rounded-lg text-[10px] font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/25 cursor-pointer hover:bg-emerald-500/25 transition-colors"
+                                  >
+                                    فهمیدم
+                                  </button>
+                                </div>
                               </div>
                             )}
 
@@ -3203,6 +3461,86 @@ export default function App() {
                   </div>
                 </div>
 
+                <div>
+                  <label style={{ color: theme.textPrimary }} className="block text-xs font-bold mb-1.5 text-right">
+                    کد درس یا شماره کلاس (اختیاری)
+                  </label>
+                  <div
+                    style={{ backgroundColor: theme.innerBg, borderColor: theme.borderLuminous }}
+                    className="rounded-2xl p-3 border"
+                  >
+                    <input
+                      type="text"
+                      placeholder="مثلاً: ۴۰۲ یا ریاضی-۱۰۱"
+                      value={formClassCode}
+                      onChange={(e) => setFormClassCode(e.target.value)}
+                      style={{ color: theme.textPrimary }}
+                      className="w-full bg-transparent text-sm font-semibold outline-none text-right placeholder-slate-500 font-mono"
+                    />
+                  </div>
+                </div>
+
+                {/* Smart Class Reminder Setup (Problem 1) */}
+                <div
+                  style={{ backgroundColor: theme.innerBg, borderColor: theme.borderLuminous }}
+                  className="rounded-2xl p-3.5 border space-y-3"
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className={`w-8 h-8 rounded-xl flex items-center justify-center ${formHasReminder ? 'bg-rose-500/20 text-rose-400' : 'bg-slate-500/20 text-slate-400'}`}>
+                        <Bell className="w-4 h-4" />
+                      </div>
+                      <div className="text-right">
+                        <h4 style={{ color: theme.textPrimary }} className="text-xs font-bold">
+                          یادآور هوشمند شروع کلاس
+                        </h4>
+                        <span style={{ color: theme.textSecondary }} className="text-[10px]">
+                          ارسال اعلان صوتی قبل از آغاز کلاس در روز موعد
+                        </span>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setFormHasReminder(!formHasReminder)}
+                      className={`w-12 h-6 rounded-full transition-colors relative cursor-pointer ${
+                        formHasReminder ? 'bg-rose-500' : 'bg-slate-700'
+                      }`}
+                    >
+                      <span
+                        className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-transform ${
+                          formHasReminder ? 'left-1' : 'right-1'
+                        }`}
+                      />
+                    </button>
+                  </div>
+
+                  {formHasReminder && (
+                    <div className="space-y-2 pt-2 border-t border-white/5">
+                      <label style={{ color: theme.textPrimary }} className="block text-[11px] font-bold text-right">
+                        زمان یادآوری قبل از شروع کلاس:
+                      </label>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                        {BEFORE_CLASS_OPTIONS.map((opt) => (
+                          <button
+                            key={opt.minutes}
+                            type="button"
+                            onClick={() => setFormReminderBefore(opt.minutes)}
+                            style={{
+                              backgroundColor: formReminderBefore === opt.minutes ? theme.primary : theme.cardBg,
+                              color: formReminderBefore === opt.minutes ? '#fff' : theme.textPrimary,
+                              borderColor: formReminderBefore === opt.minutes ? theme.primary : theme.borderLuminous,
+                            }}
+                            className="p-2 rounded-xl border text-xs font-bold text-right transition-all cursor-pointer flex items-center justify-between"
+                          >
+                            <span>{opt.label}</span>
+                            {formReminderBefore === opt.minutes && <Check className="w-3.5 h-3.5 flex-shrink-0" />}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
                 <div className="flex items-center gap-3 pt-3">
                   <button
                     type="button"
@@ -4173,49 +4511,162 @@ export default function App() {
                   </div>
                 )}
 
-                {/* 5. Smart Reminder Bubble (Persian Translation Fixed) */}
-                {selectedChatSessionLog.hasReminder && (
-                  <div className="flex items-start gap-2.5 max-w-[94%] min-w-0">
-                    <div className="w-8 h-8 rounded-full flex items-center justify-center bg-rose-500/20 text-rose-400 border border-rose-500/30 flex-shrink-0 mt-1">
-                      <Bell className="w-4 h-4" />
-                    </div>
+                {/* 5. Interactive Session Reminder Controller in Timeline (Problem 6) */}
+                <div className="w-full min-w-0">
+                  {selectedChatSessionLog.hasReminder ? (
+                    <div className="flex items-start gap-2.5 max-w-[94%] min-w-0">
+                      <div className="w-8 h-8 rounded-full flex items-center justify-center bg-rose-500/20 text-rose-400 border border-rose-500/30 flex-shrink-0 mt-1">
+                        <Bell className="w-4 h-4" />
+                      </div>
 
+                      <div
+                        style={{
+                          backgroundColor: theme.innerBg,
+                          borderColor: 'rgba(244, 63, 94, 0.3)',
+                        }}
+                        className="flex-1 rounded-2xl p-3.5 border shadow-sm min-w-0"
+                      >
+                        <div className="flex items-center justify-between pb-2 mb-2 border-b border-white/5">
+                          <span className="text-xs font-black text-rose-400 flex items-center gap-1.5">
+                            <span>یادآور فعال جلسه</span>
+                            {selectedChatSessionLog.snoozedUntil && (
+                              <span className="px-1.5 py-0.5 rounded text-[9px] font-black bg-rose-500/20 text-rose-300">
+                                تعویق: {selectedChatSessionLog.snoozedUntil}
+                              </span>
+                            )}
+                          </span>
+                          <span style={{ color: theme.textMuted }} className="text-[10px] font-mono">
+                            {selectedChatSessionLog.createdAt.includes('/') ? selectedChatSessionLog.createdAt.split('-')[0].trim() : getJalaliDateNumeric()}
+                          </span>
+                        </div>
+
+                        <p style={{ color: theme.textPrimary }} className="text-xs font-bold py-1">
+                          زمان هشدار: {formatPersianReminderText(selectedChatSessionLog.reminderTrigger, selectedChatSessionLog.reminderTimeText)}
+                        </p>
+
+                        {/* Action buttons: "فهمیدم" (Problem 5), "بعداً یادآوری کن" (Problem 4), "تغییر زمان" (Problem 6), "غیرفعال‌سازی" */}
+                        <div className="flex flex-wrap items-center gap-1.5 pt-2 mt-2 border-t border-white/5">
+                          <button
+                            type="button"
+                            onClick={() => handleAcknowledgeReminder(selectedChatSessionLog)}
+                            className="px-2.5 py-1 rounded-xl text-[11px] font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/25 hover:bg-emerald-500/25 cursor-pointer transition-colors"
+                          >
+                            ✓ فهمیدم
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setSnoozeModalTarget({ id: selectedChatSessionLog.id, name: selectedChatSessionLog.className, log: selectedChatSessionLog })}
+                            className="px-2.5 py-1 rounded-xl text-[11px] font-bold bg-amber-500/15 text-amber-400 border border-amber-500/25 hover:bg-amber-500/25 cursor-pointer transition-colors"
+                          >
+                            ⏰ بعداً یادآوری کن
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setIsTimelineReminderOpen(!isTimelineReminderOpen)}
+                            className="px-2.5 py-1 rounded-xl text-[11px] font-bold bg-white/5 text-slate-300 border border-white/10 hover:bg-white/10 cursor-pointer transition-colors"
+                          >
+                            ✏️ تغییر زمان
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handleToggleTimelineReminder}
+                            className="px-2.5 py-1 rounded-xl text-[11px] font-bold bg-rose-500/10 text-rose-400 border border-rose-500/20 hover:bg-rose-500/20 cursor-pointer transition-colors"
+                          >
+                            🔕 حذف
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
                     <div
                       style={{
                         backgroundColor: theme.innerBg,
-                        borderColor: 'rgba(244, 63, 94, 0.3)',
+                        borderColor: theme.borderLuminous,
                       }}
-                      className="flex-1 rounded-2xl p-3.5 border shadow-sm min-w-0"
+                      className="rounded-2xl p-3 border flex items-center justify-between gap-2 max-w-[94%]"
                     >
-                      {/* Bubble Header: Title on Right, Date on Top-Left */}
-                      <div className="flex items-center justify-between pb-2 mb-2 border-b border-white/5">
-                        <span className="text-xs font-black text-rose-400">
-                          یادآور فعال
-                        </span>
-                        <span style={{ color: theme.textMuted }} className="text-[10px] font-mono">
-                          {selectedChatSessionLog.createdAt.includes('/') ? selectedChatSessionLog.createdAt.split('-')[0].trim() : getJalaliDateNumeric()}
+                      <div className="flex items-center gap-2">
+                        <div className="w-7 h-7 rounded-lg flex items-center justify-center bg-slate-500/20 text-slate-400">
+                          <Bell className="w-3.5 h-3.5" />
+                        </div>
+                        <span style={{ color: theme.textSecondary }} className="text-xs font-semibold">
+                          یادآور برای این جلسه تنظیم نشده است
                         </span>
                       </div>
+                      <button
+                        type="button"
+                        onClick={() => setIsTimelineReminderOpen(!isTimelineReminderOpen)}
+                        style={{ backgroundColor: theme.primary }}
+                        className="py-1.5 px-3 rounded-xl text-xs font-black text-white cursor-pointer hover:opacity-90 transition-all flex items-center gap-1 shadow-sm"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>تنظیم یادآور</span>
+                      </button>
+                    </div>
+                  )}
 
-                      <p style={{ color: theme.textPrimary }} className="text-xs font-bold py-1">
-                        زمان مرور: یادآور {formatPersianReminderText(selectedChatSessionLog.reminderTrigger, selectedChatSessionLog.reminderTimeText)}
-                      </p>
-
-                      {selectedChatSessionLog.snoozedUntil && (
-                        <div className="mt-1.5 inline-block px-2.5 py-1 rounded-md bg-rose-500/15 text-rose-300 text-[10px] font-bold">
-                          وضعیت تعویق: فعال ({selectedChatSessionLog.snoozedUntil})
-                        </div>
-                      )}
-
-                      {/* Bubble Footer: Time on Bottom-Left */}
-                      <div className="flex justify-start pt-1.5 mt-1 border-t border-white/5">
-                        <span style={{ color: theme.textMuted }} className="text-[10px] font-mono">
-                          {selectedChatSessionLog.createdAt.split('-').pop()?.trim() || selectedChatSessionLog.createdAt}
+                  {/* Expandable Manual Reminder Picker inside Timeline */}
+                  {isTimelineReminderOpen && (
+                    <div
+                      style={{
+                        backgroundColor: theme.cardBg,
+                        borderColor: theme.primary,
+                      }}
+                      className="mt-2.5 rounded-2xl p-3.5 border shadow-lg space-y-2.5 max-w-[94%]"
+                    >
+                      <div className="flex items-center justify-between pb-1.5 border-b border-white/5">
+                        <span style={{ color: theme.textPrimary }} className="text-xs font-black">
+                          انتخاب زمان یادآور برای این جلسه:
                         </span>
+                        <button
+                          type="button"
+                          onClick={() => setIsTimelineReminderOpen(false)}
+                          className="text-slate-400 hover:text-white text-xs cursor-pointer"
+                        >
+                          ✕
+                        </button>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                        {ALERT_TRIGGERS.map((trg) => (
+                          <button
+                            key={trg}
+                            type="button"
+                            onClick={() => setTimelineReminderTrigger(trg)}
+                            style={{
+                              backgroundColor: timelineReminderTrigger === trg ? theme.primary : theme.innerBg,
+                              color: timelineReminderTrigger === trg ? '#fff' : theme.textPrimary,
+                              borderColor: timelineReminderTrigger === trg ? theme.primary : theme.borderLuminous,
+                            }}
+                            className="p-2 rounded-xl border text-xs font-bold text-right transition-all cursor-pointer flex items-center justify-between"
+                          >
+                            <span>{trg}</span>
+                            {timelineReminderTrigger === trg && <Check className="w-3.5 h-3.5 flex-shrink-0" />}
+                          </button>
+                        ))}
+                      </div>
+
+                      <div className="flex items-center justify-end gap-2 pt-1">
+                        <button
+                          type="button"
+                          onClick={() => setIsTimelineReminderOpen(false)}
+                          style={{ backgroundColor: theme.innerBg, borderColor: theme.borderLuminous }}
+                          className="py-1.5 px-3 rounded-xl text-xs font-semibold border text-slate-400 cursor-pointer"
+                        >
+                          انصراف
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleToggleTimelineReminder}
+                          style={{ backgroundColor: theme.primary }}
+                          className="py-1.5 px-4 rounded-xl text-xs font-black text-white cursor-pointer hover:opacity-95 shadow-md"
+                        >
+                          ذخیره و فعال‌سازی یادآور
+                        </button>
                       </div>
                     </div>
-                  </div>
-                )}
+                  )}
+                </div>
 
                 {/* 6. User Follow-up Messages */}
                 {chatFollowUps.map((msg) => (
@@ -4307,10 +4758,195 @@ export default function App() {
             </div>
           </div>
         )}
+
+        {/* IN-APP FILE & MEDIA VIEWER MODAL (Problem 7) */}
+        {previewFile && (
+          <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-md z-[70] flex items-center justify-center p-3 sm:p-5">
+            <div
+              style={{
+                backgroundColor: theme.cardBg,
+                borderColor: theme.borderLuminous,
+              }}
+              className="liquid-glass rounded-3xl p-4 sm:p-6 max-w-2xl w-full border shadow-2xl transition-all flex flex-col max-h-[90vh]"
+            >
+              {/* Header */}
+              <div className="flex items-center justify-between pb-3 mb-3 border-b border-white/10 flex-shrink-0">
+                <div className="flex items-center gap-2 overflow-hidden flex-1 min-w-0 mr-2">
+                  <div className="flex-shrink-0">{renderFileTypeTag(previewFile.type)}</div>
+                  <div className="min-w-0">
+                    <h3 style={{ color: theme.textPrimary }} className="text-sm font-black truncate">
+                      {previewFile.name}
+                    </h3>
+                    <span style={{ color: theme.textSecondary }} className="text-[10px] font-semibold">
+                      اندازه فایل: {previewFile.sizeText}
+                    </span>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setPreviewFile(null)}
+                  style={{ backgroundColor: theme.innerBg, borderColor: theme.borderLuminous }}
+                  className="w-8 h-8 rounded-xl border flex items-center justify-center text-slate-400 hover:text-white cursor-pointer transition-colors flex-shrink-0"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Viewer Content */}
+              <div className="flex-1 overflow-y-auto flex items-center justify-center p-2 min-h-[220px]">
+                {previewFile.type === 'image' ? (
+                  <div className="w-full flex items-center justify-center">
+                    <img
+                      src={filePickerService.getFileUrl(previewFile)}
+                      alt={previewFile.name}
+                      className="max-h-[65vh] w-auto max-w-full rounded-2xl object-contain shadow-xl border border-white/5"
+                    />
+                  </div>
+                ) : previewFile.type === 'pdf' ? (
+                  <div className="w-full h-[60vh] flex flex-col items-center justify-center">
+                    <iframe
+                      src={filePickerService.getFileUrl(previewFile)}
+                      title={previewFile.name}
+                      className="w-full h-full rounded-2xl border border-white/10 bg-white"
+                    />
+                  </div>
+                ) : previewFile.type === 'audio' ? (
+                  <div
+                    style={{ backgroundColor: theme.innerBg, borderColor: theme.borderLuminous }}
+                    className="w-full p-6 rounded-2xl border text-center space-y-4"
+                  >
+                    <div className="w-16 h-16 rounded-full mx-auto flex items-center justify-center bg-blue-500/20 text-blue-400">
+                      <Mic className="w-8 h-8" />
+                    </div>
+                    <audio
+                      src={filePickerService.getFileUrl(previewFile)}
+                      controls
+                      autoPlay
+                      className="w-full"
+                    />
+                  </div>
+                ) : (
+                  <div
+                    style={{ backgroundColor: theme.innerBg, borderColor: theme.borderLuminous }}
+                    className="w-full p-8 rounded-2xl border text-center space-y-3"
+                  >
+                    <div className="w-16 h-16 rounded-full mx-auto flex items-center justify-center bg-amber-500/20 text-amber-400">
+                      <FileText className="w-8 h-8" />
+                    </div>
+                    <h4 style={{ color: theme.textPrimary }} className="text-sm font-bold">
+                      {previewFile.name}
+                    </h4>
+                    <p style={{ color: theme.textSecondary }} className="text-xs">
+                      فایل سند و چندرسانه‌ای ذخیره شده در حافظه دستگاه
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              {/* Footer */}
+              <div className="flex items-center justify-between gap-3 pt-3 mt-3 border-t border-white/10 flex-shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setPreviewFile(null)}
+                  style={{ backgroundColor: theme.innerBg, borderColor: theme.borderLuminous }}
+                  className="py-2 px-4 rounded-xl text-xs font-bold border text-slate-400 cursor-pointer"
+                >
+                  بستن
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const url = filePickerService.openFile(previewFile);
+                    if (url) {
+                      setFileToast('در حال هدایت به فایل...');
+                      setTimeout(() => setFileToast(null), 2500);
+                    }
+                  }}
+                  style={{ backgroundColor: theme.primary }}
+                  className="py-2 px-4 rounded-xl text-xs font-black text-white shadow-md flex items-center gap-1.5 cursor-pointer hover:opacity-95"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" />
+                  <span>مشاهده با برنامه دیگر / دانلود</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* SELECTABLE SNOOZE DURATION MODAL (Problem 4) */}
+        {snoozeModalTarget && (
+          <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[70] flex items-center justify-center p-4">
+            <div
+              style={{
+                backgroundColor: theme.cardBg,
+                borderColor: theme.borderLuminous,
+              }}
+              className="liquid-glass rounded-3xl p-5 max-w-sm w-full border shadow-2xl transition-all space-y-4"
+            >
+              <div className="flex items-center justify-between pb-3 border-b border-white/10">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center">
+                    <Clock className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h3 style={{ color: theme.textPrimary }} className="text-sm font-black">
+                      بعداً یادآوری کن
+                    </h3>
+                    <span style={{ color: theme.textSecondary }} className="text-[10px]">
+                      {snoozeModalTarget.name}
+                    </span>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSnoozeModalTarget(null)}
+                  className="text-slate-400 hover:text-white text-xs cursor-pointer"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <div className="space-y-1.5">
+                <span style={{ color: theme.textSecondary }} className="block text-xs font-bold text-right mb-2">
+                  مدت زمان تعویق یادآور را انتخاب نمایید:
+                </span>
+                <div className="grid grid-cols-2 gap-2">
+                  {EXTENDED_SNOOZE_OPTIONS.map((opt) => (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() => handleSnoozeTimelineReminder(opt.value)}
+                      style={{
+                        backgroundColor: theme.innerBg,
+                        borderColor: theme.borderLuminous,
+                        color: theme.textPrimary,
+                      }}
+                      className="p-2.5 rounded-xl border text-xs font-bold cursor-pointer hover:border-amber-400/50 hover:bg-amber-500/10 transition-all flex items-center justify-center"
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="pt-2">
+                <button
+                  type="button"
+                  onClick={() => setSnoozeModalTarget(null)}
+                  style={{ backgroundColor: theme.innerBg, borderColor: theme.borderLuminous }}
+                  className="w-full py-2.5 rounded-xl text-xs font-bold border text-slate-400 cursor-pointer"
+                >
+                  انصراف
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </main>
 
       {/* FLOATING CIRCULAR RADIAL MENU (CIRCLE MENU) - Hidden when modal is active */}
-      {!selectedChatSessionLog && !isSessionCaptureOpen && !isClassModalOpen && !isEditingProfile && !deletingId && (
+      {!selectedChatSessionLog && !isSessionCaptureOpen && !isClassModalOpen && !isEditingProfile && !deletingId && !previewFile && !snoozeModalTarget && (
         <>
           {/* Backdrop blur dismiss layer */}
           {isRadialOpen && (

@@ -14,11 +14,15 @@ export interface StudentProfileData {
 export interface ClassItemData {
   id: string;
   name: string;
+  classCode?: string;
   day: any;
   time: string;
   recurrence: 'every_week' | 'even_weeks' | 'odd_weeks';
   professor?: string;
   location?: string;
+  hasReminder?: boolean;
+  reminderMinutesBefore?: number;
+  reminderTriggerText?: string;
 }
 
 export interface AttachedFileData {
@@ -34,6 +38,7 @@ export interface SessionLogData {
   id: string;
   classId: string;
   className: string;
+  classCode?: string;
   createdAt: string;
   notesText: string;
   voiceMemoSeconds?: number;
@@ -44,6 +49,8 @@ export interface SessionLogData {
   reminderTimeText?: string;
   snoozedUntil?: string;
   notificationId?: number;
+  chatMessages?: Array<{ id: string; text: string; time: string }>;
+  acknowledgedAt?: number;
 }
 
 export interface AppSnapshot {
@@ -69,6 +76,7 @@ const STORAGE_KEYS = {
   THEME: '@daneshmate/active_theme',
   MUTATION_QUEUE: '@daneshmate/offline_mutations',
   LAST_SYNC: '@daneshmate/last_synced_timestamp',
+  ACKNOWLEDGED_REMINDERS: '@daneshmate/acknowledged_reminders',
 };
 
 // In-memory fallback if storage is restricted or unavailable
@@ -220,6 +228,39 @@ class PersistenceAdapter {
   }
 
   /**
+   * Retrieve list of acknowledged reminder keys (e.g. logId_occurrenceDate or classId_occurrenceDate)
+   */
+  async getAcknowledgedReminders(): Promise<Record<string, number>> {
+    try {
+      const raw = await this.getRawItem(STORAGE_KEYS.ACKNOWLEDGED_REMINDERS);
+      return raw ? JSON.parse(raw) : {};
+    } catch {
+      return {};
+    }
+  }
+
+  /**
+   * Save an acknowledgment timestamp for a reminder to prevent it from refiring for this occurrence
+   */
+  async saveAcknowledgedReminder(key: string, timestamp: number = Date.now()): Promise<void> {
+    try {
+      const current = await this.getAcknowledgedReminders();
+      current[key] = timestamp;
+      await this.setRawItem(STORAGE_KEYS.ACKNOWLEDGED_REMINDERS, JSON.stringify(current));
+    } catch (e) {
+      console.warn('[PersistenceAdapter] saveAcknowledgedReminder failure:', e);
+    }
+  }
+
+  /**
+   * Check if a reminder has been dismissed/acknowledged for the current occurrence
+   */
+  async isReminderAcknowledged(key: string): Promise<boolean> {
+    const current = await this.getAcknowledgedReminders();
+    return Boolean(current[key]);
+  }
+
+  /**
    * Clear all local storage records (e.g. on account reset)
    */
   async clearAll(): Promise<void> {
@@ -230,6 +271,7 @@ class PersistenceAdapter {
       this.removeRawItem(STORAGE_KEYS.THEME),
       this.removeRawItem(STORAGE_KEYS.MUTATION_QUEUE),
       this.removeRawItem(STORAGE_KEYS.LAST_SYNC),
+      this.removeRawItem(STORAGE_KEYS.ACKNOWLEDGED_REMINDERS),
     ]);
   }
 

@@ -240,10 +240,15 @@ class NativeStorageService {
    */
   public getWebViewUrl(uriOrPath: string | undefined): string {
     if (!uriOrPath) return '';
-    if (uriOrPath.startsWith('http://') || uriOrPath.startsWith('https://') || uriOrPath.startsWith('blob:')) {
+    if (
+      uriOrPath.startsWith('http://') ||
+      uriOrPath.startsWith('https://') ||
+      uriOrPath.startsWith('blob:') ||
+      uriOrPath.startsWith('data:')
+    ) {
       return uriOrPath;
     }
-    if (Capacitor.isNativePlatform() && uriOrPath.startsWith('file://')) {
+    if (Capacitor.isNativePlatform() && (uriOrPath.startsWith('file://') || uriOrPath.startsWith('/'))) {
       return Capacitor.convertFileSrc(uriOrPath);
     }
     return uriOrPath;

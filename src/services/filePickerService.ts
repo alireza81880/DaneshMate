@@ -153,6 +153,15 @@ class FilePickerService {
   }
 
   /**
+   * Get usable webview URL for previewing or opening
+   */
+  public getFileUrl(file: AttachedFile): string {
+    const target = file.url || file.uri;
+    if (!target) return '';
+    return nativeStorageService.getWebViewUrl(target);
+  }
+
+  /**
    * Open or view an attachment using native WebView or external viewer
    */
   public openFile(file: AttachedFile): string {
@@ -165,7 +174,9 @@ class FilePickerService {
 
     // If it's a web link or blob, open directly
     try {
-      window.open(webViewUrl, '_blank', 'noopener,noreferrer');
+      if (typeof window !== 'undefined') {
+        window.open(webViewUrl, '_blank', 'noopener,noreferrer');
+      }
     } catch {
       // ignore popup blocker
     }
