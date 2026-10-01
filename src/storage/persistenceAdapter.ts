@@ -21,7 +21,9 @@ export interface ClassItemData {
   professor?: string;
   location?: string;
   hasReminder?: boolean;
+  reminderMode?: 'before_class' | 'exact_time';
   reminderMinutesBefore?: number;
+  reminderExactTime?: string;
   reminderTriggerText?: string;
 }
 
@@ -45,6 +47,7 @@ export interface SessionLogData {
   voiceMemoUri?: string;
   attachedFiles?: AttachedFileData[];
   hasReminder?: boolean;
+  reminderTimestamp?: number;
   reminderTrigger?: string;
   reminderTimeText?: string;
   snoozedUntil?: string;
@@ -82,17 +85,40 @@ const STORAGE_KEYS = {
 // In-memory fallback if storage is restricted or unavailable
 const memoryCache: Record<string, string> = {};
 
+function sanitizeSessionLogs(logs: any[]): any[] {
+  if (!Array.isArray(logs)) return [];
+  return logs.map((log) => {
+    if (!log) return log;
+    if (log.voiceMemoUri || log.voiceMemoSeconds) {
+      const cleanFiles = (log.attachedFiles || []).filter((f: any) => {
+        if (!f) return false;
+        if (log.voiceMemoUri && (f.uri === log.voiceMemoUri || f.url === log.voiceMemoUri)) return false;
+        if (f.type === 'audio' && (f.name?.includes('voice_memo') || f.name?.includes('rec_') || f.name?.includes('صوت جلسه'))) return false;
+        return true;
+      });
+      return { ...log, attachedFiles: cleanFiles };
+    }
+    return log;
+  });
+}
+
 class PersistenceAdapter {
+  private storageAvailable: boolean | null = null;
+
   private isStorageAvailable(): boolean {
+    if (this.storageAvailable !== null) return this.storageAvailable;
     try {
       if (typeof window !== 'undefined' && window.localStorage) {
-        const testKey = '__storage_test__';
-        window.localStorage.setItem(testKey, testKey);
+        const testKey = '__daneshmate_storage_probe__';
+        window.localStorage.setItem(testKey, '1');
         window.localStorage.removeItem(testKey);
+        this.storageAvailable = true;
         return true;
       }
+      this.storageAvailable = false;
       return false;
     } catch {
+      this.storageAvailable = false;
       return false;
     }
   }
@@ -134,6 +160,33 @@ class PersistenceAdapter {
   }
 
   /**
+   * Fast synchronous initial snapshot loader for 0ms frame-0 first paint (No onboarding flash)
+   */
+  getInitialSnapshotSync(): AppSnapshot | null {
+    try {
+      if (typeof window === 'undefined' || !window.localStorage) return null;
+      const profileRaw = window.localStorage.getItem(STORAGE_KEYS.PROFILE);
+      const classesRaw = window.localStorage.getItem(STORAGE_KEYS.CLASSES);
+      const logsRaw = window.localStorage.getItem(STORAGE_KEYS.LOGS);
+      const themeRaw = window.localStorage.getItem(STORAGE_KEYS.THEME);
+
+      if (!profileRaw && !classesRaw && !logsRaw && !themeRaw) {
+        return null;
+      }
+
+      return {
+        studentProfile: profileRaw ? JSON.parse(profileRaw) : null,
+        classes: classesRaw ? JSON.parse(classesRaw) : [],
+        sessionLogs: logsRaw ? sanitizeSessionLogs(JSON.parse(logsRaw)) : [],
+        activeThemeId: themeRaw ? JSON.parse(themeRaw) : 'deep-space',
+        lastSavedAt: Date.now(),
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  /**
    * Load entire application snapshot instantly from local storage
    */
   async loadAppSnapshot(): Promise<AppSnapshot | null> {
@@ -152,7 +205,7 @@ class PersistenceAdapter {
       return {
         studentProfile: profileRaw ? JSON.parse(profileRaw) : null,
         classes: classesRaw ? JSON.parse(classesRaw) : [],
-        sessionLogs: logsRaw ? JSON.parse(logsRaw) : [],
+        sessionLogs: logsRaw ? sanitizeSessionLogs(JSON.parse(logsRaw)) : [],
         activeThemeId: themeRaw ? JSON.parse(themeRaw) : 'clean-minimal',
         lastSavedAt: Date.now(),
       };

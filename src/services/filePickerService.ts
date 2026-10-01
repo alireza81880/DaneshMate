@@ -1,7 +1,13 @@
-import { Capacitor } from '@capacitor/core';
+import { Capacitor, registerPlugin } from '@capacitor/core';
 import { FilePicker, PickedFile } from '@capawesome/capacitor-file-picker';
 import { nativeStorageService } from './nativeStorageService';
 import type { AttachedFile, FileCategory } from '../App';
+
+interface FileOpenerPluginInterface {
+  open(options: { filePath: string; contentType?: string; chooserTitle?: string }): Promise<void>;
+}
+
+const FileOpener = registerPlugin<FileOpenerPluginInterface>('FileOpener');
 
 class FilePickerService {
   /**
@@ -139,6 +145,89 @@ class FilePickerService {
         input.oncancel = () => resolve([]);
         input.click();
       });
+    }
+  }
+
+  /**
+   * Resolve accurate MIME type for Android ACTION_VIEW intent
+   */
+  public getMimeType(fileName: string, category?: string): string {
+    const ext = fileName.split('.').pop()?.toLowerCase() || '';
+    switch (ext) {
+      case 'jpg':
+      case 'jpeg':
+        return 'image/jpeg';
+      case 'png':
+        return 'image/png';
+      case 'webp':
+        return 'image/webp';
+      case 'gif':
+        return 'image/gif';
+      case 'pdf':
+        return 'application/pdf';
+      case 'docx':
+        return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+      case 'doc':
+        return 'application/msword';
+      case 'pptx':
+        return 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
+      case 'ppt':
+        return 'application/vnd.ms-powerpoint';
+      case 'aac':
+        return 'audio/aac';
+      case 'm4a':
+        return 'audio/mp4';
+      case 'mp3':
+        return 'audio/mpeg';
+      case 'wav':
+        return 'audio/wav';
+      case 'txt':
+        return 'text/plain';
+      default:
+        if (category === 'image') return 'image/*';
+        if (category === 'pdf') return 'application/pdf';
+        if (category === 'word') return 'application/msword';
+        if (category === 'powerpoint') return 'application/vnd.ms-powerpoint';
+        if (category === 'audio') return 'audio/*';
+        return '*/*';
+    }
+  }
+
+  /**
+   * Open attachment with Android's system "Open With / Chooser" intent
+   */
+  public async openWithNativeChooser(file: AttachedFile): Promise<void> {
+    let rawTarget = file.uri || file.url;
+    if (!rawTarget) {
+      throw new Error('آدرس فایل پیوست در دسترس نیست.');
+    }
+
+    if (rawTarget.includes('_capacitor_file_')) {
+      rawTarget = rawTarget.replace(/^https?:\/\/[^/]+\/_capacitor_file_/, 'file://');
+    }
+
+    if (Capacitor.isNativePlatform()) {
+      try {
+        const mime = this.getMimeType(file.name, file.type);
+        await FileOpener.open({
+          filePath: rawTarget,
+          contentType: mime,
+          chooserTitle: `باز کردن «${file.name}» با`,
+        });
+        return;
+      } catch (err: any) {
+        const msg = String(err?.message || err || '');
+        if (msg.includes('NO_APP_FOUND')) {
+          throw new Error('برنامه‌ای برای باز کردن این فایل روی گوشی پیدا نشد.');
+        }
+        throw new Error(msg || 'خطا در باز کردن فایل با برنامه‌های گوشی.');
+      }
+    }
+
+    // Web platform fallback
+    const webViewUrl = nativeStorageService.getWebViewUrl(rawTarget);
+    if (typeof window !== 'undefined' && webViewUrl) {
+      window.open(webViewUrl, '_blank', 'noopener,noreferrer');
     }
   }
 

@@ -14,7 +14,10 @@ export interface ScheduleReminderOptions {
   location?: string;
   notesText?: string;
   trigger?: string;
+  reminderMode?: 'before_class' | 'exact_time';
   minutesBefore?: number;
+  exactTime?: string;
+  exactTimestamp?: number;
   snoozedUntil?: string;
   classTime?: string;
   classDay?: string;
@@ -35,7 +38,11 @@ class NotificationService {
   private setupListenerInitialized = false;
 
   constructor() {
-    this.initNativeActionListener();
+    if (typeof window !== 'undefined') {
+      setTimeout(() => {
+        this.initNativeActionListener();
+      }, 300);
+    }
   }
 
   /**
@@ -257,38 +264,37 @@ class NotificationService {
   }
 
   /**
-   * Calculate scheduled Date based on class weekday, class time, and "before class" minutes (Problem 1)
+   * Calculate scheduled Date based on class weekday, class time, "before class" minutes, or exact time/timestamp (Problems 1 & 5)
    */
   public calculateScheduleDate(
     trigger?: string,
     snooze?: string,
     classTime?: string,
     classDay?: string,
-    explicitMinutesBefore?: number
+    explicitMinutesBefore?: number,
+    exactTime?: string,
+    exactTimestamp?: number
   ): Date {
     const now = Date.now();
 
-    // 1. Handle Snooze first
+    // 1. Handle exact timestamp directly if provided (e.g. for session timeline reminder)
+    if (exactTimestamp && !isNaN(exactTimestamp) && exactTimestamp > 0) {
+      if (snooze) {
+        return new Date(now + this.parseSnoozeDurationMs(snooze));
+      }
+      return new Date(exactTimestamp);
+    }
+
+    // 2. Handle Snooze first
     if (snooze) {
       const durationMs = this.parseSnoozeDurationMs(snooze);
       return new Date(now + durationMs);
     }
 
-    // 2. Handle Test 1-Minute trigger
+    // 3. Handle Test 1-Minute trigger
     const trg = (trigger || '').toLowerCase();
     if (trg.includes('1 minute') || trg.includes('1 min') || trg.includes('test') || trg.includes('۱ دقیقه')) {
       return new Date(now + 60 * 1000); // 1 minute test
-    }
-
-    // 3. Parse class start hour & minute (e.g. "08:00 - 10:00" -> 8:00)
-    let classHour = 8;
-    let classMin = 0;
-    if (classTime) {
-      const match = classTime.match(/(\d{1,2}):(\d{2})/);
-      if (match) {
-        classHour = parseInt(match[1], 10);
-        classMin = parseInt(match[2], 10);
-      }
     }
 
     // Map Persian weekday to JavaScript Date.getDay() (Sunday=0 ... Saturday=6)
@@ -301,16 +307,74 @@ class NotificationService {
       'جمعه': 5,
       'شنبه': 6,
     };
-
     const targetDayIndex = classDay ? PERSIAN_DAY_TO_JS[classDay] : undefined;
+    const nowDate = new Date(now);
+
+    // 4. Handle Mode B: Exact Clock Time (e.g. "08:40" or "14:15")
+    if (exactTime && exactTime.includes(':')) {
+      const parts = exactTime.split(':').map((s) => parseInt(s.trim().replace(/[۰-۹]/g, (d) => '۰۱۲۳۴۵۶۷۸۹'.indexOf(d).toString()), 10));
+      if (parts.length === 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
+        const remHour = parts[0];
+        const remMin = parts[1];
+
+        if (targetDayIndex !== undefined) {
+          let daysAhead = (targetDayIndex - nowDate.getDay() + 7) % 7;
+          let scheduledAt = new Date(
+            nowDate.getFullYear(),
+            nowDate.getMonth(),
+            nowDate.getDate() + daysAhead,
+            remHour,
+            remMin,
+            0,
+            0
+          );
+          if (scheduledAt.getTime() <= now) {
+            scheduledAt = new Date(
+              scheduledAt.getFullYear(),
+              scheduledAt.getMonth(),
+              scheduledAt.getDate() + 7,
+              remHour,
+              remMin,
+              0,
+              0
+            );
+          }
+          return scheduledAt;
+        } else {
+          let scheduledAt = new Date(
+            nowDate.getFullYear(),
+            nowDate.getMonth(),
+            nowDate.getDate(),
+            remHour,
+            remMin,
+            0,
+            0
+          );
+          if (scheduledAt.getTime() <= now) {
+            scheduledAt.setDate(scheduledAt.getDate() + 1);
+          }
+          return scheduledAt;
+        }
+      }
+    }
+
+    // 5. Parse class start hour & minute (e.g. "08:00 - 10:00" -> 8:00)
+    let classHour = 8;
+    let classMin = 0;
+    if (classTime) {
+      const match = classTime.match(/(\d{1,2}):(\d{2})/);
+      if (match) {
+        classHour = parseInt(match[1], 10);
+        classMin = parseInt(match[2], 10);
+      }
+    }
+
     const minutesBefore = this.parseMinutesBefore(trigger, explicitMinutesBefore);
 
     // If 1-minute test was detected by parseMinutesBefore
     if (minutesBefore === -1) {
       return new Date(now + 60 * 1000);
     }
-
-    const nowDate = new Date(now);
 
     if (targetDayIndex !== undefined) {
       // Calculate next occurrence of this weekday
@@ -398,7 +462,9 @@ class NotificationService {
       opts.snoozedUntil,
       opts.classTime,
       opts.classDay,
-      opts.minutesBefore
+      opts.minutesBefore,
+      opts.exactTime,
+      opts.exactTimestamp
     );
 
     // Problem 2: Identify class when class number / class code exists
@@ -460,10 +526,11 @@ class NotificationService {
   }
 
   /**
-   * Schedule class-level recurring reminder (Problem 1)
+   * Schedule class-level recurring reminder (Problems 1 & 5)
    */
   public async scheduleClassReminder(classItem: any): Promise<{ scheduled: boolean; at: Date }> {
     const classId = classItem.id;
+    const isExact = classItem.reminderMode === 'exact_time' || Boolean(classItem.reminderExactTime);
     return this.scheduleReminder({
       id: `cls_${classId}`,
       classId,
@@ -471,7 +538,9 @@ class NotificationService {
       classCode: classItem.classCode,
       location: classItem.location,
       trigger: classItem.reminderTriggerText,
-      minutesBefore: classItem.reminderMinutesBefore ?? 30,
+      reminderMode: classItem.reminderMode,
+      minutesBefore: isExact ? undefined : (classItem.reminderMinutesBefore ?? 30),
+      exactTime: isExact ? classItem.reminderExactTime : undefined,
       classTime: classItem.time,
       classDay: classItem.day,
       isClassReminder: true,
@@ -584,6 +653,7 @@ class NotificationService {
               location: cls?.location,
               notesText: log.notesText,
               trigger: log.reminderTrigger,
+              exactTimestamp: log.reminderTimestamp,
               snoozedUntil: log.snoozedUntil,
               classTime: cls?.time,
               classDay: cls?.day,
