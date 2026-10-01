@@ -144,7 +144,7 @@ export const SpringTimePicker: React.FC<SpringTimePickerProps> = React.memo(({
   const formattedPersianMin = toPersianDigits(selectedMinute.toString().padStart(2, '0'));
 
   return (
-    <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-md z-[80] flex items-center justify-center p-3.5 sm:p-4 select-none animate-in fade-in duration-150">
+    <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-md z-[200] flex items-center justify-center p-3.5 sm:p-4 select-none animate-in fade-in duration-150">
       {/* Outer Modal Container with Layered Neumorphic Glass & Ambient Radial Lighting */}
       <div
         dir="rtl"

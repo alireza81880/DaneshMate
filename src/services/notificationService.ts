@@ -460,18 +460,18 @@ class NotificationService {
    */
   public async scheduleClassReminder(classItem: any): Promise<{ scheduled: boolean; at: Date }> {
     const classId = classItem.id;
-    const isExact = classItem.reminderMode === 'exact_time' || Boolean(classItem.reminderExactTime);
+    const isExact = classItem.reminderMode === 'exact_time' && Boolean(classItem.reminderExactTime);
     return this.scheduleReminder({
       id: `cls_${classId}`,
       classId,
       className: classItem.name,
       location: classItem.location,
       trigger: classItem.reminderTriggerText,
-      reminderMode: classItem.reminderMode,
+      reminderMode: classItem.reminderMode || (isExact ? 'exact_time' : 'before_class'),
       minutesBefore: isExact ? undefined : (classItem.reminderMinutesBefore ?? 30),
       exactTime: isExact ? classItem.reminderExactTime : undefined,
       classTime: classItem.time,
-      classDay: classItem.reminderDay || classItem.day,
+      classDay: classItem.day || classItem.reminderDay,
       isClassReminder: true,
     });
   }

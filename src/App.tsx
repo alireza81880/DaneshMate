@@ -1168,7 +1168,11 @@ export default function App() {
         ? 'bi_weekly'
         : 'weekly';
 
-    const reminderTriggerText = `ساعت ${toPersianDigits(formReminderExactTime)} روز ${formReminderDay}`;
+    const reminderTriggerText = formReminderMode === 'before_class'
+      ? (formReminderBefore === 0
+          ? `هم‌زمان با شروع کلاس (${formDay})`
+          : `${toPersianDigits(formReminderBefore)} دقیقه قبل از شروع کلاس (${formDay})`)
+      : `ساعت ${toPersianDigits(formReminderExactTime)} روز ${formDay}`;
 
     let updatedClasses: ClassItem[];
     let classForNotif: ClassItem;
@@ -1188,9 +1192,10 @@ export default function App() {
         professor: formProfessor.trim() || undefined,
         location: formLocation.trim() || undefined,
         hasReminder: formHasReminder,
-        reminderMode: 'exact_time',
-        reminderDay: formHasReminder ? formReminderDay : undefined,
-        reminderExactTime: formHasReminder ? formReminderExactTime : undefined,
+        reminderMode: formReminderMode,
+        reminderMinutesBefore: formHasReminder && formReminderMode === 'before_class' ? formReminderBefore : undefined,
+        reminderDay: formHasReminder ? formDay : undefined,
+        reminderExactTime: formHasReminder && formReminderMode === 'exact_time' ? formReminderExactTime : undefined,
         reminderTriggerText: formHasReminder ? reminderTriggerText : undefined,
       };
       classForNotif = updatedClass;
@@ -1211,9 +1216,10 @@ export default function App() {
         professor: formProfessor.trim() || undefined,
         location: formLocation.trim() || undefined,
         hasReminder: formHasReminder,
-        reminderMode: 'exact_time',
-        reminderDay: formHasReminder ? formReminderDay : undefined,
-        reminderExactTime: formHasReminder ? formReminderExactTime : undefined,
+        reminderMode: formReminderMode,
+        reminderMinutesBefore: formHasReminder && formReminderMode === 'before_class' ? formReminderBefore : undefined,
+        reminderDay: formHasReminder ? formDay : undefined,
+        reminderExactTime: formHasReminder && formReminderMode === 'exact_time' ? formReminderExactTime : undefined,
         reminderTriggerText: formHasReminder ? reminderTriggerText : undefined,
       };
       classForNotif = newClass;
@@ -3537,87 +3543,127 @@ export default function App() {
 
                   {formHasReminder && (
                     <div className="space-y-3 pt-2.5 border-t border-white/5">
-                      {/* Day of study reminder */}
-                      <div className="space-y-1.5">
+                      {/* Reminder Mode Selector (Before class vs Exact Time) */}
+                      <div className="flex items-center justify-between">
                         <label style={{ color: theme.textPrimary }} className="block text-[11px] font-bold text-right">
-                          روز یادآوری مطالعه:
+                          زمان ارسال اعلان در روز {formDay}:
                         </label>
-                        <div className="flex flex-wrap gap-1">
-                          {WEEK_DAYS.map((d: WeekDay) => {
-                            const isSel = formReminderDay === d;
-                            return (
-                              <button
-                                key={d}
-                                type="button"
-                                onClick={() => setFormReminderDay(d)}
-                                style={{
-                                  backgroundColor: isSel ? theme.primary : theme.innerBg,
-                                  color: isSel ? '#FFFFFF' : theme.textPrimary,
-                                  borderColor: isSel ? theme.primaryLight : theme.borderLuminous,
-                                  boxShadow: isSel ? `0 0 10px ${theme.glowColor}` : 'none',
-                                }}
-                                className="flex-1 min-w-[40px] py-1.5 px-1.5 rounded-xl border text-[11px] font-bold text-center transition-all cursor-pointer hover:opacity-90 active:scale-95"
-                              >
-                                {d}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-
-                      {/* Time of study reminder */}
-                      <div className="space-y-1.5">
-                        <label style={{ color: theme.textPrimary }} className="block text-[11px] font-bold text-right">
-                          ساعت مشخص یادآوری:
-                        </label>
-
-                        <div
-                          onClick={() => setIsReminderTimePickerOpen(true)}
-                          style={{ backgroundColor: theme.innerBg, borderColor: theme.borderLuminous }}
-                          className="p-3 rounded-2xl border flex items-center justify-between gap-3 cursor-pointer hover:border-sky-400/50 transition-all group"
-                        >
-                          <div className="flex items-center gap-2.5">
-                            <div
-                              style={{ backgroundColor: `${theme.primary}20`, color: theme.primary }}
-                              className="w-9 h-9 rounded-xl flex items-center justify-center shadow-sm"
-                            >
-                              <Clock className="w-4 h-4" />
-                            </div>
-                            <div className="text-right">
-                              <span style={{ color: theme.textMuted }} className="text-[10px] block">
-                                یادآوری در روز {formReminderDay}:
-                              </span>
-                              <span
-                                style={{
-                                  color: theme.primaryLight,
-                                  textShadow: `0 0 8px ${theme.glowColor}`,
-                                }}
-                                className="text-base font-black font-mono tracking-wider dir-ltr"
-                              >
-                                {toPersianDigits(formReminderExactTime)}
-                              </span>
-                            </div>
-                          </div>
-
+                        <div className="flex items-center gap-1">
                           <button
                             type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
+                            onClick={() => setFormReminderMode('before_class')}
+                            style={{
+                              backgroundColor: formReminderMode === 'before_class' ? theme.primary : theme.innerBg,
+                              color: formReminderMode === 'before_class' ? '#FFFFFF' : theme.textSecondary,
+                              borderColor: theme.borderLuminous,
+                            }}
+                            className="px-2 py-0.5 rounded-lg text-[10px] font-bold border cursor-pointer transition-all"
+                          >
+                            قبل از کلاس
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setFormReminderMode('exact_time');
                               setIsReminderTimePickerOpen(true);
                             }}
                             style={{
-                              backgroundColor: theme.primary,
-                              boxShadow: `0 0 10px ${theme.glowColor}`,
+                              backgroundColor: formReminderMode === 'exact_time' ? theme.primary : theme.innerBg,
+                              color: formReminderMode === 'exact_time' ? '#FFFFFF' : theme.textSecondary,
+                              borderColor: theme.borderLuminous,
                             }}
-                            className="px-3.5 py-1.5 rounded-xl text-xs font-bold text-white shadow-sm hover:opacity-90 cursor-pointer active:scale-95 transition-all"
+                            className="px-2 py-0.5 rounded-lg text-[10px] font-bold border cursor-pointer transition-all"
                           >
-                            تغییر ساعت
+                            ساعت دلخواه
                           </button>
                         </div>
-                        <p style={{ color: theme.textMuted }} className="text-[10px] text-right font-medium">
-                          💡 یادآور جهت مطالعه و مرور این کلاس هر هفته در روز {formReminderDay} رأس ساعت {toPersianDigits(formReminderExactTime)} فعال خواهد شد.
-                        </p>
                       </div>
+
+                      {/* Option A: Fast Presets for Time Before Class */}
+                      {formReminderMode === 'before_class' ? (
+                        <div className="space-y-2">
+                          <div className="grid grid-cols-3 sm:grid-cols-5 gap-1.5">
+                            {[
+                              { label: 'هم‌زمان با کلاس', minutes: 0 },
+                              { label: '۱۵ دقیقه قبل', minutes: 15 },
+                              { label: '۳۰ دقیقه قبل', minutes: 30 },
+                              { label: '۱ ساعت قبل', minutes: 60 },
+                              { label: '۲ ساعت قبل', minutes: 120 },
+                            ].map((chip) => {
+                              const isSel = formReminderBefore === chip.minutes;
+                              return (
+                                <button
+                                  key={chip.minutes}
+                                  type="button"
+                                  onClick={() => setFormReminderBefore(chip.minutes)}
+                                  style={{
+                                    backgroundColor: isSel ? theme.primary : theme.innerBg,
+                                    color: isSel ? '#FFFFFF' : theme.textPrimary,
+                                    borderColor: isSel ? theme.primaryLight : theme.borderLuminous,
+                                    boxShadow: isSel ? `0 0 10px ${theme.glowColor}` : 'none',
+                                  }}
+                                  className="py-2 px-1 rounded-xl border text-[10.5px] font-bold text-center transition-all cursor-pointer hover:opacity-90 active:scale-95"
+                                >
+                                  {chip.label}
+                                </button>
+                              );
+                            })}
+                          </div>
+                          <p style={{ color: theme.textMuted }} className="text-[10px] text-right font-medium">
+                            💡 یادآور هر هفته در روز {formDay}، {formReminderBefore === 0 ? 'هم‌زمان با شروع کلاس' : `${toPersianDigits(formReminderBefore)} دقیقه قبل از کلاس`} ارسال خواهد شد.
+                          </p>
+                        </div>
+                      ) : (
+                        /* Option B: Exact Clock Time on the Day of Class */
+                        <div className="space-y-2">
+                          <div
+                            onClick={() => setIsReminderTimePickerOpen(true)}
+                            style={{ backgroundColor: theme.innerBg, borderColor: theme.borderLuminous }}
+                            className="p-3 rounded-2xl border flex items-center justify-between gap-3 cursor-pointer hover:border-sky-400/50 transition-all group"
+                          >
+                            <div className="flex items-center gap-2.5">
+                              <div
+                                style={{ backgroundColor: `${theme.primary}20`, color: theme.primary }}
+                                className="w-9 h-9 rounded-xl flex items-center justify-center shadow-sm"
+                              >
+                                <Clock className="w-4 h-4" />
+                              </div>
+                              <div className="text-right">
+                                <span style={{ color: theme.textMuted }} className="text-[10px] block">
+                                  ارسال در روز {formDay} رأس ساعت:
+                                </span>
+                                <span
+                                  style={{
+                                    color: theme.primaryLight,
+                                    textShadow: `0 0 8px ${theme.glowColor}`,
+                                  }}
+                                  className="text-base font-black font-mono tracking-wider dir-ltr"
+                                >
+                                  {toPersianDigits(formReminderExactTime)}
+                                </span>
+                              </div>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setIsReminderTimePickerOpen(true);
+                              }}
+                              style={{
+                                backgroundColor: theme.primary,
+                                boxShadow: `0 0 10px ${theme.glowColor}`,
+                              }}
+                              className="px-3.5 py-1.5 rounded-xl text-xs font-bold text-white shadow-sm hover:opacity-90 cursor-pointer active:scale-95 transition-all"
+                            >
+                              تغییر ساعت
+                            </button>
+                          </div>
+                          <p style={{ color: theme.textMuted }} className="text-[10px] text-right font-medium">
+                            💡 یادآور هر هفته در روز {formDay} رأس ساعت {toPersianDigits(formReminderExactTime)} فعال خواهد شد.
+                          </p>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -3699,6 +3745,7 @@ export default function App() {
           onConfirm={(h, m, formatted) => {
             setSessionPickerHour(h);
             setSessionPickerMin(m);
+            setIsSessionTimePickerOpen(false);
             if (selectedChatSessionLog) {
               const [gy, gm, gd] = jalaliToGregorian(sessionPickerYear, sessionPickerMonth, sessionPickerDay);
               const targetDate = new Date(gy, gm - 1, gd, h, m, 0);
@@ -3878,7 +3925,7 @@ export default function App() {
 
         {/* SESSION REMINDER JALALI DATE PICKER MODAL */}
         {isSessionDatePickerOpen && (
-          <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[75] flex items-center justify-center p-4">
+          <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md z-[150] flex items-center justify-center p-4">
             <div
               style={{
                 backgroundColor: theme.cardBg,
@@ -4156,7 +4203,7 @@ export default function App() {
               )}
 
               {/* Chat Timeline Stream */}
-              <div className="flex-1 overflow-y-auto overflow-x-hidden p-4 space-y-4">
+              <div className="flex-1 overflow-y-auto overflow-x-hidden p-2.5 sm:p-4 space-y-3 sm:space-y-4">
                 {/* Date Separator Pill */}
                 <div className="flex justify-center">
                   <span
@@ -4187,7 +4234,7 @@ export default function App() {
 
                 {/* 2. Interactive Voice Memo Chat Bubble */}
                 {selectedChatSessionLog.voiceMemoSeconds && (
-                  <div className="flex items-start gap-2.5 max-w-[94%]">
+                  <div className="flex items-start gap-2 sm:gap-2.5 w-full min-w-0 max-w-full">
                     <div className="w-8 h-8 rounded-full flex items-center justify-center bg-purple-500/20 text-purple-400 border border-purple-500/30 flex-shrink-0 mt-1">
                       <Mic className="w-4 h-4" />
                     </div>
@@ -4197,15 +4244,15 @@ export default function App() {
                         backgroundColor: theme.innerBg,
                         borderColor: theme.borderLuminous,
                       }}
-                      className="flex-1 rounded-2xl p-3.5 border shadow-sm"
+                      className="flex-1 min-w-0 max-w-full rounded-2xl p-2.5 sm:p-3.5 border shadow-sm overflow-hidden"
                     >
                       {/* Bubble Header: Title on Right, Date on Top-Left */}
-                      <div className="flex items-center justify-between pb-2 mb-2 border-b border-white/5">
-                        <span className="text-xs font-black text-purple-400">
+                      <div className="flex items-center justify-between pb-2 mb-2 border-b border-white/5 gap-2 min-w-0">
+                        <span className="text-xs font-black text-purple-400 truncate min-w-0">
                           صوت ضبط شده جلسه
                         </span>
-                        <div className="flex items-center gap-2">
-                          <span style={{ color: theme.textMuted }} className="text-[10px] font-mono">
+                        <div className="flex items-center gap-2 flex-shrink-0">
+                          <span style={{ color: theme.textMuted }} className="text-[10px] font-mono whitespace-nowrap">
                             {selectedChatSessionLog.createdAt.includes('/') ? selectedChatSessionLog.createdAt.split('-')[0].trim() : getJalaliDateNumeric()}
                           </span>
                           <button
@@ -4222,7 +4269,7 @@ export default function App() {
                       {/* Inline Audio Player Widget */}
                       <div
                         style={{ backgroundColor: theme.cardBg, borderColor: theme.borderLuminous }}
-                        className="rounded-xl p-3 border space-y-2.5"
+                        className="rounded-xl p-3 border space-y-2.5 w-full min-w-0"
                       >
                         <div className="flex items-center gap-3">
                           <button
@@ -4234,7 +4281,7 @@ export default function App() {
                             {chatAudioPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 translate-x-[-1px]" />}
                           </button>
 
-                          <div className="flex-1 space-y-1.5">
+                          <div className="flex-1 space-y-1.5 min-w-0">
                             {/* Animated sound wave bars */}
                             <div className="flex items-center justify-between h-4 px-1 gap-1">
                               {[35, 75, 25, 95, 60, 100, 45, 80, 50, 70, 90, 40, 85].map((h, i) => (
@@ -4289,7 +4336,7 @@ export default function App() {
                               borderColor: theme.borderLuminous,
                               color: theme.primary,
                             }}
-                            className="px-2 py-1 rounded-lg border text-[10px] font-black cursor-pointer hover:border-white/20"
+                            className="px-2 py-1 rounded-lg border text-[10px] font-black cursor-pointer hover:border-white/20 flex-shrink-0"
                           >
                             {chatAudioSpeed}x
                           </button>
@@ -4315,7 +4362,7 @@ export default function App() {
                   });
                   if (chatDocFiles.length === 0) return null;
                   return (
-                    <div className="flex items-start gap-2.5 max-w-[94%]">
+                    <div className="flex items-start gap-2 sm:gap-2.5 w-full min-w-0 max-w-full">
                       <div className="w-8 h-8 rounded-full flex items-center justify-center bg-blue-500/20 text-blue-400 border border-blue-500/30 flex-shrink-0 mt-1">
                         <Paperclip className="w-4 h-4" />
                       </div>
@@ -4325,14 +4372,14 @@ export default function App() {
                           backgroundColor: theme.innerBg,
                           borderColor: theme.borderLuminous,
                         }}
-                        className="flex-1 rounded-2xl p-3.5 border shadow-sm"
+                        className="flex-1 min-w-0 max-w-full rounded-2xl p-2.5 sm:p-3.5 border shadow-sm overflow-hidden"
                       >
                         {/* Bubble Header: Title on Right, Date on Top-Left */}
-                        <div className="flex items-center justify-between pb-2 mb-2.5 border-b border-white/5">
-                          <span className="text-xs font-black text-blue-400">
+                        <div className="flex items-center justify-between pb-2 mb-2.5 border-b border-white/5 gap-2 min-w-0">
+                          <span className="text-xs font-black text-blue-400 truncate min-w-0">
                             مستندات و فایل‌های کلاسی ({chatDocFiles.length})
                           </span>
-                          <span style={{ color: theme.textMuted }} className="text-[10px] font-mono">
+                          <span style={{ color: theme.textMuted }} className="text-[10px] font-mono whitespace-nowrap flex-shrink-0">
                             {selectedChatSessionLog.createdAt.includes('/') ? selectedChatSessionLog.createdAt.split('-')[0].trim() : getJalaliDateNumeric()}
                           </span>
                         </div>
@@ -4345,11 +4392,11 @@ export default function App() {
                               backgroundColor: theme.cardBg,
                               borderColor: theme.borderLuminous,
                             }}
-                            className="p-2.5 rounded-xl border flex items-center justify-between transition-all group w-full max-w-full min-w-0 overflow-hidden"
+                            className="p-2 sm:p-2.5 rounded-xl border flex items-center justify-between gap-1.5 sm:gap-2 transition-all group w-full min-w-0 max-w-full overflow-hidden"
                           >
                             <div
                               onClick={() => handleOpenFileWeb(file)}
-                              className="flex items-center gap-2 overflow-hidden cursor-pointer flex-1 min-w-0 mr-2"
+                              className="flex items-center gap-1.5 sm:gap-2 overflow-hidden cursor-pointer flex-1 min-w-0"
                               title={file.name}
                             >
                               <div className="flex-shrink-0">{renderFileTypeTag(file.type)}</div>
@@ -4357,18 +4404,18 @@ export default function App() {
                                 style={{ color: theme.textPrimary }}
                                 className="text-xs font-bold truncate group-hover:text-blue-400 transition-colors min-w-0 flex-1"
                               >
-                                {truncateFileNameMiddle(file.name, 22)}
+                                {truncateFileNameMiddle(file.name, 16)}
                               </span>
                             </div>
 
-                            <div className="flex items-center gap-2 flex-shrink-0">
-                              <span style={{ color: theme.textMuted }} className="text-[10px] whitespace-nowrap">
+                            <div className="flex items-center gap-1 sm:gap-1.5 flex-shrink-0">
+                              <span style={{ color: theme.textMuted }} className="text-[10px] whitespace-nowrap hidden xs:inline">
                                 {file.sizeText}
                               </span>
                               <button
                                 type="button"
                                 onClick={() => handleOpenFileWeb(file)}
-                                className="p-1 hover:bg-blue-500/10 rounded-lg text-blue-400 cursor-pointer"
+                                className="p-1.5 hover:bg-blue-500/10 rounded-lg text-blue-400 cursor-pointer flex-shrink-0"
                                 title="باز کردن فایل"
                               >
                                 <ExternalLink className="w-3.5 h-3.5" />
@@ -4379,7 +4426,7 @@ export default function App() {
                                   e.stopPropagation();
                                   handleDeleteSessionFileWeb(file.id);
                                 }}
-                                className="p-1 hover:bg-rose-500/15 rounded-lg text-rose-400 cursor-pointer transition-colors"
+                                className="p-1.5 hover:bg-rose-500/15 rounded-lg text-rose-400 cursor-pointer transition-colors flex-shrink-0"
                                 title="حذف فایل پیوست"
                               >
                                 <Trash2 className="w-3.5 h-3.5" />
@@ -4402,7 +4449,7 @@ export default function App() {
 
                 {/* 4. Lecture Notes Message Bubble */}
                 {selectedChatSessionLog.notesText && (
-                  <div className="flex items-start gap-2.5 max-w-[94%] min-w-0">
+                  <div className="flex items-start gap-2 sm:gap-2.5 w-full min-w-0 max-w-full">
                     <div className="w-8 h-8 rounded-full flex items-center justify-center bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex-shrink-0 mt-1">
                       <FileText className="w-4 h-4" />
                     </div>
@@ -4412,14 +4459,14 @@ export default function App() {
                         backgroundColor: theme.innerBg,
                         borderColor: theme.borderLuminous,
                       }}
-                      className="flex-1 rounded-2xl p-3.5 border shadow-sm min-w-0"
+                      className="flex-1 min-w-0 max-w-full rounded-2xl p-2.5 sm:p-3.5 border shadow-sm overflow-hidden"
                     >
                       {/* Bubble Header: Title on Right, Date on Top-Left */}
-                      <div className="flex items-center justify-between pb-2 mb-2 border-b border-white/5">
-                        <span className="text-xs font-black text-emerald-400">
+                      <div className="flex items-center justify-between pb-2 mb-2 border-b border-white/5 gap-2 min-w-0">
+                        <span className="text-xs font-black text-emerald-400 truncate min-w-0">
                           نکات و خلاصه تدریس استاد
                         </span>
-                        <span style={{ color: theme.textMuted }} className="text-[10px] font-mono">
+                        <span style={{ color: theme.textMuted }} className="text-[10px] font-mono whitespace-nowrap flex-shrink-0">
                           {selectedChatSessionLog.createdAt.includes('/') ? selectedChatSessionLog.createdAt.split('-')[0].trim() : getJalaliDateNumeric()}
                         </span>
                       </div>
@@ -4439,9 +4486,9 @@ export default function App() {
                 )}
 
                 {/* 5. Interactive Session Reminder Controller in Timeline (Problem 6) */}
-                <div className="w-full min-w-0">
+                <div className="w-full min-w-0 max-w-full">
                   {selectedChatSessionLog.hasReminder ? (
-                    <div className="flex items-start gap-2.5 max-w-[94%] min-w-0">
+                    <div className="flex items-start gap-2 sm:gap-2.5 w-full min-w-0 max-w-full">
                       <div className="w-8 h-8 rounded-full flex items-center justify-center bg-rose-500/20 text-rose-400 border border-rose-500/30 flex-shrink-0 mt-1">
                         <Bell className="w-4 h-4" />
                       </div>
@@ -4451,28 +4498,28 @@ export default function App() {
                           backgroundColor: theme.innerBg,
                           borderColor: 'rgba(244, 63, 94, 0.3)',
                         }}
-                        className="flex-1 rounded-2xl p-3.5 border shadow-sm min-w-0"
+                        className="flex-1 min-w-0 max-w-full rounded-2xl p-2.5 sm:p-3.5 border shadow-sm overflow-hidden"
                       >
-                        <div className="flex items-center justify-between pb-2 mb-2 border-b border-white/5">
-                          <span className="text-xs font-black text-rose-400 flex items-center gap-1.5">
+                        <div className="flex items-center justify-between pb-2 mb-2 border-b border-white/5 gap-2 min-w-0">
+                          <span className="text-xs font-black text-rose-400 flex items-center gap-1.5 truncate min-w-0">
                             <span>یادآور این جلسه</span>
                           </span>
-                          <span style={{ color: theme.textMuted }} className="text-[10px] font-mono">
+                          <span style={{ color: theme.textMuted }} className="text-[10px] font-mono whitespace-nowrap flex-shrink-0">
                             {selectedChatSessionLog.createdAt.includes('/') ? selectedChatSessionLog.createdAt.split('-')[0].trim() : getJalaliDateNumeric()}
                           </span>
                         </div>
 
-                        <div className="text-right py-1 space-y-0.5">
+                        <div className="text-right py-1 space-y-0.5 min-w-0">
                           <span style={{ color: theme.textMuted }} className="text-[10px] font-bold block">
                             یادآوری:
                           </span>
-                          <div className="text-xs font-black text-sky-400">
+                          <div className="text-xs font-black text-sky-400 break-words">
                             {selectedChatSessionLog.reminderTimeText || formatPersianReminderText(selectedChatSessionLog.reminderTrigger, selectedChatSessionLog.reminderTimeText)}
                           </div>
                         </div>
 
                         {/* Action buttons: [ ویرایش ] and [ لغو یادآور ] (Part 12) */}
-                        <div className="flex items-center gap-2 pt-2 mt-2 border-t border-white/5">
+                        <div className="flex items-center gap-2 pt-2 mt-2 border-t border-white/5 w-full min-w-0">
                           <button
                             type="button"
                             onClick={() => setIsSessionDatePickerOpen(true)}
@@ -4481,14 +4528,14 @@ export default function App() {
                               borderColor: theme.borderLuminous,
                               color: theme.textPrimary,
                             }}
-                            className="flex-1 py-1.5 px-2.5 rounded-xl text-xs font-bold border hover:border-white/30 cursor-pointer transition-colors text-center"
+                            className="flex-1 min-w-0 py-2 px-2.5 rounded-xl text-xs font-bold border hover:border-white/30 cursor-pointer transition-colors text-center"
                           >
                             ✏️ ویرایش
                           </button>
                           <button
                             type="button"
                             onClick={handleToggleTimelineReminder}
-                            className="flex-1 py-1.5 px-2.5 rounded-xl text-xs font-bold bg-rose-500/10 text-rose-400 border border-rose-500/20 hover:bg-rose-500/20 cursor-pointer transition-colors text-center"
+                            className="flex-1 min-w-0 py-2 px-2.5 rounded-xl text-xs font-bold bg-rose-500/10 text-rose-400 border border-rose-500/20 hover:bg-rose-500/20 cursor-pointer transition-colors text-center"
                           >
                             🔕 لغو یادآور
                           </button>
@@ -4501,13 +4548,13 @@ export default function App() {
                         backgroundColor: theme.innerBg,
                         borderColor: theme.borderLuminous,
                       }}
-                      className="rounded-2xl p-3 border flex items-center justify-between gap-2 max-w-[94%]"
+                      className="rounded-2xl p-3 border flex items-center justify-between gap-2 w-full min-w-0 max-w-full"
                     >
-                      <div className="flex items-center gap-2">
-                        <div className="w-7 h-7 rounded-lg flex items-center justify-center bg-slate-500/20 text-slate-400">
+                      <div className="flex items-center gap-2 min-w-0 flex-1">
+                        <div className="w-7 h-7 rounded-lg flex items-center justify-center bg-slate-500/20 text-slate-400 flex-shrink-0">
                           <Bell className="w-3.5 h-3.5" />
                         </div>
-                        <span style={{ color: theme.textSecondary }} className="text-xs font-semibold">
+                        <span style={{ color: theme.textSecondary }} className="text-xs font-semibold truncate">
                           برای این جلسه یادآور تنظیم نشده است
                         </span>
                       </div>
@@ -4515,7 +4562,7 @@ export default function App() {
                         type="button"
                         onClick={() => setIsSessionDatePickerOpen(true)}
                         style={{ backgroundColor: theme.primary }}
-                        className="py-1.5 px-3 rounded-xl text-xs font-black text-white cursor-pointer hover:opacity-90 transition-all flex items-center gap-1 shadow-sm"
+                        className="py-1.5 px-3 rounded-xl text-xs font-black text-white cursor-pointer hover:opacity-90 transition-all flex items-center gap-1 shadow-sm flex-shrink-0"
                       >
                         <Plus className="w-3.5 h-3.5" />
                         <span>تنظیم یادآور</span>
@@ -4617,7 +4664,7 @@ export default function App() {
 
         {/* IN-APP FILE & MEDIA VIEWER MODAL (Problem 7) */}
         {previewFile && (
-          <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-md z-[70] flex items-center justify-center p-3 sm:p-5">
+          <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-md z-[150] flex items-center justify-center p-3 sm:p-5">
             <div
               style={{
                 backgroundColor: theme.cardBg,
