@@ -27,6 +27,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.detect-version.outputs.version }}
+      version_code: ${{ steps.detect-version.outputs.version_code }}
       tag: ${{ steps.detect-version.outputs.tag }}
       should_release: ${{ steps.detect-version.outputs.should_release }}
       is_pr: ${{ steps.detect-version.outputs.is_pr }}
@@ -40,30 +41,36 @@ jobs:
         id: detect-version
         run: |
           # 1. Read Canonical Single Source of Truth from root package.json
-          VERSION=$(node -e "
-            try {
-              const pkg = require('./package.json');
-              const ver = pkg.version ? String(pkg.version).trim() : '';
-              if (!ver) process.exit(1);
-              console.log(ver);
-            } catch (e) {
-              process.exit(1);
-            }
-          ") || {
+          APP_VERSION=$(node -p "require('./package.json').version") || {
             echo "[-] ERROR: Failed to extract canonical version from package.json"
             exit 1
           }
 
-          TAG="v${VERSION}"
-          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          # 2. Validate strictly as MAJOR.MINOR.PATCH
+          if ! [[ "$APP_VERSION" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+            echo "[-] ERROR: Version '$APP_VERSION' is invalid. Must strictly match MAJOR.MINOR.PATCH format."
+            exit 1
+          fi
+
+          MAJOR="${BASH_REMATCH[1]}"
+          MINOR="${BASH_REMATCH[2]}"
+          PATCH="${BASH_REMATCH[3]}"
+
+          # 3. Calculate deterministic Android versionCode: major * 1000000 + minor * 1000 + patch
+          APP_VERSION_CODE=$(( MAJOR * 1000000 + MINOR * 1000 + PATCH ))
+          TAG="v${APP_VERSION}"
+
+          echo "version=${APP_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "version_code=${APP_VERSION_CODE}" >> "$GITHUB_OUTPUT"
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
 
           echo "========================================================"
-          echo "[✓] Canonical App Version Detected: ${VERSION}"
-          echo "[✓] Target Git Release Tag:        ${TAG}"
+          echo "[✓] Canonical App Version Detected: ${APP_VERSION}"
+          echo "[✓] Calculated Android VersionCode:  ${APP_VERSION_CODE}"
+          echo "[✓] Target Git Release Tag:         ${TAG}"
           echo "========================================================"
 
-          # 2. Check Event Type
+          # 4. Check Event Type
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             echo "is_pr=true" >> "$GITHUB_OUTPUT"
             echo "should_release=false" >> "$GITHUB_OUTPUT"
@@ -73,19 +80,15 @@ jobs:
 
           echo "is_pr=false" >> "$GITHUB_OUTPUT"
 
-          # 3. Check if Tag already exists on remote origin
+          # 5. Tag Safety: Check if Tag already exists on remote origin
           git fetch --tags origin || true
           if git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null 2>&1; then
-            echo "[!] Tag ${TAG} already exists in repository."
-            if [ "${{ github.event.inputs.force_release }}" = "true" ]; then
-              echo "[i] force_release is TRUE: Proceeding with release update."
-              echo "should_release=true" >> "$GITHUB_OUTPUT"
-            else
-              echo "[i] Version ${VERSION} is already released. Skipping production release workflow cleanly."
-              echo "should_release=false" >> "$GITHUB_OUTPUT"
-            fi
+            echo "[-] ERROR: Tag ${TAG} already exists in repository!"
+            echo "[-] Tag Safety Policy: Existing release tags (including historical v1.0.1) must NEVER be modified, moved, or overwritten."
+            echo "[-] Please bump package.json to a new MAJOR.MINOR.PATCH version before releasing."
+            exit 1
           else
-            echo "[✓] New version ${VERSION} detected! Tag ${TAG} does not exist yet."
+            echo "[✓] New version ${APP_VERSION} detected! Tag ${TAG} does not exist yet."
             echo "should_release=true" >> "$GITHUB_OUTPUT"
           fi
 
@@ -215,6 +218,7 @@ jobs:
           RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
           RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
           APP_VERSION: ${{ needs.version-check.outputs.version }}
+          APP_VERSION_CODE: ${{ needs.version-check.outputs.version_code }}
           IS_RELEASE_BUILD: ${{ needs.version-check.outputs.should_release }}
         run: |
           mkdir -p "${GITHUB_WORKSPACE}/artifacts"
@@ -222,8 +226,8 @@ jobs:
           chmod +x gradlew
 
           if [ "$IS_RELEASE_BUILD" = "true" ]; then
-            # Assemble production release APK
-            ./gradlew assembleRelease --stacktrace
+            # Assemble production release APK with injected versionCode & versionName
+            ./gradlew assembleRelease -PversionName="$APP_VERSION" -PversionCode="$APP_VERSION_CODE" --stacktrace
 
             echo "=== Generated Android APKs ==="
             find app/build/outputs/apk -type f -name "*.apk"
@@ -246,26 +250,65 @@ jobs:
               exit 1
             fi
 
-            echo "[+] Verifying embedded web assets in APK..."
-            APK_ENTRIES=$(unzip -l "$FOUND_RELEASE")
+            # Strict APK Validation (Requirement 6)
+            echo "=== Validating Production APK Metadata ==="
+            AAPT_BIN=$(find "$ANDROID_HOME/build-tools" -name aapt -type f | sort -V | tail -n 1)
+            if [ -n "$AAPT_BIN" ]; then
+              BADGING=$("$AAPT_BIN" dump badging "${GITHUB_WORKSPACE}/artifacts/${TARGET_NAME}")
+              echo "$BADGING" | head -n 15
 
+              # 1. Validate applicationId
+              echo "$BADGING" | grep -q "package: name='com.daneshmate.app'" || {
+                echo "[-] ERROR: APK applicationId is not 'com.daneshmate.app'!"
+                exit 1
+              }
+              echo "[✓] Validated applicationId = com.daneshmate.app"
+
+              # 2. Validate versionCode
+              echo "$BADGING" | grep -q "versionCode='${APP_VERSION_CODE}'" || {
+                echo "[-] ERROR: APK versionCode does not match expected '${APP_VERSION_CODE}'!"
+                exit 1
+              }
+              echo "[✓] Validated versionCode = ${APP_VERSION_CODE}"
+
+              # 3. Validate versionName
+              echo "$BADGING" | grep -q "versionName='${APP_VERSION}'" || {
+                echo "[-] ERROR: APK versionName does not match expected '${APP_VERSION}'!"
+                exit 1
+              }
+              echo "[✓] Validated versionName = ${APP_VERSION}"
+            else
+              echo "[!] Note: aapt binary not found in build-tools; skipping aapt badging checks."
+            fi
+
+            # 4. Verify embedded web assets in APK
+            echo "[+] Verifying embedded web assets in APK..."
+            APK_ENTRIES=$(unzip -l "${GITHUB_WORKSPACE}/artifacts/${TARGET_NAME}")
             echo "$APK_ENTRIES" | grep -q "assets/public/index.html" || {
               echo "[-] ERROR: Missing assets/public/index.html inside APK!"
               exit 1
             }
             echo "[✓] Verified assets/public/index.html is present"
 
+            # 5. Verify production signature
             echo "=== APK Signature & Certificate Verification ==="
             APKSIGNER_BIN=$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -n 1)
             if [ -n "$APKSIGNER_BIN" ]; then
-              "$APKSIGNER_BIN" verify --print-certs "$FOUND_RELEASE"
+              "$APKSIGNER_BIN" verify --print-certs "${GITHUB_WORKSPACE}/artifacts/${TARGET_NAME}" || {
+                echo "[-] ERROR: APK signature verification failed!"
+                exit 1
+              }
             else
-              apksigner verify --print-certs "$FOUND_RELEASE"
+              apksigner verify --print-certs "${GITHUB_WORKSPACE}/artifacts/${TARGET_NAME}" || {
+                echo "[-] ERROR: APK signature verification failed!"
+                exit 1
+              }
             fi
+            echo "[✓] Verified APK is signed with production credentials."
             echo "==============================================="
           else
             echo "[i] PR Build: Assembling debug APK for verification..."
-            ./gradlew assembleDebug --stacktrace
+            ./gradlew assembleDebug -PversionName="$APP_VERSION" -PversionCode="$APP_VERSION_CODE" --stacktrace
             cp -f $(find app/build/outputs/apk -type f -name "*.apk" | head -n 1) "${GITHUB_WORKSPACE}/artifacts/DaneshMate-Android-PR-Test.apk" || true
           fi
 
@@ -382,12 +425,16 @@ jobs:
           path: release-artifacts
 
       - name: 4. Generate SHA-256 Checksums
+        id: checksums
         run: |
           cd release-artifacts
           sha256sum * > SHA256SUMS.txt
           echo "=== Artifact SHA-256 Checksums ==="
           cat SHA256SUMS.txt
           echo "=================================="
+          echo "checksums<<EOF" >> "$GITHUB_OUTPUT"
+          cat SHA256SUMS.txt >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
 
       - name: 5. Create & Push Git Release Tag
         env:
@@ -396,46 +443,60 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          if ! git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null 2>&1; then
-            echo "[+] Creating Git Tag: ${TAG} on commit ${{ github.sha }}..."
-            git tag -a "${TAG}" -m "DaneshMate Production Release ${TAG}"
-            git push origin "${TAG}"
-            echo "[✓] Successfully pushed tag ${TAG} to repository."
-          else
-            echo "[i] Git Tag ${TAG} already exists on remote."
+          if git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null 2>&1; then
+            echo "[-] ERROR: Tag ${TAG} already exists on remote! Tag safety policy prevents modifying or overwriting existing tags."
+            exit 1
           fi
+
+          echo "[+] Creating Git Tag: ${TAG} on commit ${{ github.sha }}..."
+          git tag -a "${TAG}" -m "DaneshMate Production Release ${TAG}"
+          git push origin "${TAG}"
+          echo "[✓] Successfully pushed tag ${TAG} to repository."
 
       - name: 6. Publish GitHub Release with Bilingual User Guide
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.version-check.outputs.tag }}
           target_commitish: ${{ github.sha }}
-          name: "DaneshMate ${{ needs.version-check.outputs.tag }}"
+          name: "DaneshMate v${{ needs.version-check.outputs.version }}"
           draft: false
           prerelease: false
           body: |
-            # 🎓 DaneshMate — Production Release ${{ needs.version-check.outputs.tag }}
+            # 🎓 DaneshMate v${{ needs.version-check.outputs.version }}
 
             <div dir="rtl" align="right">
 
-            ### 📱 نسخه ویژه اندروید (مدرن، ۶۴ بیتی با امضای رسمی)
-            * **معماری بهینه‌شده:** فقط پردازنده‌های ۶۴ بیتی (`arm64-v8a`) با هسته فوق‌سریع Rust C-ABI و وب‌ویوی بومی Capacitor.
+            ### 📋 مشخصات انتشار
+            * **نسخه:** `${{ needs.version-check.outputs.version }}`
+            * **نسخه اندروید:** `${{ needs.version-check.outputs.version_code }}`
+            * **معماری:** `arm64-v8a`
+            * **نوع انتشار:** Production
+            * **داده‌ها:** Local-first / Offline
+
+            ### 📱 نسخه ویژه اندروید (Capacitor + Rust Core)
+            * **معماری بهینه‌شده:** فقط پردازنده‌های ۶۴ بیتی (`arm64-v8a`) با هسته Rust C-ABI و وب‌ویوی بومی Capacitor.
             * **بهینه‌سازی حجم و سرعت:** طراحی واکنش‌گرا و مدرن بر پایه React 19، Vite و Tailwind v4.
             * **امنیت و امضا:** کامپایل‌شده با امضای رسمی Production Keystore بدون وابستگی‌های خارجی.
-            * **کاملاً آفلاین:** عملکرد کامل و مستقل دیتابیس لوکال بدون نیاز به اینترنت.
+            * **کاملاً آفلاین:** عملکرد کامل و مستقل بدون نیاز به اینترنت.
 
-            ### 🍏 نسخه وب و تحت مرورگر (PWA)
-            * فایل زیپ را دانلود و میزبانی کنید، یا در مرورگر **Safari** لینک برنامه را باز کرده و با انتخاب گزینه **Add to Home Screen** مستقیماً بدون نیاز به اپ‌استور نصب فرمایید.
+            ### 🌐 نسخه وب و تحت مرورگر (PWA)
+            * آرشیو وب / PWA به عنوان نسخه تحت مرورگر بدون نیاز به نصب در دسترس است.
+
+            ### 🔐 شناسه یکپارچگی فایل‌ها (SHA-256 Checksums)
+            ```text
+            ${{ steps.checksums.outputs.checksums }}
+            ```
 
             </div>
 
             ---
 
-            ### 🌍 English Summary & Installation Guide
-            * **Android Release:** High-performance 64-bit build signed with production release credentials and powered by Capacitor WebView and offline Rust core.
-            * **Web / PWA Release:** Optimized Progressive Web App (PWA). Extract the archive and host, or open in browser and select **Add to Home Screen**.
-
-            ---
-            *Built with ❤️ by null • Powered by Capacitor & Rust Core*
+            ### 🌍 English Summary
+            * **Version:** `${{ needs.version-check.outputs.version }}`
+            * **Android VersionCode:** `${{ needs.version-check.outputs.version_code }}`
+            * **Architecture:** `arm64-v8a` (Android 64-bit)
+            * **Release Type:** Production
+            * **Data Model:** Local-first / Offline
+            * **Artifacts:** High-performance signed Android APK and PWA bundle.
           files: |
             release-artifacts/*
