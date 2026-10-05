@@ -17,9 +17,19 @@ export interface SupportProductMetadata {
   badge?: string;
 }
 
+/**
+ * Official verified destination for DaneshMate on Myket.
+ * Configured in one centralized place.
+ */
+export const MYKET_APP_URL = 'https://myket.ir/app/com.daneshmate.app';
+
 export const MYKET_CONFIG = {
   // Myket package identifier
   packageId: 'ir.mservices.market',
+  // DaneshMate package identifier on Myket
+  appPackageId: 'com.daneshmate.app',
+  // Official verified Myket app page URL
+  appUrl: MYKET_APP_URL,
   // Consumable support tiers allowlist (Strictly neutral semantic IDs)
   supportedSkus: ['support_coffee', 'support_treat', 'support_code'] as const,
   // Main copy

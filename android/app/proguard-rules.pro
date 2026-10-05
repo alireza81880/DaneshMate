@@ -19,3 +19,6 @@
 # If you keep the line number information, uncomment this to
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
+
+# Official Myket In-App Billing Client
+-keep class ir.myket.billingclient.** { *; }

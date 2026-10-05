@@ -23,3 +23,13 @@ export function calculateVersionCode(versionStr: string): number {
 export const APP_VERSION_CODE: number = calculateVersionCode(APP_VERSION);
 
 export const GITHUB_REPO = 'alireza81880/daneshmate';
+
+export type DistributionChannel = 'myket' | 'github';
+
+/**
+ * Explicit Distribution Channel
+ * Configured at build time: 'myket' (production) or 'github' (test/ci).
+ * Never infer from whether Myket is installed.
+ */
+export const DISTRIBUTION_CHANNEL: DistributionChannel =
+  (import.meta.env.VITE_DISTRIBUTION_CHANNEL as DistributionChannel) || 'myket';

@@ -12,8 +12,9 @@ import {
   Package,
 } from 'lucide-react';
 import { PaletteTheme } from '../../App';
-import { APP_VERSION, APP_VERSION_CODE } from '../../config/version';
-import { checkAppUpdate, UpdateCheckResult } from '../../services/updateService';
+import { APP_VERSION, APP_VERSION_CODE, DISTRIBUTION_CHANNEL } from '../../config/version';
+import { MYKET_CONFIG, MYKET_APP_URL } from '../../config/myketConfig';
+import { checkAppUpdate, UpdateCheckResult, openMyketAppPage } from '../../services/updateService';
 
 export interface UpdateSettingsCardProps {
   theme: PaletteTheme;
@@ -52,12 +53,18 @@ export const UpdateSettingsCard: React.FC<UpdateSettingsCardProps> = React.memo(
     }
   }, []);
 
-  const handleOpenReleasePage = useCallback(() => {
+  const handleOpenMyketUpdate = useCallback(() => {
+    openMyketAppPage();
+  }, []);
+
+  const handleOpenGitHubRelease = useCallback(() => {
     const url = checkResult?.release?.htmlUrl || 'https://github.com/alireza81880/daneshmate/releases';
     if (typeof window !== 'undefined') {
       window.open(url, '_blank', 'noopener,noreferrer');
     }
   }, [checkResult]);
+
+  const isMyketChannel = DISTRIBUTION_CHANNEL === 'myket';
 
   return (
     <div
@@ -131,10 +138,10 @@ export const UpdateSettingsCard: React.FC<UpdateSettingsCardProps> = React.memo(
         <div className="flex items-center justify-between pt-2 border-t border-white/5 text-[11px]">
           <div className="flex items-center gap-1.5" style={{ color: theme.textSecondary }}>
             <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-            <span>معماری بهینه‌شده: arm64-v8a (کامپایل بومی و مستقل)</span>
+            <span>کانال انتشار و بروزرسانی: استور مایکت (Myket)</span>
           </div>
-          <span style={{ color: theme.textMuted }} className="font-medium">
-            Local-first / Offline
+          <span style={{ color: theme.textMuted }} className="font-mono text-[10px]">
+            {MYKET_CONFIG.appPackageId}
           </span>
         </div>
       </div>
@@ -235,7 +242,7 @@ export const UpdateSettingsCard: React.FC<UpdateSettingsCardProps> = React.memo(
               <div className="space-y-1">
                 <div className="flex items-center gap-2">
                   <span className="text-xs font-black text-indigo-300">
-                    نسخه جدید موجود است!
+                    نسخه جدید موجود است
                   </span>
                   <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-indigo-500 text-white font-mono">
                     v{checkResult.latestVersion}
@@ -247,7 +254,35 @@ export const UpdateSettingsCard: React.FC<UpdateSettingsCardProps> = React.memo(
               </div>
             </div>
 
-            {checkResult.release.apkAsset && (
+            {/* Official Myket Distribution Channel Notice */}
+            {isMyketChannel && (
+              <div
+                style={{ backgroundColor: theme.innerBg, borderColor: theme.borderLuminous }}
+                className="p-3 rounded-xl border flex items-center justify-between text-xs"
+              >
+                <div className="flex items-center gap-2.5">
+                  <div
+                    style={{ backgroundColor: `${theme.primary}20`, color: theme.primary }}
+                    className="w-7 h-7 rounded-lg flex items-center justify-center font-bold text-xs shrink-0"
+                  >
+                    M
+                  </div>
+                  <div>
+                    <div style={{ color: theme.textPrimary }} className="font-bold text-xs">
+                      مرجع انتشار رسمی: مایکت
+                    </div>
+                    <div style={{ color: theme.textSecondary }} className="text-[10px] mt-0.5 font-mono">
+                      {MYKET_CONFIG.appPackageId}
+                    </div>
+                  </div>
+                </div>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                  تأیید شده
+                </span>
+              </div>
+            )}
+
+            {!isMyketChannel && checkResult.release.apkAsset && (
               <div
                 style={{ backgroundColor: theme.innerBg, borderColor: theme.borderLuminous }}
                 className="p-2.5 rounded-xl border flex items-center justify-between text-xs"
@@ -267,18 +302,33 @@ export const UpdateSettingsCard: React.FC<UpdateSettingsCardProps> = React.memo(
 
           {/* Action buttons */}
           <div className="flex flex-wrap items-center gap-2.5">
-            <button
-              type="button"
-              onClick={handleOpenReleasePage}
-              style={{
-                backgroundColor: theme.primary,
-                boxShadow: `0 0 16px ${theme.glowColor}`,
-              }}
-              className="flex-1 sm:flex-none px-5 py-2.5 rounded-xl text-xs font-black text-white flex items-center justify-center gap-2 cursor-pointer hover:opacity-95 active:scale-95 transition-all shadow-md"
-            >
-              <ExternalLink className="w-4 h-4" />
-              <span>دریافت بروزرسانی</span>
-            </button>
+            {isMyketChannel ? (
+              <button
+                type="button"
+                onClick={handleOpenMyketUpdate}
+                style={{
+                  backgroundColor: theme.primary,
+                  boxShadow: `0 0 16px ${theme.glowColor}`,
+                }}
+                className="flex-1 sm:flex-none px-5 py-2.5 rounded-xl text-xs font-black text-white flex items-center justify-center gap-2 cursor-pointer hover:opacity-95 active:scale-95 transition-all shadow-md"
+              >
+                <ArrowUpCircle className="w-4 h-4" />
+                <span>بهروزرسانی در مایکت</span>
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={handleOpenGitHubRelease}
+                style={{
+                  backgroundColor: theme.primary,
+                  boxShadow: `0 0 16px ${theme.glowColor}`,
+                }}
+                className="flex-1 sm:flex-none px-5 py-2.5 rounded-xl text-xs font-black text-white flex items-center justify-center gap-2 cursor-pointer hover:opacity-95 active:scale-95 transition-all shadow-md"
+              >
+                <ExternalLink className="w-4 h-4" />
+                <span>دریافت بروزرسانی</span>
+              </button>
+            )}
 
             {checkResult.release.body && (
               <button

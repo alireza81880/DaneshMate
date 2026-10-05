@@ -217,6 +217,8 @@ jobs:
           RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
           RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
           RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+          MYKET_PUBLIC_KEY: ${{ secrets.MYKET_PUBLIC_KEY }}
+          DISTRIBUTION_CHANNEL: myket
           APP_VERSION: ${{ needs.version-check.outputs.version }}
           APP_VERSION_CODE: ${{ needs.version-check.outputs.version_code }}
           IS_RELEASE_BUILD: ${{ needs.version-check.outputs.should_release }}
@@ -226,8 +228,13 @@ jobs:
           chmod +x gradlew
 
           if [ "$IS_RELEASE_BUILD" = "true" ]; then
-            # Assemble production release APK with injected versionCode & versionName
-            ./gradlew assembleRelease -PversionName="$APP_VERSION" -PversionCode="$APP_VERSION_CODE" --stacktrace
+            # Assemble production release APK with injected versionCode, versionName, and Myket configuration
+            ./gradlew assembleRelease \
+              -PversionName="$APP_VERSION" \
+              -PversionCode="$APP_VERSION_CODE" \
+              -PDISTRIBUTION_CHANNEL="$DISTRIBUTION_CHANNEL" \
+              -PMYKET_PUBLIC_KEY="$MYKET_PUBLIC_KEY" \
+              --stacktrace
 
             echo "=== Generated Android APKs ==="
             find app/build/outputs/apk -type f -name "*.apk"

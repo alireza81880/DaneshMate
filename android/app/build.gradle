@@ -15,6 +15,9 @@ android {
             marketApplicationId: "ir.mservices.market",
             marketBindAddress: "ir.mservices.market.InAppBillingService.BIND"
         ]
+        def distChannel = project.hasProperty('DISTRIBUTION_CHANNEL') ? project.property('DISTRIBUTION_CHANNEL').toString() : (System.getenv("DISTRIBUTION_CHANNEL") ?: "myket")
+        buildConfigField "String", "DISTRIBUTION_CHANNEL", "\"${distChannel}\""
+
         def myketKey = project.hasProperty('MYKET_PUBLIC_KEY') ? project.property('MYKET_PUBLIC_KEY').toString() : (System.getenv("MYKET_PUBLIC_KEY") ?: "")
         buildConfigField "String", "MYKET_PUBLIC_KEY", "\"${myketKey}\""
         aaptOptions {
@@ -48,6 +51,20 @@ android {
     }
     buildFeatures {
         buildConfig true
+    }
+}
+
+afterEvaluate {
+    tasks.configureEach { task ->
+        if (task.name.startsWith("assemble") && task.name.toLowerCase().contains("release")) {
+            task.doFirst {
+                def channel = project.hasProperty('DISTRIBUTION_CHANNEL') ? project.property('DISTRIBUTION_CHANNEL').toString() : (System.getenv("DISTRIBUTION_CHANNEL") ?: "myket")
+                def key = project.hasProperty('MYKET_PUBLIC_KEY') ? project.property('MYKET_PUBLIC_KEY').toString() : (System.getenv("MYKET_PUBLIC_KEY") ?: "")
+                if (channel == "myket" && (key == null || key.trim().isEmpty())) {
+                    throw new GradleException("BUILD FAILURE: MYKET_PUBLIC_KEY is required for Myket production release build. Pass -PMYKET_PUBLIC_KEY=\"...\" or set MYKET_PUBLIC_KEY environment variable.")
+                }
+            }
+        }
     }
 }
 

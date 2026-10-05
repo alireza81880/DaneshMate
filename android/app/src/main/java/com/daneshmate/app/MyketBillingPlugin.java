@@ -124,6 +124,17 @@ public class MyketBillingPlugin extends Plugin {
         ret.put("available", isMyketInstalled);
         ret.put("isMyketInstalled", isMyketInstalled);
         ret.put("isSetupDone", mIsSetupDone.get() && mHelper != null);
+        ret.put("distributionChannel", BuildConfig.DISTRIBUTION_CHANNEL);
+        call.resolve(ret);
+    }
+
+    /**
+     * Get the compile-time distribution channel (myket or github).
+     */
+    @PluginMethod
+    public void getDistributionChannel(PluginCall call) {
+        JSObject ret = new JSObject();
+        ret.put("channel", BuildConfig.DISTRIBUTION_CHANNEL);
         call.resolve(ret);
     }
 

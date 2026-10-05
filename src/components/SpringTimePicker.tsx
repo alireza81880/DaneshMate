@@ -56,6 +56,8 @@ export const SpringTimePicker: React.FC<SpringTimePickerProps> = React.memo(({
   const hourListRef = useRef<HTMLDivElement>(null);
   const minuteListRef = useRef<HTMLDivElement>(null);
   const scrollTimeoutRef = useRef<{ hour?: any; min?: any }>({});
+  const hourRafRef = useRef<number | null>(null);
+  const minRafRef = useRef<number | null>(null);
 
   const ITEM_HEIGHT = 44; // Exact height of each row in px (3 rows = 132px)
 
@@ -83,6 +85,8 @@ export const SpringTimePicker: React.FC<SpringTimePickerProps> = React.memo(({
 
   useEffect(() => {
     return () => {
+      if (hourRafRef.current !== null) cancelAnimationFrame(hourRafRef.current);
+      if (minRafRef.current !== null) cancelAnimationFrame(minRafRef.current);
       if (scrollTimeoutRef.current.hour) clearTimeout(scrollTimeoutRef.current.hour);
       if (scrollTimeoutRef.current.min) clearTimeout(scrollTimeoutRef.current.min);
     };
@@ -98,18 +102,30 @@ export const SpringTimePicker: React.FC<SpringTimePickerProps> = React.memo(({
 
   const handleHourScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const top = e.currentTarget.scrollTop;
-    const index = Math.round(top / ITEM_HEIGHT);
-    if (index >= 0 && index < 24 && index !== selectedHour) {
-      setSelectedHour(index);
+    if (hourRafRef.current !== null) {
+      cancelAnimationFrame(hourRafRef.current);
     }
+    hourRafRef.current = requestAnimationFrame(() => {
+      const index = Math.round(top / ITEM_HEIGHT);
+      if (index >= 0 && index < 24) {
+        setSelectedHour((prev) => (prev !== index ? index : prev));
+      }
+      hourRafRef.current = null;
+    });
   };
 
   const handleMinuteScroll = (e: React.UIEvent<HTMLDivElement>) => {
     const top = e.currentTarget.scrollTop;
-    const index = Math.round(top / ITEM_HEIGHT);
-    if (index >= 0 && index < 60 && index !== selectedMinute) {
-      setSelectedMinute(index);
+    if (minRafRef.current !== null) {
+      cancelAnimationFrame(minRafRef.current);
     }
+    minRafRef.current = requestAnimationFrame(() => {
+      const index = Math.round(top / ITEM_HEIGHT);
+      if (index >= 0 && index < 60) {
+        setSelectedMinute((prev) => (prev !== index ? index : prev));
+      }
+      minRafRef.current = null;
+    });
   };
 
   const stepHour = (delta: number) => {

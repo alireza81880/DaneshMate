@@ -1,4 +1,5 @@
-import { GITHUB_REPO, APP_VERSION } from '../config/version';
+import { GITHUB_REPO, APP_VERSION, DISTRIBUTION_CHANNEL, DistributionChannel } from '../config/version';
+import { MYKET_APP_URL } from '../config/myketConfig';
 
 export interface GitHubAsset {
   name: string;
@@ -121,8 +122,12 @@ export async function fetchLatestRelease(repo: string = GITHUB_REPO): Promise<Gi
 /**
  * Main update checker function for DaneshMate.
  * Non-blocking, offline-aware, never modifies local database.
+ * In Myket production channel, GitHub APK download parsing is omitted.
  */
-export async function checkAppUpdate(currentVersion: string = APP_VERSION): Promise<UpdateCheckResult> {
+export async function checkAppUpdate(
+  currentVersion: string = APP_VERSION,
+  channel: DistributionChannel = DISTRIBUTION_CHANNEL
+): Promise<UpdateCheckResult> {
   if (typeof navigator !== 'undefined' && !navigator.onLine) {
     throw new Error('دستگاه در حالت آفلاین است. لطفاً اتصال اینترنت خود را برقرار نمایید.');
   }
@@ -131,18 +136,22 @@ export async function checkAppUpdate(currentVersion: string = APP_VERSION): Prom
   const remoteVersion = release.tag_name ? release.tag_name.replace(/^v/, '') : '0.0.0';
   const hasNewer = isNewerVersion(currentVersion, remoteVersion);
 
-  const apkAssetRaw = release.assets?.find(
-    (a) => a.name && a.name.toLowerCase().endsWith('.apk')
-  );
-
   let apkAsset: ExtractedApkAsset | undefined;
-  if (apkAssetRaw) {
-    apkAsset = {
-      name: apkAssetRaw.name,
-      downloadUrl: apkAssetRaw.browser_download_url,
-      sizeBytes: apkAssetRaw.size,
-      sizeFormatted: formatFileSize(apkAssetRaw.size),
-    };
+
+  // In Myket production mode, NEVER parse or expose GitHub APK download URL
+  if (channel === 'github') {
+    const apkAssetRaw = release.assets?.find(
+      (a) => a.name && a.name.toLowerCase().endsWith('.apk')
+    );
+
+    if (apkAssetRaw) {
+      apkAsset = {
+        name: apkAssetRaw.name,
+        downloadUrl: apkAssetRaw.browser_download_url,
+        sizeBytes: apkAssetRaw.size,
+        sizeFormatted: formatFileSize(apkAssetRaw.size),
+      };
+    }
   }
 
   return {
@@ -160,3 +169,13 @@ export async function checkAppUpdate(currentVersion: string = APP_VERSION): Prom
     },
   };
 }
+
+/**
+ * Opens the official DaneshMate app page on Myket using verified ACTION_VIEW / URL.
+ * Sourced strictly from centralized MYKET_APP_URL.
+ */
+export function openMyketAppPage(): void {
+  if (typeof window === 'undefined') return;
+  window.open(MYKET_APP_URL, '_blank', 'noopener,noreferrer');
+}
+

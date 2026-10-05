@@ -8,7 +8,30 @@ export default defineConfig(() => {
     plugins: [react(), tailwindcss()],
     resolve: {
       alias: {
-        '@': path.resolve(__dirname, '.'),
+        '@': path.resolve('.'),
+      },
+    },
+    build: {
+      chunkSizeWarningLimit: 800,
+      rollupOptions: {
+        output: {
+          manualChunks(id) {
+            if (id.includes('node_modules')) {
+              if (id.includes('react/') || id.includes('react-dom/')) {
+                return 'vendor-react';
+              }
+              if (id.includes('@capacitor') || id.includes('@capawesome') || id.includes('@capgo')) {
+                return 'vendor-capacitor';
+              }
+              if (id.includes('lucide-react')) {
+                return 'vendor-icons';
+              }
+              if (id.includes('jszip')) {
+                return 'vendor-utils';
+              }
+            }
+          },
+        },
       },
     },
     server: {
