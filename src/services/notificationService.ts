@@ -1,5 +1,6 @@
 import { Capacitor } from '@capacitor/core';
 import { LocalNotifications, ActionPerformed } from '@capacitor/local-notifications';
+import { parseTime } from '../utils/time';
 
 const CHANNEL_ID = 'daneshmate-reminders';
 
@@ -20,6 +21,10 @@ export interface ScheduleReminderOptions {
   classTime?: string;
   classDay?: string;
   isClassReminder?: boolean;
+  recurrence?: string;
+  anchorDate?: string;
+  anchorTimestamp?: number;
+  scheduledSessionTimestamps?: number[];
 }
 
 export type NotificationActionListener = (actionId: 'tap', data: {
@@ -366,6 +371,142 @@ class NotificationService {
   }
 
   /**
+   * Calculate scheduled Date for a recurring class based on:
+   * 1. Real first session date (anchor timestamp / scheduled sessions), completely independent of broken even/odd assumptions.
+   * 2. Recurrence pattern (weekly = 7 days, bi-weekly = 14 days from first session).
+   * 3. Configurable alert offset (minutes before class or exact clock time).
+   */
+  public calculateClassReminderDate(options: {
+    classDay?: string;
+    classTime?: string;
+    reminderMode?: 'before_class' | 'exact_time';
+    minutesBefore?: number;
+    exactTime?: string;
+    recurrence?: string;
+    anchorTimestamp?: number;
+    scheduledSessionTimestamps?: number[];
+    trigger?: string;
+  }): Date {
+    const now = Date.now();
+
+    // 1. Parse class start time (default 08:00)
+    let classHour = 8;
+    let classMin = 0;
+    if (options.classTime) {
+      const match = options.classTime.match(/(\d{1,2}):(\d{2})/);
+      if (match) {
+        classHour = parseInt(match[1], 10);
+        classMin = parseInt(match[2], 10);
+      }
+    }
+
+    // 2. Determine target hour and minute for the notification
+    const isExact = options.reminderMode === 'exact_time' && Boolean(options.exactTime);
+    let remHour = classHour;
+    let remMin = classMin;
+    let minutesOffset = 0;
+
+    if (isExact && options.exactTime) {
+      const parsedExact = parseTime(options.exactTime);
+      if (parsedExact) {
+        remHour = parsedExact.hour;
+        remMin = parsedExact.minute;
+      }
+    } else {
+      minutesOffset = this.parseMinutesBefore(options.trigger, options.minutesBefore);
+    }
+
+    const computeFireTimestamp = (baseDate: Date): number => {
+      const d = new Date(baseDate.getFullYear(), baseDate.getMonth(), baseDate.getDate(), remHour, remMin, 0, 0);
+      if (!isExact && minutesOffset > 0) {
+        return d.getTime() - minutesOffset * 60 * 1000;
+      }
+      return d.getTime();
+    };
+
+    const isBiWeekly =
+      options.recurrence === 'bi_weekly' ||
+      options.recurrence === 'biweekly' ||
+      options.recurrence === 'even_weeks' ||
+      options.recurrence === 'odd_weeks';
+
+    // 3. Bi-weekly / Alternating weeks: Strictly based on real session anchor date (14-day intervals)
+    if (isBiWeekly) {
+      let sessions = options.scheduledSessionTimestamps && options.scheduledSessionTimestamps.length > 0
+        ? [...options.scheduledSessionTimestamps]
+        : [];
+
+      if (sessions.length === 0 && options.anchorTimestamp) {
+        const base = options.anchorTimestamp;
+        for (let i = 0; i < 20; i++) {
+          sessions.push(base + i * 14 * 24 * 60 * 60 * 1000);
+        }
+      }
+
+      if (sessions.length > 0) {
+        sessions.sort((a, b) => a - b);
+        for (const sTimestamp of sessions) {
+          const sDate = new Date(sTimestamp);
+          const fireTime = computeFireTimestamp(sDate);
+          if (fireTime > now) {
+            return new Date(fireTime);
+          }
+        }
+        // If all pre-generated sessions have passed, project forward every 14 days
+        let lastSession = sessions[sessions.length - 1];
+        for (let step = 0; step < 52; step++) {
+          lastSession += 14 * 24 * 60 * 60 * 1000;
+          const sDate = new Date(lastSession);
+          const fireTime = computeFireTimestamp(sDate);
+          if (fireTime > now) {
+            return new Date(fireTime);
+          }
+        }
+      }
+    }
+
+    // 4. Weekly schedule or fallback if no anchor was specified
+    const PERSIAN_DAY_TO_JS: Record<string, number> = {
+      'یکشنبه': 0,
+      'دوشنبه': 1,
+      'سه‌شنبه': 2,
+      'چهارشنبه': 3,
+      'پنج‌شنبه': 4,
+      'جمعه': 5,
+      'شنبه': 6,
+    };
+    const targetDayIndex = options.classDay ? PERSIAN_DAY_TO_JS[options.classDay] : undefined;
+    const nowDate = new Date(now);
+
+    if (targetDayIndex !== undefined) {
+      let daysAhead = (targetDayIndex - nowDate.getDay() + 7) % 7;
+      let candidateDate = new Date(nowDate.getFullYear(), nowDate.getMonth(), nowDate.getDate() + daysAhead);
+
+      // If an anchor timestamp is set in the future, don't schedule before the real first session
+      if (options.anchorTimestamp) {
+        const anchorDate = new Date(options.anchorTimestamp);
+        const candMidnight = new Date(candidateDate.getFullYear(), candidateDate.getMonth(), candidateDate.getDate()).getTime();
+        const anchorMidnight = new Date(anchorDate.getFullYear(), anchorDate.getMonth(), anchorDate.getDate()).getTime();
+        if (candMidnight < anchorMidnight) {
+          candidateDate = anchorDate;
+        }
+      }
+
+      let fireTime = computeFireTimestamp(candidateDate);
+      if (fireTime <= now) {
+        const stepDays = isBiWeekly ? 14 : 7;
+        candidateDate = new Date(candidateDate.getFullYear(), candidateDate.getMonth(), candidateDate.getDate() + stepDays);
+        fireTime = computeFireTimestamp(candidateDate);
+      }
+      return new Date(fireTime);
+    }
+
+    // Default 24h fallback
+    const fallbackDate = new Date(nowDate.getFullYear(), nowDate.getMonth(), nowDate.getDate() + 1, remHour, remMin, 0, 0);
+    return fallbackDate;
+  }
+
+  /**
    * Schedule a local notification (Clean, Informational, No Snooze Buttons)
    */
   public async scheduleReminder(opts: ScheduleReminderOptions): Promise<{ scheduled: boolean; at: Date }> {
@@ -382,15 +523,27 @@ class NotificationService {
     // Cancel any previous notification for this item to prevent duplicates
     await this.cancelReminder(targetId);
 
-    const scheduleDate = this.calculateScheduleDate(
-      opts.trigger,
-      opts.snoozedUntil,
-      opts.classTime,
-      opts.classDay,
-      opts.minutesBefore,
-      opts.exactTime,
-      opts.exactTimestamp
-    );
+    const scheduleDate = opts.isClassReminder
+      ? this.calculateClassReminderDate({
+          classDay: opts.classDay,
+          classTime: opts.classTime,
+          reminderMode: opts.reminderMode,
+          minutesBefore: opts.minutesBefore,
+          exactTime: opts.exactTime,
+          recurrence: opts.recurrence,
+          anchorTimestamp: opts.anchorTimestamp,
+          scheduledSessionTimestamps: opts.scheduledSessionTimestamps,
+          trigger: opts.trigger,
+        })
+      : this.calculateScheduleDate(
+          opts.trigger,
+          opts.snoozedUntil,
+          opts.classTime,
+          opts.classDay,
+          opts.minutesBefore,
+          opts.exactTime,
+          opts.exactTimestamp
+        );
 
     const occurrenceDate = scheduleDate.toISOString().split('T')[0];
     const occurrenceTimestamp = scheduleDate.getTime();
@@ -456,7 +609,7 @@ class NotificationService {
   }
 
   /**
-   * Schedule class-level recurring reminder (Weekly occurrence)
+   * Schedule class-level recurring reminder (Real first session date & recurrence cycle)
    */
   public async scheduleClassReminder(classItem: any): Promise<{ scheduled: boolean; at: Date }> {
     const classId = classItem.id;
@@ -473,6 +626,10 @@ class NotificationService {
       classTime: classItem.time,
       classDay: classItem.day || classItem.reminderDay,
       isClassReminder: true,
+      recurrence: classItem.recurrence,
+      anchorDate: classItem.anchor_date,
+      anchorTimestamp: classItem.anchor_timestamp,
+      scheduledSessionTimestamps: classItem.scheduled_session_timestamps,
     });
   }
 

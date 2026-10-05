@@ -17,13 +17,18 @@ export interface ClassItemData {
   classCode?: string;
   day: any;
   time: string;
-  recurrence: 'every_week' | 'even_weeks' | 'odd_weeks';
+  recurrence: 'every_week' | 'even_weeks' | 'odd_weeks' | 'bi_weekly' | 'biweekly';
+  recurrence_type?: 'even' | 'odd' | 'weekly' | 'bi_weekly';
+  anchor_date?: string;
+  anchor_timestamp?: number;
+  scheduled_session_timestamps?: number[];
   professor?: string;
   location?: string;
   hasReminder?: boolean;
   reminderMode?: 'before_class' | 'exact_time';
   reminderMinutesBefore?: number;
   reminderExactTime?: string;
+  reminderDay?: any;
   reminderTriggerText?: string;
 }
 

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Plus,
   Edit2,
@@ -45,10 +45,11 @@ import { notificationService } from './services/notificationService';
 import { SpringTimePicker } from './components/SpringTimePicker';
 import { DashboardHeaderClock } from './components/Dashboard/DashboardHeaderClock';
 import { ClassFormModal } from './components/ClassModal/ClassFormModal';
+import { SettingsScreen } from './components/Settings/SettingsScreen';
 
 export type WeekDay = 'شنبه' | 'یکشنبه' | 'دوشنبه' | 'سه‌شنبه' | 'چهارشنبه' | 'پنج‌شنبه';
 export type RecurrenceType = 'every_week' | 'even_weeks' | 'odd_weeks' | 'bi_weekly' | 'biweekly';
-type ThemeCategory = 'Dark & Monochromatic' | 'Premium High-Contrast' | 'Light Minimal' | 'Neumorphic';
+export type ThemeCategory = 'Dark & Monochromatic' | 'Premium High-Contrast' | 'Light Minimal' | 'Neumorphic';
 type MainTab = 'home' | 'notes' | 'reports' | 'profile' | 'settings';
 export type FileCategory = 'image' | 'audio' | 'pdf' | 'powerpoint' | 'word' | 'other';
 
@@ -124,7 +125,7 @@ export interface PaletteTheme {
 }
 
 // 12-Theme Engine Specifications - Strictly English Technical Keys
-const THEMES_2026: Record<string, PaletteTheme> = {
+export const THEMES_2026: Record<string, PaletteTheme> = {
   // === DARK & MONOCHROMATIC (4) ===
   'deep-space': {
     id: 'deep-space',
@@ -545,16 +546,16 @@ const RECURRENCE_CONFIG: Record<
     lightColor: '#4338CA',
   },
   even_weeks: {
-    label: 'هفته‌های زوج',
-    bg: 'rgba(16, 185, 129, 0.15)',
-    color: '#10B981',
-    lightColor: '#047857',
+    label: 'یک هفته در میان',
+    bg: 'rgba(99, 102, 241, 0.15)',
+    color: '#6366F1',
+    lightColor: '#4338CA',
   },
   odd_weeks: {
-    label: 'هفته‌های فرد',
-    bg: 'rgba(249, 115, 22, 0.15)',
-    color: '#F97316',
-    lightColor: '#C2410C',
+    label: 'یک هفته در میان',
+    bg: 'rgba(99, 102, 241, 0.15)',
+    color: '#6366F1',
+    lightColor: '#4338CA',
   },
 };
 
@@ -651,7 +652,6 @@ export default function App() {
   const initialSnap = useRef<AppSnapshot | null>(persistenceAdapter.getInitialSnapshotSync()).current;
 
   const [currentThemeId, setCurrentThemeId] = useState<string>(() => initialSnap?.activeThemeId || 'deep-space');
-  const [activeThemeCategory, setActiveThemeCategory] = useState<ThemeCategory>('Dark & Monochromatic');
   const theme = THEMES_2026[currentThemeId] || THEMES_2026['deep-space'];
 
   // Navigation: Active Tab & Floating Radial Menu State
@@ -1435,9 +1435,11 @@ export default function App() {
   });
 
   const deletingTargetClass = classes.find((c) => c.id === deletingId);
-  const currentCategoryThemes = Object.values(THEMES_2026).filter(
-    (t) => t.category === activeThemeCategory
-  );
+
+  const handleSelectTheme = useCallback((themeId: string) => {
+    setCurrentThemeId(themeId);
+    syncBridge.performOptimisticSync(userProfile, classes, sessionLogs, themeId);
+  }, [userProfile, classes, sessionLogs]);
 
   // Academic metrics for Analytics tab
   const totalWeeklyHours = classes.length * 2;
@@ -2432,129 +2434,13 @@ export default function App() {
               </div>
             )}
 
-            {/* 5. SETTINGS TAB: 12-THEME ENGINE WITH STRICT ENGLISH TECHNICAL KEYS */}
+            {/* 5. SETTINGS TAB: MODULAR SETTINGS SCREEN (THEME ENGINE & UPDATE SYSTEM) */}
             {activeTab === 'settings' && (
-              <div className="space-y-6">
-                <div
-                  style={{
-                    backgroundColor: theme.cardBg,
-                    borderColor: theme.borderLuminous,
-                  }}
-                  className="liquid-glass rounded-3xl p-6 border"
-                >
-                  <div
-                    style={{ borderColor: theme.borderLuminous }}
-                    className="flex items-center justify-between pb-4 mb-4 border-b"
-                  >
-                    <div>
-                      <h3 style={{ color: theme.textPrimary }} className="text-lg font-black">
-                        موتور پوسته ۱۲گانه Cyber-Luxe 2026
-                      </h3>
-                      <p style={{ color: theme.textSecondary }} className="text-xs font-semibold mt-0.5">
-                        انتخاب از بین دسته‌های Dark & Monochromatic، Premium High-Contrast، Light Minimal و Neumorphic
-                      </p>
-                    </div>
-                    <div
-                      style={{
-                        color: theme.primary,
-                        borderColor: theme.borderLuminous,
-                        backgroundColor: theme.innerBg,
-                      }}
-                      className="w-10 h-10 rounded-2xl flex items-center justify-center border"
-                    >
-                      <Palette className="w-5 h-5" />
-                    </div>
-                  </div>
-
-                  {/* Category switcher */}
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-4">
-                    {(
-                      [
-                        'Dark & Monochromatic',
-                        'Premium High-Contrast',
-                        'Light Minimal',
-                        'Neumorphic',
-                      ] as ThemeCategory[]
-                    ).map((cat) => {
-                      const isSel = activeThemeCategory === cat;
-                      return (
-                        <button
-                          key={cat}
-                          onClick={() => setActiveThemeCategory(cat)}
-                          style={{
-                            backgroundColor: isSel ? theme.primary : theme.innerBg,
-                            borderColor: isSel ? theme.primaryLight : theme.borderLuminous,
-                            color: isSel ? '#FFFFFF' : theme.textPrimary,
-                          }}
-                          className="py-2.5 px-2 rounded-xl font-bold text-xs border transition-all cursor-pointer text-center truncate shadow-xs"
-                        >
-                          {cat}
-                        </button>
-                      );
-                    })}
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
-                    {currentCategoryThemes.map((t) => {
-                      const isSelected = currentThemeId === t.id;
-                      return (
-                        <div
-                          key={t.id}
-                          onClick={() => {
-                            setCurrentThemeId(t.id);
-                            syncBridge.performOptimisticSync(userProfile, classes, sessionLogs, t.id);
-                          }}
-                          style={{
-                            backgroundColor: t.cardBg,
-                            borderColor: isSelected
-                              ? t.primary
-                              : (theme.isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(15, 23, 42, 0.12)'),
-                            boxShadow: isSelected ? `0 0 20px ${t.glowColor}` : theme.shadowFlat,
-                          }}
-                          className={`liquid-glass-interactive rounded-2xl p-4 border flex items-center justify-between cursor-pointer transition-all ${
-                            isSelected ? 'ring-2 ring-blue-500/50' : ''
-                          }`}
-                        >
-                          <div>
-                            <div className="flex items-center gap-2">
-                              {/* Strictly English technical keys (e.g. 'deep-space', 'neo-ice') */}
-                              <span style={{ color: t.textPrimary }} className="text-sm font-black font-mono">
-                                '{t.id}'
-                              </span>
-                              {isSelected && (
-                                <span
-                                  style={{ backgroundColor: t.primary }}
-                                  className="text-[10px] text-white font-extrabold px-2 py-0.5 rounded-full"
-                                >
-                                  ACTIVE
-                                </span>
-                              )}
-                            </div>
-                            <span style={{ color: theme.textSecondary }} className="text-[11px] font-semibold block mt-0.5 font-mono">
-                              {t.category} • {t.bg}
-                            </span>
-                          </div>
-
-                          <div className="flex items-center gap-1.5" dir="ltr">
-                            <span
-                              style={{ backgroundColor: t.bg, borderColor: t.borderLuminous }}
-                              className="w-5 h-5 rounded-full border shadow-sm"
-                            />
-                            <span
-                              style={{ backgroundColor: t.innerBg, borderColor: t.borderLuminous }}
-                              className="w-5 h-5 rounded-full border shadow-sm"
-                            />
-                            <span
-                              style={{ backgroundColor: t.primary }}
-                              className="w-5 h-5 rounded-full shadow-sm"
-                            />
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              </div>
+              <SettingsScreen
+                theme={theme}
+                currentThemeId={currentThemeId}
+                onSelectTheme={handleSelectTheme}
+              />
             )}
 
             {/* Interactive "Made by null" branding footer visible across all tabs */}

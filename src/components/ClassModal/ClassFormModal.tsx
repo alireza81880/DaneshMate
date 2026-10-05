@@ -99,10 +99,14 @@ export const ClassFormModal: React.FC<ClassFormModalProps> = React.memo(({
         setFormDay(editingClass.day);
         setFormTime(editingClass.time);
         setFormCustomTime(!COMMON_SLOTS.includes(editingClass.time) ? editingClass.time : '');
-        setFormRecurrence(editingClass.recurrence);
+        const rawRec = editingClass.recurrence;
+        const normRec: RecurrenceType = (rawRec === 'even_weeks' || rawRec === 'odd_weeks' || rawRec === 'biweekly')
+          ? 'bi_weekly'
+          : (rawRec || 'every_week');
+        setFormRecurrence(normRec);
         setFormAnchorDate(editingClass.anchor_date || '');
         setFormAnchorTimestamp(editingClass.anchor_timestamp);
-        setFormAnchorLabel(editingClass.anchor_date ? `مبدأ دوره: ${editingClass.anchor_date}` : '');
+        setFormAnchorLabel(editingClass.anchor_date ? `تاریخ اولین جلسه: ${editingClass.anchor_date}` : '');
         setFormScheduledSessions(editingClass.scheduled_session_timestamps || []);
         setFormProfessor(editingClass.professor || '');
         setFormLocation(editingClass.location || '');
@@ -214,10 +218,16 @@ export const ClassFormModal: React.FC<ClassFormModalProps> = React.memo(({
     const dayName = dayNames[d.getDay()] || '';
     const label = `${dayName} ${toPersianDigits(day)} ${monthName}`;
 
-    // Generate 8 bi-weekly sessions for 16 academic weeks
+    // Generate bi-weekly sessions for academic semester (14-day intervals)
     const sessions: number[] = [];
-    for (let i = 0; i < 8; i++) {
+    for (let i = 0; i < 16; i++) {
       sessions.push(timestamp + i * (14 * 24 * 60 * 60 * 1000));
+    }
+
+    // Automatically align form day with selected first session
+    const validWeekdays: WeekDay[] = ['شنبه', 'یکشنبه', 'دوشنبه', 'سه‌شنبه', 'چهارشنبه', 'پنج‌شنبه'];
+    if (validWeekdays.includes(dayName as WeekDay)) {
+      setFormDay(dayName as WeekDay);
     }
 
     setFormAnchorDate(formattedDate);
@@ -248,13 +258,7 @@ export const ClassFormModal: React.FC<ClassFormModalProps> = React.memo(({
     }
 
     const recType: 'even' | 'odd' | 'weekly' | 'bi_weekly' =
-      formRecurrence === 'even_weeks'
-        ? 'even'
-        : formRecurrence === 'odd_weeks'
-        ? 'odd'
-        : formRecurrence === 'bi_weekly' || formRecurrence === 'biweekly'
-        ? 'bi_weekly'
-        : 'weekly';
+      formRecurrence === 'every_week' ? 'weekly' : 'bi_weekly';
 
     const reminderTriggerText = formReminderMode === 'before_class'
       ? (formReminderBefore === 0
@@ -494,12 +498,10 @@ export const ClassFormModal: React.FC<ClassFormModalProps> = React.memo(({
               <label style={{ color: theme.textPrimary }} className="block text-xs font-bold mb-1.5 text-right">
                 چرخه برگزاری کلاس <span className="text-rose-500">*</span>
               </label>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              <div className="grid grid-cols-2 gap-2.5">
                 {[
-                  { key: 'every_week' as RecurrenceType, label: 'هر هفته', icon: '🔁' },
-                  { key: 'even_weeks' as RecurrenceType, label: 'هفته‌های زوج', icon: '✌️' },
-                  { key: 'odd_weeks' as RecurrenceType, label: 'هفته‌های فرد', icon: '☝️' },
-                  { key: 'bi_weekly' as RecurrenceType, label: 'یک هفته در میان', icon: '📅' },
+                  { key: 'every_week' as RecurrenceType, label: 'هر هفته', subtitle: 'برگزاری پیوسته در تمام هفته‌ها', icon: '🔁' },
+                  { key: 'bi_weekly' as RecurrenceType, label: 'یک هفته در میان', subtitle: 'بر اساس تاریخ واقعی اولین جلسه', icon: '📅' },
                 ].map((opt) => {
                   const isSel = formRecurrence === opt.key;
                   return (
@@ -520,10 +522,11 @@ export const ClassFormModal: React.FC<ClassFormModalProps> = React.memo(({
                         color: isSel ? '#FFFFFF' : theme.textSecondary,
                         boxShadow: isSel ? `0 0 10px ${theme.glowColor}` : 'none',
                       }}
-                      className="py-2.5 px-1 rounded-xl text-xs font-bold border transition-all cursor-pointer flex flex-col items-center gap-1 active:scale-95"
+                      className="py-2.5 px-2 rounded-xl text-xs font-bold border transition-all cursor-pointer flex flex-col items-center gap-1 active:scale-95"
                     >
-                      <span className="text-sm">{opt.icon}</span>
-                      <span>{opt.label}</span>
+                      <span className="text-base">{opt.icon}</span>
+                      <span className="font-extrabold">{opt.label}</span>
+                      <span className="text-[10px] opacity-80 font-normal">{opt.subtitle}</span>
                     </button>
                   );
                 })}
@@ -543,7 +546,7 @@ export const ClassFormModal: React.FC<ClassFormModalProps> = React.memo(({
                     <div className="flex items-center gap-2">
                       <Calendar className="w-4 h-4 text-sky-400 shrink-0" />
                       <span style={{ color: theme.textPrimary }} className="text-xs font-bold">
-                        مبدأ دوره: {formAnchorLabel || formAnchorDate} • پیش‌بینی ۸ جلسه تا پایان ترم
+                        تاریخ اولین جلسه: {formAnchorLabel || formAnchorDate}
                       </span>
                     </div>
                     <button
@@ -552,12 +555,12 @@ export const ClassFormModal: React.FC<ClassFormModalProps> = React.memo(({
                       style={{ backgroundColor: theme.primary }}
                       className="px-2.5 py-1 rounded-xl text-[11px] font-bold text-white shadow-sm hover:opacity-90 cursor-pointer"
                     >
-                      تغییر تاریخ مبدأ
+                      تغییر تاریخ اولین جلسه
                     </button>
                   </div>
                   {formScheduledSessions.length > 0 && (
                     <div className="text-[10.5px] text-emerald-400 font-semibold mt-1.5 pt-1.5 border-t border-white/5">
-                      ✓ ۸ جلسه تحصیلی به فواصل ۱۴ روزه در تقویم ترم ثبت گردید.
+                      ✓ جلسات کلاس هر ۱۴ روز یک‌بار بر مبنای تاریخ اولین جلسه زمان‌بندی و یادآوری می‌شوند.
                     </div>
                   )}
                 </div>
@@ -568,7 +571,7 @@ export const ClassFormModal: React.FC<ClassFormModalProps> = React.memo(({
                   className="w-full mt-2.5 p-2.5 rounded-2xl border border-amber-500/30 bg-amber-500/10 text-amber-300 text-xs font-bold flex items-center justify-center gap-2 hover:bg-amber-500/20 cursor-pointer"
                 >
                   <AlertTriangle className="w-4 h-4" />
-                  <span>برای کلاس چرخشی، لطفاً تاریخ اولین جلسه (مبدأ) را مشخص نمایید</span>
+                  <span>برای کلاس چرخشی، لطفاً تاریخ اولین جلسه را مشخص نمایید</span>
                 </button>
               ) : null}
             </div>
