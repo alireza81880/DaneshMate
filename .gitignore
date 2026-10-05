@@ -45,6 +45,10 @@ artifacts/
 *.key
 *.mobileprovision
 *.orig.*
+RELEASE_KEYSTORE_BASE64.txt
+RELEASE_CREDENTIALS.txt
+KEYSTORE_INFO.txt
+daneshmate-release.jks
 
 # ------------------------------------------------------------------------------
 # 4. Android Native Platform
