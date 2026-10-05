@@ -33,7 +33,7 @@ import ir.myket.billingclient.util.SkuDetails;
 
 /**
  * Native Capacitor Plugin bridging DaneshMate with official Myket Billing Client 1.19.
- * Handles strictly consumable voluntary developer-support purchases (support_10k, support_30k, support_50k).
+ * Handles strictly consumable voluntary developer-support purchases (support_coffee, support_treat, support_code).
  * No subscriptions, no feature locks, no hardcoded local prices.
  */
 @CapacitorPlugin(name = "MyketBilling")
@@ -46,13 +46,13 @@ public class MyketBillingPlugin extends Plugin {
     private static final String PREFS_NAME = "daneshmate_myket_billing_prefs";
     private static final String PREF_PENDING_PAYLOAD_PREFIX = "pending_payload_";
 
-    // Allowed consumable voluntary support SKUs
-    public static final String SKU_SUPPORT_10K = "support_10k";
-    public static final String SKU_SUPPORT_30K = "support_30k";
-    public static final String SKU_SUPPORT_50K = "support_50k";
+    // Allowed consumable voluntary support SKUs (Neutral semantic IDs)
+    public static final String SKU_SUPPORT_COFFEE = "support_coffee";
+    public static final String SKU_SUPPORT_TREAT = "support_treat";
+    public static final String SKU_SUPPORT_CODE = "support_code";
 
     public static final Set<String> ALLOWED_SKUS = Collections.unmodifiableSet(
-        new HashSet<>(Arrays.asList(SKU_SUPPORT_10K, SKU_SUPPORT_30K, SKU_SUPPORT_50K))
+        new HashSet<>(Arrays.asList(SKU_SUPPORT_COFFEE, SKU_SUPPORT_TREAT, SKU_SUPPORT_CODE))
     );
 
     private IabHelper mHelper;

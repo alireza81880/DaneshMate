@@ -2,6 +2,7 @@ import React from 'react';
 import { PaletteTheme } from '../../App';
 import { ThemeEngineCard } from './ThemeEngineCard';
 import { UpdateSettingsCard } from './UpdateSettingsCard';
+import { MyketSupportCard } from './MyketSupportCard';
 
 export interface SettingsScreenProps {
   theme: PaletteTheme;
@@ -22,6 +23,7 @@ export const SettingsScreen: React.FC<SettingsScreenProps> = React.memo(({
         onSelectTheme={onSelectTheme}
       />
       <UpdateSettingsCard theme={theme} />
+      <MyketSupportCard theme={theme} variant="full" />
     </div>
   );
 });

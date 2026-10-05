@@ -15,7 +15,6 @@ export interface MyketBillingAvailability {
 
 export interface SupportProductDetail {
   sku: MyketSupportSku;
-  internalLabel: string;
   title: string;
   price: string; // Authoritative price directly from Myket SkuDetails.getPrice()
   description: string;
@@ -171,7 +170,6 @@ class MyketBillingService {
       if (meta) {
         items.push({
           sku: meta.sku,
-          internalLabel: meta.internalLabel,
           title: remote.title || meta.title,
           price: remote.price, // STRICTLY from Myket
           description: remote.description || meta.description,
@@ -276,6 +274,13 @@ class MyketBillingService {
 
       throw new Error(errMsg || 'PURCHASE_ERROR: خطا در انجام پرداخت درون‌برنامه‌ای مایکت.');
     }
+  }
+
+  /**
+   * Alias for purchase method to support standard naming
+   */
+  public async purchaseSupport(sku: MyketSupportSku): Promise<PurchaseSuccessResult> {
+    return this.purchase(sku);
   }
 
   /**

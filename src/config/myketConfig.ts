@@ -2,15 +2,15 @@
  * Myket In-App Purchase Configuration & Metadata Definitions
  * Consumable developer-support purchases (No subscriptions, No premium locks).
  * 
- * IMPORTANT: In compliance with Myket rules, all authoritative purchase prices
- * MUST be queried dynamically from Myket via SkuDetails. No prices are hardcoded here.
+ * IMPORTANT: Neutral semantic SKU names (support_coffee, support_treat, support_code).
+ * All authoritative prices MUST be queried dynamically from Myket via SkuDetails.
+ * Absolutely NO hardcoded prices.
  */
 
-export type MyketSupportSku = 'support_10k' | 'support_30k' | 'support_50k';
+export type MyketSupportSku = 'support_coffee' | 'support_treat' | 'support_code';
 
 export interface SupportProductMetadata {
   sku: MyketSupportSku;
-  internalLabel: string;
   title: string;
   description: string;
   icon: string;
@@ -20,31 +20,32 @@ export interface SupportProductMetadata {
 export const MYKET_CONFIG = {
   // Myket package identifier
   packageId: 'ir.mservices.market',
-  // Consumable support tiers allowlist
-  supportedSkus: ['support_10k', 'support_30k', 'support_50k'] as const,
+  // Consumable support tiers allowlist (Strictly neutral semantic IDs)
+  supportedSkus: ['support_coffee', 'support_treat', 'support_code'] as const,
+  // Main copy
+  mainTitle: '☕ یه قهوه مهمونم میکنی؟',
+  mainSubtitle: 'دانشمیت به‌صورت مستقل توسعه پیدا میکنه. اگه برنامه برات مفید بوده، با یه قهوه کوچیک کمک کن ادامه‌ش بدم ❤️',
+  compactSubtitle: 'اگه دانشمیت برات مفید بوده، با یه حمایت کوچیک کمکم کن ادامه‌ش بدم.',
 } as const;
 
 export const SUPPORT_PRODUCTS_METADATA: readonly SupportProductMetadata[] = [
   {
-    sku: 'support_10k',
-    internalLabel: 'حمایت ۱۰ هزار تومانی',
-    title: 'یک فنجان چای داغ',
-    description: 'حمایت داوطلبانه نمادین برای همراهی با توسعه دانش‌میت',
+    sku: 'support_coffee',
+    title: '☕ یک قهوه برای توسعه‌دهنده',
+    description: 'حمایت داوطلبانه برای شارژ انرژی و ادامه توسعه',
     icon: '☕',
   },
   {
-    sku: 'support_30k',
-    internalLabel: 'حمایت ۳۰ هزار تومانی',
-    title: 'یک دفترچه یادداشت',
-    description: 'حمایت ویژه از زیرساخت و به‌روزرسانی مداوم برنامه',
-    icon: '📓',
+    sku: 'support_treat',
+    title: '🍪 قهوه و شیرینی برای ادامه مسیر',
+    description: 'حمایت ویژه برای استمرار و ارتقای مداوم برنامه',
+    icon: '🍪',
     badge: 'پیشنهادی',
   },
   {
-    sku: 'support_50k',
-    internalLabel: 'حمایت ۵۰ هزار تومانی',
-    title: 'یک کتابخانه پویا',
-    description: 'حمایت طلایی برای پایداری و رشد امکانات پیشرفته دانش‌میت',
-    icon: '🌟',
+    sku: 'support_code',
+    title: '⚡ یه شب کدنویسی بیشتر',
+    description: 'حمایت پرانرژی برای افزودن قابلیت‌های جدید و پیشرفته',
+    icon: '⚡',
   },
 ];

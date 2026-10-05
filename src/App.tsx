@@ -46,6 +46,7 @@ import { SpringTimePicker } from './components/SpringTimePicker';
 import { DashboardHeaderClock } from './components/Dashboard/DashboardHeaderClock';
 import { ClassFormModal } from './components/ClassModal/ClassFormModal';
 import { SettingsScreen } from './components/Settings/SettingsScreen';
+import { MyketSupportCard } from './components/Settings/MyketSupportCard';
 
 export type WeekDay = 'شنبه' | 'یکشنبه' | 'دوشنبه' | 'سه‌شنبه' | 'چهارشنبه' | 'پنج‌شنبه';
 export type RecurrenceType = 'every_week' | 'even_weeks' | 'odd_weeks' | 'bi_weekly' | 'biweekly';
@@ -2076,6 +2077,9 @@ export default function App() {
                     </div>
                   )}
                 </div>
+
+                {/* Compact Myket support card at bottom of Home tab */}
+                <MyketSupportCard theme={theme} variant="compact" />
               </div>
             )}
 
@@ -2249,6 +2253,9 @@ export default function App() {
                     </button>
                   </div>
                 </div>
+
+                {/* Compact Myket support card at bottom of Notes tab */}
+                <MyketSupportCard theme={theme} variant="compact" />
               </div>
             )}
 
@@ -2334,6 +2341,9 @@ export default function App() {
                     })}
                   </div>
                 </div>
+
+                {/* Compact Myket support card at bottom of Reports tab */}
+                <MyketSupportCard theme={theme} variant="compact" />
               </div>
             )}
 
@@ -2430,6 +2440,9 @@ export default function App() {
                     </div>
                   </div>
                 </div>
+
+                {/* Compact Myket support card at bottom of Profile tab */}
+                <MyketSupportCard theme={theme} variant="compact" />
               </div>
             )}
 
