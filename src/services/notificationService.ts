@@ -1,8 +1,39 @@
 import { Capacitor } from '@capacitor/core';
 import { LocalNotifications, ActionPerformed } from '@capacitor/local-notifications';
-import { parseTime } from '../utils/time';
+import { parseTime, toPersianDigits } from '../utils/time';
 
 const CHANNEL_ID = 'daneshmate-reminders';
+
+/**
+ * Generate exactly 8 bi-weekly session calendar dates for a 16-week academic horizon.
+ * Uses local calendar date arithmetic to prevent daylight saving/timezone drift.
+ * Occurrences: anchor (+0 days), +14 days, +28 days, +42 days, +56 days, +70 days, +84 days, +98 days.
+ * Note: +112 days is 16 full weeks later and marks the end/beyond the semester, so it is strictly excluded.
+ */
+export function generateBiWeeklyOccurrences(anchorTimestamp: number): number[] {
+  const occurrences: number[] = [];
+  const base = new Date(anchorTimestamp);
+  for (let i = 0; i < 8; i++) {
+    const occ = new Date(base.getFullYear(), base.getMonth(), base.getDate());
+    occ.setDate(occ.getDate() + i * 14);
+    occurrences.push(occ.getTime());
+  }
+  return occurrences;
+}
+
+/**
+ * Generate 16 weekly session calendar dates for a 16-week academic semester.
+ */
+export function generateWeeklyOccurrences(anchorOrStartTimestamp: number): number[] {
+  const occurrences: number[] = [];
+  const base = new Date(anchorOrStartTimestamp);
+  for (let i = 0; i < 16; i++) {
+    const occ = new Date(base.getFullYear(), base.getMonth(), base.getDate());
+    occ.setDate(occ.getDate() + i * 7);
+    occurrences.push(occ.getTime());
+  }
+  return occurrences;
+}
 
 export interface ScheduleReminderOptions {
   id?: string;
@@ -137,6 +168,20 @@ class NotificationService {
       hash |= 0;
     }
     return Math.abs(hash) % 2147483647;
+  }
+
+  /**
+   * Compute deterministic, collision-resistant positive 31-bit integer ID for each class occurrence
+   */
+  public getClassOccurrenceNotificationId(classId: string, occurrenceTimestamp: number): number {
+    const key = `cls_${classId}_${occurrenceTimestamp}`;
+    let hash = 2166136261;
+    for (let i = 0; i < key.length; i++) {
+      hash ^= key.charCodeAt(i);
+      hash = Math.imul(hash, 16777619);
+    }
+    const id = (hash >>> 0) % 2147483647;
+    return id === 0 ? 1 : id;
   }
 
   /**
@@ -371,139 +416,113 @@ class NotificationService {
   }
 
   /**
-   * Calculate scheduled Date for a recurring class based on:
-   * 1. Real first session date (anchor timestamp / scheduled sessions), completely independent of broken even/odd assumptions.
-   * 2. Recurrence pattern (weekly = 7 days, bi-weekly = 14 days from first session).
-   * 3. Configurable alert offset (minutes before class or exact clock time).
+   * Calculate exact notification fire Date for an occurrence day based on class time and reminder settings.
    */
-  public calculateClassReminderDate(options: {
-    classDay?: string;
-    classTime?: string;
-    reminderMode?: 'before_class' | 'exact_time';
-    minutesBefore?: number;
-    exactTime?: string;
-    recurrence?: string;
-    anchorTimestamp?: number;
-    scheduledSessionTimestamps?: number[];
-    trigger?: string;
-  }): Date {
-    const now = Date.now();
+  public calculateOccurrenceFireDate(
+    occurrenceTimestamp: number,
+    classTime?: string,
+    reminderMode?: 'before_class' | 'exact_time',
+    minutesBefore?: number,
+    exactTime?: string,
+    trigger?: string
+  ): Date {
+    const baseDate = new Date(occurrenceTimestamp);
 
-    // 1. Parse class start time (default 08:00)
+    // Parse class start hour & minute (default 08:00)
     let classHour = 8;
     let classMin = 0;
-    if (options.classTime) {
-      const match = options.classTime.match(/(\d{1,2}):(\d{2})/);
+    if (classTime) {
+      const match = classTime.match(/(\d{1,2}):(\d{2})/);
       if (match) {
         classHour = parseInt(match[1], 10);
         classMin = parseInt(match[2], 10);
       }
     }
 
-    // 2. Determine target hour and minute for the notification
-    const isExact = options.reminderMode === 'exact_time' && Boolean(options.exactTime);
-    let remHour = classHour;
-    let remMin = classMin;
-    let minutesOffset = 0;
-
-    if (isExact && options.exactTime) {
-      const parsedExact = parseTime(options.exactTime);
-      if (parsedExact) {
-        remHour = parsedExact.hour;
-        remMin = parsedExact.minute;
-      }
-    } else {
-      minutesOffset = this.parseMinutesBefore(options.trigger, options.minutesBefore);
+    const isExact = reminderMode === 'exact_time' && Boolean(exactTime);
+    if (isExact && exactTime) {
+      const parsedExact = parseTime(exactTime);
+      const remHour = parsedExact ? parsedExact.hour : classHour;
+      const remMin = parsedExact ? parsedExact.minute : classMin;
+      return new Date(baseDate.getFullYear(), baseDate.getMonth(), baseDate.getDate(), remHour, remMin, 0, 0);
     }
 
-    const computeFireTimestamp = (baseDate: Date): number => {
-      const d = new Date(baseDate.getFullYear(), baseDate.getMonth(), baseDate.getDate(), remHour, remMin, 0, 0);
-      if (!isExact && minutesOffset > 0) {
-        return d.getTime() - minutesOffset * 60 * 1000;
-      }
-      return d.getTime();
-    };
+    const minutesOffset = this.parseMinutesBefore(trigger, minutesBefore);
+    const classStart = new Date(baseDate.getFullYear(), baseDate.getMonth(), baseDate.getDate(), classHour, classMin, 0, 0);
+    return new Date(classStart.getTime() - minutesOffset * 60 * 1000);
+  }
+
+  /**
+   * Determine all expected future occurrences (and deterministic notification IDs) for a class within 16-week horizon.
+   */
+  public getClassExpectedOccurrences(
+    classItem: any,
+    now: number = Date.now()
+  ): { occurrenceTimestamp: number; fireDate: Date; notifId: number }[] {
+    if (!classItem.hasReminder) return [];
 
     const isBiWeekly =
-      options.recurrence === 'bi_weekly' ||
-      options.recurrence === 'biweekly' ||
-      options.recurrence === 'even_weeks' ||
-      options.recurrence === 'odd_weeks';
+      classItem.recurrence === 'bi_weekly' ||
+      classItem.recurrence === 'biweekly' ||
+      classItem.recurrence === 'even_weeks' ||
+      classItem.recurrence === 'odd_weeks';
 
-    // 3. Bi-weekly / Alternating weeks: Strictly based on real session anchor date (14-day intervals)
+    let sessionTimestamps: number[] = [];
+
     if (isBiWeekly) {
-      let sessions = options.scheduledSessionTimestamps && options.scheduledSessionTimestamps.length > 0
-        ? [...options.scheduledSessionTimestamps]
-        : [];
-
-      if (sessions.length === 0 && options.anchorTimestamp) {
-        const base = options.anchorTimestamp;
-        for (let i = 0; i < 20; i++) {
-          sessions.push(base + i * 14 * 24 * 60 * 60 * 1000);
+      // Requirement 11: If bi-weekly and NO anchor_timestamp, do NOT guess. Return empty.
+      if (!classItem.anchor_timestamp) {
+        console.warn(`[NotificationService] Class ${classItem.id} (${classItem.name}) is bi-weekly but has no anchor_timestamp; skipping reminders.`);
+        return [];
+      }
+      sessionTimestamps = generateBiWeeklyOccurrences(classItem.anchor_timestamp);
+    } else {
+      // Weekly schedule
+      let startTimestamp = classItem.anchor_timestamp;
+      if (!startTimestamp) {
+        const PERSIAN_DAY_TO_JS: Record<string, number> = {
+          'یکشنبه': 0, 'دوشنبه': 1, 'سه‌شنبه': 2, 'چهارشنبه': 3, 'پنج‌شنبه': 4, 'جمعه': 5, 'شنبه': 6,
+        };
+        const targetDayIndex = classItem.day ? PERSIAN_DAY_TO_JS[classItem.day] : undefined;
+        const nowDate = new Date(now);
+        if (targetDayIndex !== undefined) {
+          const daysAhead = (targetDayIndex - nowDate.getDay() + 7) % 7;
+          const nextDay = new Date(nowDate.getFullYear(), nowDate.getMonth(), nowDate.getDate() + daysAhead);
+          startTimestamp = nextDay.getTime();
+        } else {
+          startTimestamp = now;
         }
       }
+      sessionTimestamps = generateWeeklyOccurrences(startTimestamp);
+    }
 
-      if (sessions.length > 0) {
-        sessions.sort((a, b) => a - b);
-        for (const sTimestamp of sessions) {
-          const sDate = new Date(sTimestamp);
-          const fireTime = computeFireTimestamp(sDate);
-          if (fireTime > now) {
-            return new Date(fireTime);
-          }
-        }
-        // If all pre-generated sessions have passed, project forward every 14 days
-        let lastSession = sessions[sessions.length - 1];
-        for (let step = 0; step < 52; step++) {
-          lastSession += 14 * 24 * 60 * 60 * 1000;
-          const sDate = new Date(lastSession);
-          const fireTime = computeFireTimestamp(sDate);
-          if (fireTime > now) {
-            return new Date(fireTime);
-          }
-        }
+    const isExact = classItem.reminderMode === 'exact_time' && Boolean(classItem.reminderExactTime);
+    const minsBefore = isExact ? undefined : (classItem.reminderMinutesBefore ?? 30);
+
+    const occurrences: { occurrenceTimestamp: number; fireDate: Date; notifId: number }[] = [];
+
+    for (const occTs of sessionTimestamps) {
+      const fireDate = this.calculateOccurrenceFireDate(
+        occTs,
+        classItem.time,
+        classItem.reminderMode || (isExact ? 'exact_time' : 'before_class'),
+        minsBefore,
+        classItem.reminderExactTime,
+        classItem.reminderTriggerText
+      );
+
+      // Only schedule future occurrences
+      if (fireDate.getTime() > now) {
+        const notifId = this.getClassOccurrenceNotificationId(classItem.id, occTs);
+        occurrences.push({
+          occurrenceTimestamp: occTs,
+          fireDate,
+          notifId,
+        });
       }
     }
 
-    // 4. Weekly schedule or fallback if no anchor was specified
-    const PERSIAN_DAY_TO_JS: Record<string, number> = {
-      'یکشنبه': 0,
-      'دوشنبه': 1,
-      'سه‌شنبه': 2,
-      'چهارشنبه': 3,
-      'پنج‌شنبه': 4,
-      'جمعه': 5,
-      'شنبه': 6,
-    };
-    const targetDayIndex = options.classDay ? PERSIAN_DAY_TO_JS[options.classDay] : undefined;
-    const nowDate = new Date(now);
-
-    if (targetDayIndex !== undefined) {
-      let daysAhead = (targetDayIndex - nowDate.getDay() + 7) % 7;
-      let candidateDate = new Date(nowDate.getFullYear(), nowDate.getMonth(), nowDate.getDate() + daysAhead);
-
-      // If an anchor timestamp is set in the future, don't schedule before the real first session
-      if (options.anchorTimestamp) {
-        const anchorDate = new Date(options.anchorTimestamp);
-        const candMidnight = new Date(candidateDate.getFullYear(), candidateDate.getMonth(), candidateDate.getDate()).getTime();
-        const anchorMidnight = new Date(anchorDate.getFullYear(), anchorDate.getMonth(), anchorDate.getDate()).getTime();
-        if (candMidnight < anchorMidnight) {
-          candidateDate = anchorDate;
-        }
-      }
-
-      let fireTime = computeFireTimestamp(candidateDate);
-      if (fireTime <= now) {
-        const stepDays = isBiWeekly ? 14 : 7;
-        candidateDate = new Date(candidateDate.getFullYear(), candidateDate.getMonth(), candidateDate.getDate() + stepDays);
-        fireTime = computeFireTimestamp(candidateDate);
-      }
-      return new Date(fireTime);
-    }
-
-    // Default 24h fallback
-    const fallbackDate = new Date(nowDate.getFullYear(), nowDate.getMonth(), nowDate.getDate() + 1, remHour, remMin, 0, 0);
-    return fallbackDate;
+    return occurrences;
   }
 
   /**
@@ -523,46 +542,24 @@ class NotificationService {
     // Cancel any previous notification for this item to prevent duplicates
     await this.cancelReminder(targetId);
 
-    const scheduleDate = opts.isClassReminder
-      ? this.calculateClassReminderDate({
-          classDay: opts.classDay,
-          classTime: opts.classTime,
-          reminderMode: opts.reminderMode,
-          minutesBefore: opts.minutesBefore,
-          exactTime: opts.exactTime,
-          recurrence: opts.recurrence,
-          anchorTimestamp: opts.anchorTimestamp,
-          scheduledSessionTimestamps: opts.scheduledSessionTimestamps,
-          trigger: opts.trigger,
-        })
-      : this.calculateScheduleDate(
-          opts.trigger,
-          opts.snoozedUntil,
-          opts.classTime,
-          opts.classDay,
-          opts.minutesBefore,
-          opts.exactTime,
-          opts.exactTimestamp
-        );
+    const scheduleDate = this.calculateScheduleDate(
+      opts.trigger,
+      opts.snoozedUntil,
+      opts.classTime,
+      opts.classDay,
+      opts.minutesBefore,
+      opts.exactTime,
+      opts.exactTimestamp
+    );
 
     const occurrenceDate = scheduleDate.toISOString().split('T')[0];
     const occurrenceTimestamp = scheduleDate.getTime();
 
     // Concise, readable Persian notification titles & bodies (Part 8)
-    let notifTitle = '';
-    let notifBody = '';
-
-    if (opts.isClassReminder) {
-      // CLASS REMINDER
-      notifTitle = '🎓 یادآوری کلاس';
-      notifBody = `کلاس ${opts.className}\nشروع: ${opts.classTime || ''}`;
-    } else {
-      // SESSION / TIMELINE REMINDER (One-time)
-      notifTitle = '📚 یادآوری جلسه';
-      const timeStr = opts.exactTime || scheduleDate.toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' });
-      const dateStr = opts.sessionDateStr || scheduleDate.toLocaleDateString('fa-IR');
-      notifBody = `مرور جلسه ${opts.className} را فراموش نکن.\nتاریخ: ${dateStr}\nساعت: ${timeStr}`;
-    }
+    const notifTitle = '📚 یادآوری جلسه';
+    const timeStr = opts.exactTime || scheduleDate.toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' });
+    const dateStr = opts.sessionDateStr || scheduleDate.toLocaleDateString('fa-IR');
+    const notifBody = `مرور جلسه ${opts.className} را فراموش نکن.\nتاریخ: ${dateStr}\nساعت: ${timeStr}`;
 
     if (Capacitor.isNativePlatform()) {
       try {
@@ -579,7 +576,6 @@ class NotificationService {
               channelId: CHANNEL_ID,
               smallIcon: 'ic_launcher_foreground',
               sound: 'beep.wav',
-              // No action buttons (Part 7: purely informational)
               extra: {
                 id: targetId,
                 logId: opts.logId,
@@ -588,7 +584,7 @@ class NotificationService {
                 location: opts.location,
                 classTime: opts.classTime,
                 classDay: opts.classDay,
-                isClassReminder: Boolean(opts.isClassReminder),
+                isClassReminder: false,
                 notesText: opts.notesText,
                 occurrenceDate,
                 occurrenceTimestamp,
@@ -609,28 +605,95 @@ class NotificationService {
   }
 
   /**
-   * Schedule class-level recurring reminder (Real first session date & recurrence cycle)
+   * Schedule all class-level recurring reminder occurrences (up to 8 alarms for bi-weekly, 16 for weekly)
    */
-  public async scheduleClassReminder(classItem: any): Promise<{ scheduled: boolean; at: Date }> {
+  public async scheduleClassReminder(classItem: any): Promise<{ scheduled: boolean; scheduledCount: number; occurrences: Date[]; at?: Date }> {
     const classId = classItem.id;
-    const isExact = classItem.reminderMode === 'exact_time' && Boolean(classItem.reminderExactTime);
-    return this.scheduleReminder({
-      id: `cls_${classId}`,
-      classId,
-      className: classItem.name,
-      location: classItem.location,
-      trigger: classItem.reminderTriggerText,
-      reminderMode: classItem.reminderMode || (isExact ? 'exact_time' : 'before_class'),
-      minutesBefore: isExact ? undefined : (classItem.reminderMinutesBefore ?? 30),
-      exactTime: isExact ? classItem.reminderExactTime : undefined,
-      classTime: classItem.time,
-      classDay: classItem.day || classItem.reminderDay,
-      isClassReminder: true,
-      recurrence: classItem.recurrence,
-      anchorDate: classItem.anchor_date,
-      anchorTimestamp: classItem.anchor_timestamp,
-      scheduledSessionTimestamps: classItem.scheduled_session_timestamps,
+
+    // 1. Cancel previous occurrences for this class before scheduling new ones
+    await this.cancelClassReminder(classId, classItem);
+
+    if (!classItem.hasReminder) {
+      return { scheduled: false, scheduledCount: 0, occurrences: [] };
+    }
+
+    const isBiWeekly =
+      classItem.recurrence === 'bi_weekly' ||
+      classItem.recurrence === 'biweekly' ||
+      classItem.recurrence === 'even_weeks' ||
+      classItem.recurrence === 'odd_weeks';
+
+    if (isBiWeekly && !classItem.anchor_timestamp) {
+      console.warn(`[NotificationService] Cannot schedule bi-weekly reminder for class ${classItem.name}: missing anchor_timestamp.`);
+      return { scheduled: false, scheduledCount: 0, occurrences: [] };
+    }
+
+    const expectedOccurrences = this.getClassExpectedOccurrences(classItem);
+    if (expectedOccurrences.length === 0) {
+      console.info(`[NotificationService] No upcoming occurrences to schedule for class ${classItem.name}.`);
+      return { scheduled: false, scheduledCount: 0, occurrences: [] };
+    }
+
+    // 2. Ensure permission & channel once for all occurrences
+    const hasPerm = await this.requestPermissions();
+    if (!hasPerm) {
+      throw new Error('مجوز نمایش اعلان‌ها تأیید نشد. لطفاً در تنظیمات سیستم مجوز نوتیفیکیشن را فعال فرمایید.');
+    }
+    await this.ensureChannel();
+
+    // 3. Batch prepare all future occurrence notifications
+    const cycleLabel = isBiWeekly ? 'یک هفته در میان' : 'هفتگی';
+    const notifTitle = isBiWeekly ? '🎓 یادآوری کلاس (یک هفته در میان)' : '🎓 یادآوری کلاس';
+
+    const notificationsBatch = expectedOccurrences.map(({ occurrenceTimestamp, fireDate, notifId }, index) => {
+      const occurrenceDate = new Date(occurrenceTimestamp).toISOString().split('T')[0];
+      const timeStr = classItem.time || '';
+      const notifBody = `کلاس ${classItem.name} (${cycleLabel})\nشروع: ${timeStr}\nجلسه ${toPersianDigits(index + 1)}`;
+
+      return {
+        id: notifId,
+        title: notifTitle,
+        body: notifBody,
+        schedule: {
+          at: fireDate,
+          allowWhileIdle: true,
+        },
+        channelId: CHANNEL_ID,
+        smallIcon: 'ic_launcher_foreground',
+        sound: 'beep.wav',
+        extra: {
+          id: `cls_${classId}_${occurrenceTimestamp}`,
+          classId: classId,
+          className: classItem.name,
+          location: classItem.location,
+          classTime: classItem.time,
+          classDay: classItem.day,
+          isClassReminder: true,
+          occurrenceDate,
+          occurrenceTimestamp,
+        },
+      };
     });
+
+    if (Capacitor.isNativePlatform()) {
+      try {
+        await LocalNotifications.schedule({ notifications: notificationsBatch });
+        console.log(`[NotificationService] Successfully scheduled ${notificationsBatch.length} occurrences for class ${classItem.name}`);
+      } catch (err: any) {
+        console.error('[NotificationService] Native batch schedule failure:', err);
+        throw new Error(err?.message || 'خطا در زمان‌بندی آلارم در سیستم‌عامل اندروید');
+      }
+    } else {
+      console.log(`[NotificationService Web] Simulated batch schedule for ${notificationsBatch.length} occurrences of class ${classItem.name}`);
+    }
+
+    const fireDates = expectedOccurrences.map((o) => o.fireDate);
+    return {
+      scheduled: true,
+      scheduledCount: notificationsBatch.length,
+      occurrences: fireDates,
+      at: fireDates[0],
+    };
   }
 
   /**
@@ -655,14 +718,63 @@ class NotificationService {
   }
 
   /**
-   * Cancel class reminder
+   * Cancel all notifications for a given class (all occurrence IDs + legacy single ID)
    */
-  public async cancelClassReminder(classId: string): Promise<void> {
-    await this.cancelReminder(`cls_${classId}`);
+  public async cancelClassReminder(classId: string, classItem?: any): Promise<void> {
+    if (!Capacitor.isNativePlatform()) return;
+
+    try {
+      const idsToCancel = new Set<number>();
+
+      // 1. Cancel legacy single notification ID
+      idsToCancel.add(this.getNotificationId(`cls_${classId}`));
+
+      // 2. If anchor or scheduled timestamps are known, compute and cancel all occurrence IDs
+      const anchorTs = classItem?.anchor_timestamp;
+      if (anchorTs) {
+        const biWeeklyOccs = generateBiWeeklyOccurrences(anchorTs);
+        for (const ts of biWeeklyOccs) {
+          idsToCancel.add(this.getClassOccurrenceNotificationId(classId, ts));
+        }
+        const weeklyOccs = generateWeeklyOccurrences(anchorTs);
+        for (const ts of weeklyOccs) {
+          idsToCancel.add(this.getClassOccurrenceNotificationId(classId, ts));
+        }
+      }
+
+      if (classItem?.scheduled_session_timestamps) {
+        for (const ts of classItem.scheduled_session_timestamps) {
+          idsToCancel.add(this.getClassOccurrenceNotificationId(classId, ts));
+        }
+      }
+
+      // 3. Inspect pending native notifications to catch any orphaned/previous occurrence of this class
+      try {
+        const pending = await LocalNotifications.getPending();
+        for (const p of pending.notifications) {
+          if (p.extra?.classId === classId || p.extra?.id?.startsWith(`cls_${classId}`)) {
+            idsToCancel.add(p.id);
+          }
+        }
+      } catch (err) {
+        console.warn('[NotificationService] Pending inspection during cancel warning:', err);
+      }
+
+      const notifArray = Array.from(idsToCancel).map((id) => ({ id }));
+      if (notifArray.length > 0) {
+        await LocalNotifications.cancel({ notifications: notifArray });
+        await LocalNotifications.removeDeliveredNotifications({
+          notifications: notifArray.map((n) => ({ id: n.id, title: '', body: '' })),
+        }).catch(() => {});
+        console.log(`[NotificationService] Cancelled ${notifArray.length} occurrence alarms for class ${classId}`);
+      }
+    } catch (e) {
+      console.warn('[NotificationService] Cancel error (tolerated):', e);
+    }
   }
 
   /**
-   * Synchronize pending native notifications with local active session logs & classes (No Snooze)
+   * Synchronize pending native notifications with local active session logs & classes (Multi-Occurrence Support)
    */
   public async syncPendingNotifications(sessionLogs: any[], classes: any[]): Promise<void> {
     if (!Capacitor.isNativePlatform()) return;
@@ -704,27 +816,70 @@ class NotificationService {
         }
       }
 
-      // 2. Sync class-level recurring reminders
+      // 2. Sync class-level recurring occurrences
       const activeClassesWithReminder = classes.filter((c) => c.hasReminder);
       for (const cls of activeClassesWithReminder) {
-        const classTargetId = `cls_${cls.id}`;
-        const notifId = this.getNotificationId(classTargetId);
-        activeExpectedIds.add(notifId);
+        const expectedOccurrences = this.getClassExpectedOccurrences(cls, now);
+        const missingNotifications: any[] = [];
 
-        if (!pendingIds.has(notifId)) {
+        const isBiWeekly =
+          cls.recurrence === 'bi_weekly' ||
+          cls.recurrence === 'biweekly' ||
+          cls.recurrence === 'even_weeks' ||
+          cls.recurrence === 'odd_weeks';
+
+        const cycleLabel = isBiWeekly ? 'یک هفته در میان' : 'هفتگی';
+        const notifTitle = isBiWeekly ? '🎓 یادآوری کلاس (یک هفته در میان)' : '🎓 یادآوری کلاس';
+
+        expectedOccurrences.forEach(({ occurrenceTimestamp, fireDate, notifId }, index) => {
+          activeExpectedIds.add(notifId);
+
+          if (!pendingIds.has(notifId)) {
+            const occurrenceDate = new Date(occurrenceTimestamp).toISOString().split('T')[0];
+            const timeStr = cls.time || '';
+            const notifBody = `کلاس ${cls.name} (${cycleLabel})\nشروع: ${timeStr}\nجلسه ${toPersianDigits(index + 1)}`;
+
+            missingNotifications.push({
+              id: notifId,
+              title: notifTitle,
+              body: notifBody,
+              schedule: {
+                at: fireDate,
+                allowWhileIdle: true,
+              },
+              channelId: CHANNEL_ID,
+              smallIcon: 'ic_launcher_foreground',
+              sound: 'beep.wav',
+              extra: {
+                id: `cls_${cls.id}_${occurrenceTimestamp}`,
+                classId: cls.id,
+                className: cls.name,
+                location: cls.location,
+                classTime: cls.time,
+                classDay: cls.day,
+                isClassReminder: true,
+                occurrenceDate,
+                occurrenceTimestamp,
+              },
+            });
+          }
+        });
+
+        if (missingNotifications.length > 0) {
           try {
-            await this.scheduleClassReminder(cls);
-          } catch (e) {
-            console.warn('[NotificationService] Reschedule error for class:', e);
+            await LocalNotifications.schedule({ notifications: missingNotifications });
+            console.log(`[NotificationService] Restored ${missingNotifications.length} missing notifications for class ${cls.name}`);
+          } catch (err) {
+            console.warn(`[NotificationService] Error restoring occurrences for class ${cls.name}:`, err);
           }
         }
       }
 
       // 3. Cancel orphaned native notifications
-      for (const p of pending.notifications) {
-        if (!activeExpectedIds.has(p.id)) {
-          await LocalNotifications.cancel({ notifications: [{ id: p.id }] }).catch(() => {});
-        }
+      const orphanedIds = pending.notifications.filter((p) => !activeExpectedIds.has(p.id)).map((p) => ({ id: p.id }));
+      if (orphanedIds.length > 0) {
+        await LocalNotifications.cancel({ notifications: orphanedIds }).catch(() => {});
+        console.log(`[NotificationService] Cancelled ${orphanedIds.length} orphaned notifications`);
       }
     } catch (e) {
       console.warn('[NotificationService] Sync failed:', e);

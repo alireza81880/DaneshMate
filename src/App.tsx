@@ -953,9 +953,13 @@ export default function App() {
     (async () => {
       try {
         if (classForNotif.hasReminder) {
+          // If editing, explicitly cancel previous occurrences first before scheduling new ones
+          if (!isNew && editingClass) {
+            await notificationService.cancelClassReminder(editingClass.id, editingClass);
+          }
           await notificationService.scheduleClassReminder(classForNotif);
         } else if (!isNew) {
-          await notificationService.cancelClassReminder(classForNotif.id);
+          await notificationService.cancelClassReminder(classForNotif.id, editingClass || undefined);
         }
       } catch (err) {
         console.warn('[ClassReminder] Schedule error:', err);
@@ -967,7 +971,8 @@ export default function App() {
 
   const handleConfirmDelete = async () => {
     if (deletingId) {
-      await notificationService.cancelClassReminder(deletingId).catch(() => {});
+      const clsToDelete = classes.find((c) => c.id === deletingId);
+      await notificationService.cancelClassReminder(deletingId, clsToDelete).catch(() => {});
       const logsToDelete = sessionLogs.filter((l) => l.classId === deletingId);
       for (const log of logsToDelete) {
         await notificationService.cancelReminder(log.id);
@@ -1487,27 +1492,9 @@ export default function App() {
     );
   };
 
-  // Pure Interactive "Made by null" branding & Support footer
+  // Pure Interactive "Made by null" branding footer
   const renderNullFooter = () => (
     <div className="flex flex-col items-center justify-center my-6 gap-2 select-none">
-      {/* Subtle Support / Donation Link */}
-      <a
-        href="https://donofa.ir/alirezaz_dev"
-        target="_blank"
-        rel="noopener noreferrer"
-        style={{
-          backgroundColor: theme.innerBg,
-          borderColor: theme.borderLuminous,
-          color: theme.textSecondary,
-        }}
-        className="flex items-center gap-2 px-3.5 py-1.5 rounded-2xl text-[11px] font-bold border hover:border-rose-400 hover:text-white transition-all shadow-sm group cursor-pointer"
-        aria-label="حمایت مالی از پروژه در دونوفا"
-      >
-        <span className="text-rose-500 group-hover:scale-110 transition-transform">♥</span>
-        <span>حمایت مالی از پروژه</span>
-        <span style={{ color: theme.primary }} className="text-[10px]">✦</span>
-      </a>
-
       {/* Strictly LTR, NO wrapper pill container, NO background borders, effects ONLY on "null" */}
       <div className="flex items-center justify-center py-1 select-none" dir="ltr">
         <span
@@ -1987,10 +1974,22 @@ export default function App() {
                                   {recCfg.label}
                                 </span>
                                 {cls.hasReminder && (
-                                  <span className="px-2 py-0.5 rounded-lg bg-rose-500/15 text-rose-500 text-[10px] font-bold flex items-center gap-1 border border-rose-500/20">
-                                    <Bell className="w-3 h-3" />
-                                    <span>یادآور فعال</span>
-                                  </span>
+                                  (cls.recurrence !== 'every_week' && !cls.anchor_timestamp) ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleOpenEdit(cls)}
+                                      className="px-2 py-0.5 rounded-lg bg-amber-500/15 text-amber-400 text-[10px] font-bold flex items-center gap-1 border border-amber-500/30 hover:bg-amber-500/25 transition-colors cursor-pointer"
+                                      title="برای فعال‌سازی آلارم یک هفته در میان، تاریخ اولین جلسه را مشخص فرمایید"
+                                    >
+                                      <AlertTriangle className="w-3 h-3 text-amber-400" />
+                                      <span>تعیین تاریخ اولین جلسه</span>
+                                    </button>
+                                  ) : (
+                                    <span className="px-2 py-0.5 rounded-lg bg-rose-500/15 text-rose-500 text-[10px] font-bold flex items-center gap-1 border border-rose-500/20">
+                                      <Bell className="w-3 h-3" />
+                                      <span>یادآور فعال</span>
+                                    </span>
+                                  )
                                 )}
                               </div>
                             </div>

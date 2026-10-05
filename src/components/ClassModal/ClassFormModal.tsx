@@ -9,6 +9,7 @@ import {
   Check,
 } from 'lucide-react';
 import { SpringTimePicker } from '../SpringTimePicker';
+import { generateBiWeeklyOccurrences } from '../../services/notificationService';
 import {
   ClassItem,
   WeekDay,
@@ -218,11 +219,8 @@ export const ClassFormModal: React.FC<ClassFormModalProps> = React.memo(({
     const dayName = dayNames[d.getDay()] || '';
     const label = `${dayName} ${toPersianDigits(day)} ${monthName}`;
 
-    // Generate bi-weekly sessions for academic semester (14-day intervals)
-    const sessions: number[] = [];
-    for (let i = 0; i < 16; i++) {
-      sessions.push(timestamp + i * (14 * 24 * 60 * 60 * 1000));
-    }
+    // Generate exactly 8 bi-weekly sessions for 16 academic weeks (14-day intervals)
+    const sessions = generateBiWeeklyOccurrences(timestamp);
 
     // Automatically align form day with selected first session
     const validWeekdays: WeekDay[] = ['شنبه', 'یکشنبه', 'دوشنبه', 'سه‌شنبه', 'چهارشنبه', 'پنج‌شنبه'];
@@ -234,6 +232,7 @@ export const ClassFormModal: React.FC<ClassFormModalProps> = React.memo(({
     setFormAnchorTimestamp(timestamp);
     setFormAnchorLabel(label);
     setFormScheduledSessions(sessions);
+    setConflictError(null);
     setIsJalaliSpringModalOpen(false);
   };
 
@@ -242,6 +241,22 @@ export const ClassFormModal: React.FC<ClassFormModalProps> = React.memo(({
     if (!formName.trim()) {
       setClassErrors({ name: 'ورود نام کلاس الزامی است' });
       return;
+    }
+
+    // Requirements 12 & 13: Strict validation for bi-weekly classes
+    if (formRecurrence !== 'every_week') {
+      if (!formAnchorDate || !formAnchorTimestamp) {
+        setConflictError('برای کلاس یک هفته در میان، تاریخ اولین جلسه را مشخص کنید.');
+        return;
+      }
+
+      const anchorD = new Date(formAnchorTimestamp);
+      const dayNames = ['یکشنبه', 'دوشنبه', 'سه‌شنبه', 'چهارشنبه', 'پنج‌شنبه', 'جمعه', 'شنبه'];
+      const anchorDayName = dayNames[anchorD.getDay()];
+      if (anchorDayName !== formDay) {
+        setConflictError('روز کلاس باید با تاریخ اولین جلسه یکسان باشد.');
+        return;
+      }
     }
 
     const finalTime = formCustomTime.trim() ? formCustomTime.trim() : formTime;
@@ -260,11 +275,15 @@ export const ClassFormModal: React.FC<ClassFormModalProps> = React.memo(({
     const recType: 'even' | 'odd' | 'weekly' | 'bi_weekly' =
       formRecurrence === 'every_week' ? 'weekly' : 'bi_weekly';
 
+    const recurrencePrefix = formRecurrence === 'every_week'
+      ? `هر هفته (${formDay})`
+      : `هر دو هفته یک‌بار (${formDay})`;
+
     const reminderTriggerText = formReminderMode === 'before_class'
       ? (formReminderBefore === 0
-          ? `هم‌زمان با شروع کلاس (${formDay})`
-          : `${toPersianDigits(formReminderBefore)} دقیقه قبل از شروع کلاس (${formDay})`)
-      : `ساعت ${toPersianDigits(formReminderExactTime)} روز ${formDay}`;
+          ? `هم‌زمان با شروع کلاس • ${recurrencePrefix}`
+          : `${toPersianDigits(formReminderBefore)} دقیقه قبل از شروع کلاس • ${recurrencePrefix}`)
+      : `ساعت ${toPersianDigits(formReminderExactTime)} • ${recurrencePrefix}`;
 
     const isNew = !editingClass;
     const savedClass: ClassItem = {
@@ -370,6 +389,17 @@ export const ClassFormModal: React.FC<ClassFormModalProps> = React.memo(({
                       onClick={() => {
                         setFormDay(d);
                         setConflictError(null);
+                        // Requirements 12 & 13: If bi-weekly and anchor date doesn't match new day, clear it so user selects a valid anchor
+                        if (formRecurrence !== 'every_week' && formAnchorTimestamp) {
+                          const anchorD = new Date(formAnchorTimestamp);
+                          const dayNames = ['یکشنبه', 'دوشنبه', 'سه‌شنبه', 'چهارشنبه', 'پنج‌شنبه', 'جمعه', 'شنبه'];
+                          if (dayNames[anchorD.getDay()] !== d) {
+                            setFormAnchorDate('');
+                            setFormAnchorTimestamp(undefined);
+                            setFormAnchorLabel('');
+                            setFormScheduledSessions([]);
+                          }
+                        }
                       }}
                       style={{
                         backgroundColor: isSel ? theme.primary : theme.innerBg,
@@ -560,7 +590,7 @@ export const ClassFormModal: React.FC<ClassFormModalProps> = React.memo(({
                   </div>
                   {formScheduledSessions.length > 0 && (
                     <div className="text-[10.5px] text-emerald-400 font-semibold mt-1.5 pt-1.5 border-t border-white/5">
-                      ✓ جلسات کلاس هر ۱۴ روز یک‌بار بر مبنای تاریخ اولین جلسه زمان‌بندی و یادآوری می‌شوند.
+                      ✓ پیش‌بینی ۸ جلسه تا پایان ۱۶ هفته (هر ۱۴ روز یک‌بار) با موفقیت تنظیم گردید.
                     </div>
                   )}
                 </div>

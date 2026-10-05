@@ -10,6 +10,7 @@
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
     "test:ffi": "tsx scripts/run_smoke_test.ts",
+    "test:reminder": "tsx scripts/run_reminder_tests.ts",
     "build:rust:release": "cd backend && cargo build --release",
     "cap:sync": "npm run build && npx cap sync android",
     "cap:build:apk": "npm run cap:sync && cd android && ./gradlew assembleDebug"
