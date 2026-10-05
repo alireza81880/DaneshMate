@@ -181,32 +181,41 @@ jobs:
           RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
           RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
           RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+          MYKET_PUBLIC_KEY: ${{ secrets.MYKET_PUBLIC_KEY }}
           IS_RELEASE_BUILD: ${{ needs.version-check.outputs.should_release }}
         run: |
           if [ "$IS_RELEASE_BUILD" = "true" ]; then
-            # Verify that all 4 required secrets exist without printing values
-            MISSING_SECRETS=0
-            if [ -z "$RELEASE_KEYSTORE_BASE64" ]; then MISSING_SECRETS=1; fi
-            if [ -z "$RELEASE_KEYSTORE_PASSWORD" ]; then MISSING_SECRETS=1; fi
-            if [ -z "$RELEASE_KEY_ALIAS" ]; then MISSING_SECRETS=1; fi
-            if [ -z "$RELEASE_KEY_PASSWORD" ]; then MISSING_SECRETS=1; fi
+            # Verify required production release secrets without exposing values
+            MISSING_SECRETS=""
+            if [ -z "$RELEASE_KEYSTORE_BASE64" ]; then MISSING_SECRETS="${MISSING_SECRETS}\n  - RELEASE_KEYSTORE_BASE64"; fi
+            if [ -z "$RELEASE_KEYSTORE_PASSWORD" ]; then MISSING_SECRETS="${MISSING_SECRETS}\n  - RELEASE_KEYSTORE_PASSWORD"; fi
+            if [ -z "$RELEASE_KEY_ALIAS" ]; then MISSING_SECRETS="${MISSING_SECRETS}\n  - RELEASE_KEY_ALIAS"; fi
+            if [ -z "$RELEASE_KEY_PASSWORD" ]; then MISSING_SECRETS="${MISSING_SECRETS}\n  - RELEASE_KEY_PASSWORD"; fi
+            if [ -z "$MYKET_PUBLIC_KEY" ]; then MISSING_SECRETS="${MISSING_SECRETS}\n  - MYKET_PUBLIC_KEY"; fi
 
-            if [ "$MISSING_SECRETS" -ne 0 ]; then
+            if [ -n "$MISSING_SECRETS" ]; then
               echo "================================================================="
-              echo "[-] ERROR: Release keystore is not configured."
+              echo "[-] ERROR: Required GitHub Actions Secret(s) are missing or empty:"
+              echo -e "$MISSING_SECRETS"
               echo ""
-              echo "Required GitHub Secrets:"
-              echo "- RELEASE_KEYSTORE_BASE64"
-              echo "- RELEASE_KEYSTORE_PASSWORD"
-              echo "- RELEASE_KEY_ALIAS"
-              echo "- RELEASE_KEY_PASSWORD"
+              echo "Please configure these secrets in your GitHub repository settings:"
+              echo "  GitHub Repo -> Settings -> Secrets and variables -> Actions -> New repository secret"
               echo "================================================================="
               exit 1
             fi
 
-            # Safely write temporary keystore outside repository tree
-            echo "$RELEASE_KEYSTORE_BASE64" | base64 -d > "${{ runner.temp }}/daneshmate-release.keystore"
-            echo "[✓] Production release keystore successfully decoded into ${{ runner.temp }}/daneshmate-release.keystore"
+            # Safely decode temporary keystore outside repository tree
+            if ! echo "$RELEASE_KEYSTORE_BASE64" | base64 -d > "${{ runner.temp }}/daneshmate-release.keystore"; then
+              echo "[-] ERROR: Failed to decode RELEASE_KEYSTORE_BASE64. Ensure the secret contains valid Base64 string."
+              exit 1
+            fi
+
+            if [ ! -s "${{ runner.temp }}/daneshmate-release.keystore" ]; then
+              echo "[-] ERROR: Decoded keystore file is empty (0 bytes). Please verify RELEASE_KEYSTORE_BASE64."
+              exit 1
+            fi
+
+            echo "[✓] Production release keystore successfully verified and decoded into ${{ runner.temp }}/daneshmate-release.keystore"
           else
             echo "[i] PR / CI Validation Build: Skipping production keystore decoding."
           fi
