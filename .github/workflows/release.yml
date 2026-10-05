@@ -185,18 +185,27 @@ jobs:
           IS_RELEASE_BUILD: ${{ needs.version-check.outputs.should_release }}
         run: |
           if [ "$IS_RELEASE_BUILD" = "true" ]; then
-            # Verify required production release secrets without exposing values
-            MISSING_SECRETS=""
-            if [ -z "$RELEASE_KEYSTORE_BASE64" ]; then MISSING_SECRETS="${MISSING_SECRETS}\n  - RELEASE_KEYSTORE_BASE64"; fi
-            if [ -z "$RELEASE_KEYSTORE_PASSWORD" ]; then MISSING_SECRETS="${MISSING_SECRETS}\n  - RELEASE_KEYSTORE_PASSWORD"; fi
-            if [ -z "$RELEASE_KEY_ALIAS" ]; then MISSING_SECRETS="${MISSING_SECRETS}\n  - RELEASE_KEY_ALIAS"; fi
-            if [ -z "$RELEASE_KEY_PASSWORD" ]; then MISSING_SECRETS="${MISSING_SECRETS}\n  - RELEASE_KEY_PASSWORD"; fi
-            if [ -z "$MYKET_PUBLIC_KEY" ]; then MISSING_SECRETS="${MISSING_SECRETS}\n  - MYKET_PUBLIC_KEY"; fi
+            # 1. Verify required production release secrets without exposing values
+            MISSING_KEYSTORE_SECRETS=""
+            if [ -z "$RELEASE_KEYSTORE_BASE64" ]; then MISSING_KEYSTORE_SECRETS="${MISSING_KEYSTORE_SECRETS}\n  - RELEASE_KEYSTORE_BASE64"; fi
+            if [ -z "$RELEASE_KEYSTORE_PASSWORD" ]; then MISSING_KEYSTORE_SECRETS="${MISSING_KEYSTORE_SECRETS}\n  - RELEASE_KEYSTORE_PASSWORD"; fi
+            if [ -z "$RELEASE_KEY_ALIAS" ]; then MISSING_KEYSTORE_SECRETS="${MISSING_KEYSTORE_SECRETS}\n  - RELEASE_KEY_ALIAS"; fi
+            if [ -z "$RELEASE_KEY_PASSWORD" ]; then MISSING_KEYSTORE_SECRETS="${MISSING_KEYSTORE_SECRETS}\n  - RELEASE_KEY_PASSWORD"; fi
 
-            if [ -n "$MISSING_SECRETS" ]; then
+            MISSING_MYKET_SECRET=""
+            if [ -z "$MYKET_PUBLIC_KEY" ]; then MISSING_MYKET_SECRET="${MISSING_MYKET_SECRET}\n  - MYKET_PUBLIC_KEY"; fi
+
+            if [ -n "$MISSING_KEYSTORE_SECRETS" ] || [ -n "$MISSING_MYKET_SECRET" ]; then
               echo "================================================================="
               echo "[-] ERROR: Required GitHub Actions Secret(s) are missing or empty:"
-              echo -e "$MISSING_SECRETS"
+              if [ -n "$MISSING_KEYSTORE_SECRETS" ]; then
+                echo "Keystore Signing Secrets:"
+                echo -e "$MISSING_KEYSTORE_SECRETS"
+              fi
+              if [ -n "$MISSING_MYKET_SECRET" ]; then
+                echo "Myket In-App Billing Secret:"
+                echo -e "$MISSING_MYKET_SECRET"
+              fi
               echo ""
               echo "Please configure these secrets in your GitHub repository settings:"
               echo "  GitHub Repo -> Settings -> Secrets and variables -> Actions -> New repository secret"
@@ -204,14 +213,21 @@ jobs:
               exit 1
             fi
 
-            # Safely decode temporary keystore outside repository tree
-            if ! echo "$RELEASE_KEYSTORE_BASE64" | base64 -d > "${{ runner.temp }}/daneshmate-release.keystore"; then
+            # 2. Safely decode temporary keystore outside repository tree (stripping any accidental whitespace/newlines)
+            if ! printf '%s' "$RELEASE_KEYSTORE_BASE64" | tr -d '\r\n ' | base64 -d > "${{ runner.temp }}/daneshmate-release.keystore"; then
               echo "[-] ERROR: Failed to decode RELEASE_KEYSTORE_BASE64. Ensure the secret contains valid Base64 string."
               exit 1
             fi
 
             if [ ! -s "${{ runner.temp }}/daneshmate-release.keystore" ]; then
               echo "[-] ERROR: Decoded keystore file is empty (0 bytes). Please verify RELEASE_KEYSTORE_BASE64."
+              exit 1
+            fi
+
+            # 3. Verify keystore integrity with keytool (validates password, alias and certificate)
+            if ! keytool -list -keystore "${{ runner.temp }}/daneshmate-release.keystore" -storepass "$RELEASE_KEYSTORE_PASSWORD" -alias "$RELEASE_KEY_ALIAS" > /dev/null 2>&1; then
+              echo "[-] ERROR: Keystore cannot be opened with the provided RELEASE_KEYSTORE_PASSWORD and RELEASE_KEY_ALIAS."
+              echo "[-] Please verify that RELEASE_KEYSTORE_PASSWORD and RELEASE_KEY_ALIAS match the keystore."
               exit 1
             fi
 
