@@ -6,7 +6,6 @@ import {
   AlertCircle,
   Coffee,
   Info,
-  ChevronDown,
   ChevronUp,
 } from 'lucide-react';
 import { PaletteTheme } from '../../App';
@@ -95,7 +94,7 @@ export const MyketSupportCard: React.FC<MyketSupportCardProps> = React.memo(({
     myketBillingService
       .onPurchaseRecovered((info) => {
         if (info && info.recovered) {
-          setRecoveredNotice('یک خرید پیشین با موفقیت تایید و ثبت شد. ممنون از حمایت شما! ❤️');
+          setRecoveredNotice('یک خرید پیشین با موفقیت تایید و ثبت شد. ممنون از همراهیت! ☕❤️');
           setTimeout(() => setRecoveredNotice(null), 8000);
         }
       })
@@ -240,7 +239,7 @@ export const MyketSupportCard: React.FC<MyketSupportCardProps> = React.memo(({
                   مایکت
                 </span>
               </div>
-              <p style={{ color: theme.textSecondary }} className="text-xs font-semibold mt-1 leading-relaxed">
+              <p style={{ color: theme.textSecondary }} className="text-xs font-semibold mt-1 leading-relaxed max-w-2xl">
                 {MYKET_CONFIG.mainSubtitle}
               </p>
             </div>
@@ -312,30 +311,38 @@ export const MyketSupportCard: React.FC<MyketSupportCardProps> = React.memo(({
             </div>
           )}
 
-          {/* Success State */}
+          {/* Success State with Soft Scale-in & Gentle Glow */}
           {status === 'success' ? (
             <div
               style={{
                 backgroundColor: theme.innerBg,
                 borderColor: theme.primary,
+                boxShadow: `0 0 28px ${theme.glowColor}30`,
               }}
-              className="p-6 rounded-2xl border text-center space-y-4 my-2 transition-all"
+              className="p-6 rounded-2xl border text-center space-y-3.5 my-2 transition-all animate-in fade-in zoom-in-95 duration-300"
             >
               <div
                 style={{
                   backgroundColor: `${theme.primary}20`,
                   color: theme.primary,
+                  boxShadow: `0 0 24px ${theme.glowColor}35`,
                 }}
-                className="w-14 h-14 mx-auto rounded-full flex items-center justify-center text-2xl shadow-inner"
+                className="w-14 h-14 mx-auto rounded-full flex items-center justify-center text-2xl shadow-inner transition-transform"
               >
                 ☕❤️
               </div>
-              <div>
+              <div className="space-y-1">
                 <h4 style={{ color: theme.textPrimary }} className="text-base font-black">
-                  مرسی! قهوه‌م تأمین شد ☕❤️
+                  {MYKET_CONFIG.successTitle}
                 </h4>
-                <p style={{ color: theme.textSecondary }} className="text-xs font-semibold mt-1 leading-relaxed max-w-md mx-auto">
-                  حمایتت به ادامه توسعه و بهتر شدن دانشمیت کمک میکنه.
+                <p style={{ color: theme.textSecondary }} className="text-xs font-semibold leading-relaxed max-w-md mx-auto">
+                  {MYKET_CONFIG.successSubtitle}
+                </p>
+                <p
+                  style={{ color: theme.secondaryAccent || theme.primaryLight || theme.primary }}
+                  className="text-[11px] font-bold mt-1"
+                >
+                  {MYKET_CONFIG.successMicroCopy}
                 </p>
               </div>
               {lastSuccessResult?.orderId && (
@@ -343,18 +350,20 @@ export const MyketSupportCard: React.FC<MyketSupportCardProps> = React.memo(({
                   کد سفارش: {lastSuccessResult.orderId}
                 </p>
               )}
-              <button
-                type="button"
-                onClick={handleResetSuccess}
-                style={{
-                  color: theme.primary,
-                  borderColor: theme.borderLuminous,
-                  backgroundColor: theme.cardBg,
-                }}
-                className="px-5 py-2.5 rounded-xl text-xs font-bold border hover:opacity-85 active:scale-95 transition-all"
-              >
-                حمایت دوباره
-              </button>
+              <div className="pt-1">
+                <button
+                  type="button"
+                  onClick={handleResetSuccess}
+                  style={{
+                    color: theme.primary,
+                    borderColor: theme.borderLuminous,
+                    backgroundColor: theme.cardBg,
+                  }}
+                  className="px-5 py-2.5 rounded-xl text-xs font-bold border hover:opacity-85 active:scale-95 transition-all cursor-pointer"
+                >
+                  حمایت دوباره
+                </button>
+              </div>
             </div>
           ) : !isMyketInstalled ? (
             /* Myket Not Installed State */
@@ -418,7 +427,7 @@ export const MyketSupportCard: React.FC<MyketSupportCardProps> = React.memo(({
                 </div>
               )}
 
-              {/* Subtle cancelled alert (non-alarming) */}
+              {/* Subtle cancelled alert (calm neutral styling) */}
               {cancelledMessage && (
                 <div
                   style={{
@@ -438,6 +447,7 @@ export const MyketSupportCard: React.FC<MyketSupportCardProps> = React.memo(({
                 {SUPPORT_PRODUCTS_METADATA.map((meta) => {
                   const remote = products.find((p) => p.sku === meta.sku);
                   const isSelected = selectedSku === meta.sku;
+                  const isRecommended = meta.sku === 'support_treat';
                   const priceText =
                     status === 'loading-products'
                       ? 'در حال دریافت قیمت...'
@@ -451,20 +461,33 @@ export const MyketSupportCard: React.FC<MyketSupportCardProps> = React.memo(({
                       aria-pressed={isSelected}
                       aria-label={`${meta.title}، ${priceText}`}
                       style={{
-                        backgroundColor: isSelected ? `${theme.primary}12` : theme.innerBg,
-                        borderColor: isSelected ? theme.primary : theme.borderLuminous,
-                        boxShadow: isSelected ? `0 0 14px ${theme.glowColor}20` : 'none',
+                        backgroundColor: isSelected
+                          ? `${theme.primary}15`
+                          : isRecommended
+                          ? `${theme.secondaryAccent || theme.primary}0a`
+                          : theme.innerBg,
+                        borderColor: isSelected
+                          ? theme.primary
+                          : isRecommended
+                          ? `${theme.secondaryAccent || theme.primary}50`
+                          : theme.borderLuminous,
+                        boxShadow: isSelected
+                          ? `0 0 16px ${theme.glowColor}25`
+                          : isRecommended
+                          ? `0 0 10px ${(theme.secondaryAccent || theme.glowColor)}15`
+                          : 'none',
                       }}
-                      className="relative p-4 rounded-2xl border text-right transition-all flex flex-col justify-between group hover:border-opacity-100 active:scale-98 min-h-[110px]"
+                      className="relative p-4 rounded-2xl border text-right transition-all flex flex-col justify-between group hover:border-opacity-100 active:scale-98 min-h-[115px] cursor-pointer"
                     >
-                      {/* Recommended badge */}
+                      {/* Recommended badge with theme-compatible accent */}
                       {meta.badge && (
                         <span
                           style={{
-                            backgroundColor: theme.primary,
+                            backgroundColor: theme.secondaryAccent || theme.primary,
                             color: '#FFFFFF',
+                            boxShadow: `0 2px 8px ${theme.glowColor}35`,
                           }}
-                          className="absolute -top-2 left-3 text-[10px] font-black px-2 py-0.5 rounded-full shadow-xs"
+                          className="absolute -top-2 left-3 text-[10px] font-black px-2 py-0.5 rounded-full shadow-xs tracking-wide"
                         >
                           {meta.badge}
                         </span>
@@ -499,7 +522,7 @@ export const MyketSupportCard: React.FC<MyketSupportCardProps> = React.memo(({
                         </div>
                       </div>
 
-                      {/* Real live price returned by Myket */}
+                      {/* Real live price returned exclusively by Myket */}
                       <div className="mt-3 pt-2 border-t border-dashed" style={{ borderColor: theme.borderLuminous }}>
                         <span
                           style={{
