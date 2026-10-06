@@ -32,4 +32,4 @@ export type DistributionChannel = 'myket' | 'github';
  * Never infer from whether Myket is installed.
  */
 export const DISTRIBUTION_CHANNEL: DistributionChannel =
-  (import.meta.env.VITE_DISTRIBUTION_CHANNEL as DistributionChannel) || 'myket';
+  (import.meta.env?.VITE_DISTRIBUTION_CHANNEL as DistributionChannel) || 'myket';

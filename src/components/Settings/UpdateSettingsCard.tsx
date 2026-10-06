@@ -202,6 +202,11 @@ export const UpdateSettingsCard: React.FC<UpdateSettingsCardProps> = React.memo(
               <p className="text-[11px] font-semibold text-emerald-400/80 leading-relaxed">
                 نگارش فعلی شما (v{APP_VERSION}) با آخرین نسخه منتشر شده در مخزن هماهنگ و به‌روز است.
               </p>
+              <div className="flex items-center gap-2 pt-1 text-[11px] font-mono">
+                <span className="text-emerald-300 font-bold">نسخه فعلی: v{APP_VERSION}</span>
+                <span className="text-emerald-400/40">•</span>
+                <span className="text-emerald-300 font-bold">آخرین نسخه: v{checkResult?.latestVersion || APP_VERSION}</span>
+              </div>
               {lastCheckedTime && (
                 <span className="text-[10px] text-emerald-400/60 block pt-1 font-mono">
                   آخرین بررسی: امروز ساعت {lastCheckedTime}

@@ -141,8 +141,15 @@ export const MyketSupportCard: React.FC<MyketSupportCardProps> = React.memo(({
     } catch (err: unknown) {
       const rawMsg = err instanceof Error ? err.message : String(err);
 
-      if (rawMsg.includes('USER_CANCELED') || rawMsg.includes('لغو')) {
+      const isCanceled =
+        rawMsg.includes('USER_CANCELED') ||
+        rawMsg.toLowerCase().includes('cancel') ||
+        rawMsg.includes('لغو') ||
+        rawMsg.includes('-1005');
+
+      if (isCanceled) {
         setCancelledMessage('خرید لغو شد.');
+        setErrorMessage(null);
         setStatus('ready');
       } else if (rawMsg.includes('MYKET_NOT_INSTALLED')) {
         setIsMyketInstalled(false);
@@ -585,7 +592,12 @@ export const MyketSupportCard: React.FC<MyketSupportCardProps> = React.memo(({
 function mapErrorCodeToPersian(rawError: string): string {
   if (!rawError) return 'خطای ناشناخته در انجام عملیات پرداخت.';
 
-  if (rawError.includes('USER_CANCELED') || rawError.includes('لغو')) {
+  if (
+    rawError.includes('USER_CANCELED') ||
+    rawError.toLowerCase().includes('cancel') ||
+    rawError.includes('لغو') ||
+    rawError.includes('-1005')
+  ) {
     return 'خرید لغو شد.';
   }
   if (rawError.includes('MYKET_NOT_INSTALLED')) {

@@ -264,8 +264,17 @@ class MyketBillingService {
       const errMsg = err?.message || String(err);
       const code = err?.code;
 
-      if (code === 'USER_CANCELED' || errMsg.includes('USER_CANCELED') || errMsg.includes('لغو')) {
-        throw new Error('USER_CANCELED: فرآیند خرید توسط شما لغو گردید.');
+      const isCanceled =
+        code === 'USER_CANCELED' ||
+        code === '-1005' ||
+        code === 1 ||
+        code === -1005 ||
+        errMsg.includes('USER_CANCELED') ||
+        errMsg.toLowerCase().includes('cancel') ||
+        errMsg.includes('لغو');
+
+      if (isCanceled) {
+        throw new Error('USER_CANCELED: خرید لغو شد.');
       }
 
       if (code === 'MYKET_NOT_INSTALLED' || errMsg.includes('MYKET_NOT_INSTALLED')) {

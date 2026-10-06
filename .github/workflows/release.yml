@@ -504,14 +504,20 @@ jobs:
             ### 📋 مشخصات انتشار
             * **نسخه:** `${{ needs.version-check.outputs.version }}`
             * **نسخه اندروید:** `${{ needs.version-check.outputs.version_code }}`
-            * **معماری:** `arm64-v8a`
+            * **معماری:** `Universal (arm64-v8a + armeabi-v7a)`
             * **نوع انتشار:** Production
             * **داده‌ها:** Local-first / Offline
 
+            ### 🚀 تغییرات و بهبودهای این نگارش
+            * **رفع مشکل اسکرول در برخی صفحات اصلی:** بهبود روانی و حذف تداخل‌های لمسی در ناوبری صفحات اصلی.
+            * **بهبود سازگاری با گوشی‌های اندرویدی قدیمی‌تر:** پشتیبانی همه‌جانبه Universal از هر دو معماری ۶۴ بیتی (`arm64-v8a`) و ۳۲ بیتی (`armeabi-v7a`).
+            * **بهبود تجربه پرداخت و نمایش صحیح لغو خرید:** نمایش وضعیت آرام و خنثی در صورت انصراف کاربر بدون خطای فنی.
+            * **بهبود پایداری و عملکرد کلی برنامه:** بهینه‌سازی بارگذاری المان‌ها، مدیریت حافظه و رندرهای گرافیکی.
+
             ### 📱 نسخه ویژه اندروید (Capacitor + Rust Core)
-            * **معماری بهینه‌شده:** فقط پردازنده‌های ۶۴ بیتی (`arm64-v8a`) با هسته Rust C-ABI و وب‌ویوی بومی Capacitor.
-            * **بهینه‌سازی حجم و سرعت:** طراحی واکنش‌گرا و مدرن بر پایه React 19، Vite و Tailwind v4.
-            * **امنیت و امضا:** کامپایل‌شده با امضای رسمی Production Keystore بدون وابستگی‌های خارجی.
+            * **معماری فراگیر:** کامپایل‌شده برای هر دو معماری `arm64-v8a` و `armeabi-v7a` به همراه هسته بومی C-ABI راست و وب‌ویوی بومی Capacitor.
+            * **بهینه‌سازی حجم و سرعت:** طراحی واکنش‌گرا و سبک بر پایه React، Vite و Tailwind CSS.
+            * **امنیت و امضا:** کامپایل‌شده با امضای رسمی Production Keystore بدون وابستگی خارجی.
             * **کاملاً آفلاین:** عملکرد کامل و مستقل بدون نیاز به اینترنت.
 
             ### 🌐 نسخه وب و تحت مرورگر (PWA)
@@ -529,7 +535,7 @@ jobs:
             ### 🌍 English Summary
             * **Version:** `${{ needs.version-check.outputs.version }}`
             * **Android VersionCode:** `${{ needs.version-check.outputs.version_code }}`
-            * **Architecture:** `arm64-v8a` (Android 64-bit)
+            * **Architecture:** `Universal (arm64-v8a + armeabi-v7a)`
             * **Release Type:** Production
             * **Data Model:** Local-first / Offline
             * **Artifacts:** High-performance signed Android APK and PWA bundle.

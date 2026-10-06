@@ -403,7 +403,15 @@ public class MyketBillingPlugin extends Plugin {
         // Step 5 & 6: Verify successful result and non-null purchase
         if (result == null || result.isFailure() || purchase == null) {
             mPurchaseInProgress.set(false);
-            if (result != null && result.getResponse() == IabHelper.BILLING_RESPONSE_RESULT_USER_CANCELED) {
+            boolean isUserCanceled = (result != null && (
+                result.getResponse() == IabHelper.BILLING_RESPONSE_RESULT_USER_CANCELED ||
+                result.getResponse() == IabHelper.IABHELPER_USER_CANCELLED ||
+                result.getResponse() == 1 ||
+                result.getResponse() == -1005 ||
+                (result.getMessage() != null && result.getMessage().toLowerCase().contains("cancel"))
+            ));
+
+            if (isUserCanceled) {
                 clearPersistedPendingPayload(expectedSku);
                 cleanupActivePurchase(call, "USER_CANCELED", "خرید توسط کاربر لغو شد.");
                 return;
