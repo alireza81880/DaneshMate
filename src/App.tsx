@@ -1552,7 +1552,7 @@ export default function App() {
         style={{
           background: `radial-gradient(circle at 50% 0%, ${theme.glowColor} 0%, transparent 70%)`,
         }}
-        className="fixed top-0 left-0 right-0 h-96 pointer-events-none z-0 opacity-40 blur-3xl"
+        className="fixed top-0 left-0 right-0 h-96 pointer-events-none z-0 opacity-40 blur-3xl transform-gpu will-change-transform"
       />
 
       {/* TOP HEADER: Clean Brand Title & Student Name (Strictly NO technical badges or action icons) */}
@@ -1880,7 +1880,7 @@ export default function App() {
                   </div>
 
                   {/* Day Filters */}
-                  <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-none">
+                  <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-none touch-pan-x">
                     {(['همه', ...WEEK_DAYS] as const).map((day) => {
                       const isSel = selectedDayFilter === day;
                       return (

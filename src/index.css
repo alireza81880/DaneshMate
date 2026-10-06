@@ -77,17 +77,25 @@
     --safe-area-inset-bottom: env(safe-area-inset-bottom, 0px);
   }
 
-  html, body {
+  html {
     background-color: var(--canvas-bg);
     color: inherit;
+    overflow-x: hidden;
+    height: 100%;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    background-color: var(--canvas-bg);
+    color: inherit;
+    min-height: 100%;
     user-select: none;
     -webkit-user-select: none;
     -webkit-font-smoothing: antialiased;
     overflow-x: hidden;
-    overscroll-behavior-y: none;
+    -webkit-overflow-scrolling: touch;
+    touch-action: pan-y;
     -webkit-tap-highlight-color: transparent;
-    padding-top: env(safe-area-inset-top, 0px);
-    padding-bottom: env(safe-area-inset-bottom, 0px);
   }
 }
 

@@ -75,7 +75,7 @@ The temporary keystore is decoded outside the repository tree (`${{ runner.temp 
 
 ## 6. Release Artifacts & Verification
 * **Android Release APK:** `DaneshMate-Android-v${APP_VERSION}.apk` (e.g., `DaneshMate-Android-v1.0.2.apk`).
-  - Architecture: Embedded 64-bit `arm64-v8a` native Rust library + Capacitor WebView container.
+  - Architecture: Universal Android architecture (64-bit arm64-v8a + 32-bit armeabi-v7a) native Rust library + Capacitor WebView container.
   - Validated metadata: `applicationId = com.daneshmate.app`, `versionName = APP_VERSION`, `versionCode = APP_VERSION_CODE`.
   - Signature: Verified via `apksigner verify --print-certs`.
   - Embedded assets: Verified presence of `assets/public/index.html`.
