@@ -231,8 +231,11 @@ class NotificationService {
         const exactStatus = await LocalNotifications.checkExactNotificationSetting();
         if (exactStatus.exact_alarm !== 'granted') {
           console.info('[NotificationService] Exact alarm setting status:', exactStatus);
+          await LocalNotifications.changeExactNotificationSetting();
         }
-      } catch {}
+      } catch (exactErr) {
+        console.warn('[NotificationService] Exact alarm check notice:', exactErr);
+      }
 
       return true;
     } catch (err) {
@@ -557,9 +560,11 @@ class NotificationService {
 
     // Concise, readable Persian notification titles & bodies (Part 8)
     const notifTitle = '📚 یادآوری جلسه';
-    const timeStr = opts.exactTime || scheduleDate.toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' });
-    const dateStr = opts.sessionDateStr || scheduleDate.toLocaleDateString('fa-IR');
-    const notifBody = `مرور جلسه ${opts.className} را فراموش نکن.\nتاریخ: ${dateStr}\nساعت: ${timeStr}`;
+    const rawTime = opts.exactTime || scheduleDate.toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' });
+    const rawDate = opts.sessionDateStr || scheduleDate.toLocaleDateString('fa-IR');
+    const timeStr = toPersianDigits(rawTime);
+    const dateStr = toPersianDigits(rawDate);
+    const notifBody = `مرور جلسه ${opts.className} رو فراموش نکن.\nتاریخ: ${dateStr}\nساعت: ${timeStr}`;
 
     if (Capacitor.isNativePlatform()) {
       try {
@@ -569,6 +574,8 @@ class NotificationService {
               id: notifId,
               title: notifTitle,
               body: notifBody,
+              largeBody: notifBody,
+              isExactNotification: true,
               schedule: {
                 at: scheduleDate,
                 allowWhileIdle: true, // Fire even in Doze / sleep mode
@@ -642,18 +649,24 @@ class NotificationService {
     await this.ensureChannel();
 
     // 3. Batch prepare all future occurrence notifications
-    const cycleLabel = isBiWeekly ? 'یک هفته در میان' : 'هفتگی';
-    const notifTitle = isBiWeekly ? '🎓 یادآوری کلاس (یک هفته در میان)' : '🎓 یادآوری کلاس';
+    const notifTitle = '🎓 یادآوری کلاس';
 
-    const notificationsBatch = expectedOccurrences.map(({ occurrenceTimestamp, fireDate, notifId }, index) => {
+    const notificationsBatch = expectedOccurrences.map(({ occurrenceTimestamp, fireDate, notifId }) => {
       const occurrenceDate = new Date(occurrenceTimestamp).toISOString().split('T')[0];
-      const timeStr = classItem.time || '';
-      const notifBody = `کلاس ${classItem.name} (${cycleLabel})\nشروع: ${timeStr}\nجلسه ${toPersianDigits(index + 1)}`;
+      let startTime = classItem.time || '';
+      const timeMatch = startTime.match(/(\d{1,2}:\d{2})/);
+      if (timeMatch) {
+        startTime = timeMatch[1];
+      }
+      const timeStr = toPersianDigits(startTime);
+      const notifBody = `کلاس ${classItem.name}\nشروع: ${timeStr}`;
 
       return {
         id: notifId,
         title: notifTitle,
         body: notifBody,
+        largeBody: notifBody,
+        isExactNotification: true,
         schedule: {
           at: fireDate,
           allowWhileIdle: true,
@@ -828,21 +841,27 @@ class NotificationService {
           cls.recurrence === 'even_weeks' ||
           cls.recurrence === 'odd_weeks';
 
-        const cycleLabel = isBiWeekly ? 'یک هفته در میان' : 'هفتگی';
-        const notifTitle = isBiWeekly ? '🎓 یادآوری کلاس (یک هفته در میان)' : '🎓 یادآوری کلاس';
+        const notifTitle = '🎓 یادآوری کلاس';
 
-        expectedOccurrences.forEach(({ occurrenceTimestamp, fireDate, notifId }, index) => {
+        expectedOccurrences.forEach(({ occurrenceTimestamp, fireDate, notifId }) => {
           activeExpectedIds.add(notifId);
 
           if (!pendingIds.has(notifId)) {
             const occurrenceDate = new Date(occurrenceTimestamp).toISOString().split('T')[0];
-            const timeStr = cls.time || '';
-            const notifBody = `کلاس ${cls.name} (${cycleLabel})\nشروع: ${timeStr}\nجلسه ${toPersianDigits(index + 1)}`;
+            let startTime = cls.time || '';
+            const timeMatch = startTime.match(/(\d{1,2}:\d{2})/);
+            if (timeMatch) {
+              startTime = timeMatch[1];
+            }
+            const timeStr = toPersianDigits(startTime);
+            const notifBody = `کلاس ${cls.name}\nشروع: ${timeStr}`;
 
             missingNotifications.push({
               id: notifId,
               title: notifTitle,
               body: notifBody,
+              largeBody: notifBody,
+              isExactNotification: true,
               schedule: {
                 at: fireDate,
                 allowWhileIdle: true,
