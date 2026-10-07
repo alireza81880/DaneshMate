@@ -1043,13 +1043,17 @@ export default function App() {
     }
   };
 
-  const handleSaveExactSessionReminder = async (timestamp: number) => {
+  const handleSaveExactSessionReminder = async (timestamp: number, exactHour?: number, exactMinute?: number) => {
     if (!selectedChatSessionLog) return;
     const currentClass = classes.find((c) => c.id === selectedChatSessionLog.classId);
     try {
+      const h = exactHour !== undefined ? exactHour : sessionPickerHour;
+      const m = exactMinute !== undefined ? exactMinute : sessionPickerMin;
       const jDateStr = `${toPersianDigits(sessionPickerYear)}/${toPersianDigits(sessionPickerMonth.toString().padStart(2, '0'))}/${toPersianDigits(sessionPickerDay.toString().padStart(2, '0'))}`;
-      const jTimeStr = `${toPersianDigits(sessionPickerHour.toString().padStart(2, '0'))}:${toPersianDigits(sessionPickerMin.toString().padStart(2, '0'))}`;
+      const jTimeStr = `${toPersianDigits(h.toString().padStart(2, '0'))}:${toPersianDigits(m.toString().padStart(2, '0'))}`;
       const reminderTimeText = `${jDateStr} - ساعت ${jTimeStr}`;
+
+      console.log(`[SESSION REMINDER] schedule requested for log ${selectedChatSessionLog.id} at ${jDateStr} ${jTimeStr} (ts: ${timestamp})`);
 
       await notificationService.scheduleReminder({
         id: selectedChatSessionLog.id,
@@ -1066,6 +1070,8 @@ export default function App() {
         classDay: currentClass?.day,
       });
 
+      console.log(`[SESSION REMINDER] native schedule returned successfully for log ${selectedChatSessionLog.id}`);
+
       const updatedLog: ClassSessionLog = {
         ...selectedChatSessionLog,
         hasReminder: true,
@@ -1077,7 +1083,9 @@ export default function App() {
       setSelectedChatSessionLog(updatedLog);
       const updatedLogs = sessionLogs.map((l) => (l.id === updatedLog.id ? updatedLog : l));
       setSessionLogs(updatedLogs);
-      persistenceAdapter.saveSessionLogs(updatedLogs);
+      await persistenceAdapter.saveSessionLogs(updatedLogs);
+      console.log(`[SESSION REMINDER] persisted for log ${selectedChatSessionLog.id}`);
+
       syncBridge.performOptimisticSync(userProfile, classes, updatedLogs, currentThemeId);
       setIsTimelineReminderOpen(false);
       setIsSessionDatePickerOpen(false);
@@ -1085,6 +1093,7 @@ export default function App() {
       setFileToast('یادآور دقیق جلسه با موفقیت تنظیم شد.');
       setTimeout(() => setFileToast(null), 2500);
     } catch (err: any) {
+      console.error('[SESSION REMINDER] Error in handleSaveExactSessionReminder:', err);
       setFileToast(err?.message || 'خطا در فعال‌سازی یادآور');
       setTimeout(() => setFileToast(null), 3000);
     }
@@ -1382,7 +1391,35 @@ export default function App() {
     };
 
     const updatedLogs = [newLog, ...sessionLogs];
-    // Immediate optimistic UI update (Instant Save Performance)
+
+    // Direct, sequential awaitable scheduling and persistence to guarantee native alarm registration
+    if (sessionHasReminder) {
+      try {
+        console.log(`[SESSION REMINDER] schedule requested for new session log ${newLogId}`);
+        await notificationService.scheduleReminder({
+          id: newLogId,
+          logId: newLogId,
+          classId: sessionClassId,
+          className: currentClass?.name || 'کلاس عمومی',
+          location: currentClass?.location,
+          notesText: sessionNotesText.trim(),
+          trigger: 'زمان مشخص',
+          exactTimestamp,
+          exactTime: jTimeStr,
+          sessionDateStr: jDateStr,
+          classTime: currentClass?.time,
+          classDay: currentClass?.day,
+        });
+        console.log(`[SESSION REMINDER] native schedule returned successfully for new session log ${newLogId}`);
+      } catch (notifErr) {
+        console.warn('[SessionCapture] Notification schedule notice:', notifErr);
+      }
+    }
+    await persistenceAdapter.saveSessionLogs(updatedLogs);
+    console.log(`[SESSION REMINDER] persisted session log ${newLogId}`);
+    syncBridge.pushLocalDeltas(userProfile, classes, updatedLogs, currentThemeId).catch(() => {});
+
+    // Update state and close modal cleanly after persistence is guaranteed
     setSessionLogs(updatedLogs);
     setSessionNotesText('');
     setSessionAttachedFiles([]);
@@ -1395,32 +1432,6 @@ export default function App() {
     setIsSessionCaptureOpen(false);
     setFileToast('جلسه درسی با موفقیت ذخیره گردید.');
     setTimeout(() => setFileToast(null), 2500);
-
-    // Asynchronous background scheduling and persistence
-    (async () => {
-      if (sessionHasReminder) {
-        try {
-          await notificationService.scheduleReminder({
-            id: newLogId,
-            logId: newLogId,
-            classId: sessionClassId,
-            className: currentClass?.name || 'کلاس عمومی',
-            location: currentClass?.location,
-            notesText: sessionNotesText.trim(),
-            trigger: 'زمان مشخص',
-            exactTimestamp,
-            exactTime: jTimeStr,
-            sessionDateStr: jDateStr,
-            classTime: currentClass?.time,
-            classDay: currentClass?.day,
-          });
-        } catch (notifErr) {
-          console.warn('[SessionCapture] Background notification schedule notice:', notifErr);
-        }
-      }
-      await persistenceAdapter.saveSessionLogs(updatedLogs);
-      syncBridge.pushLocalDeltas(userProfile, classes, updatedLogs, currentThemeId).catch(() => {});
-    })();
   };
 
   const formatTimer = (secs: number) => {
@@ -3650,14 +3661,13 @@ export default function App() {
           confirmText="ذخیره یادآور جلسه"
           theme={theme}
           zIndex="z-[210]"
-          onConfirm={(h, m, formatted) => {
+          onConfirm={async (h, m) => {
             setSessionPickerHour(h);
             setSessionPickerMin(m);
-            setIsSessionTimePickerOpen(false);
             if (selectedChatSessionLog) {
               const [gy, gm, gd] = jalaliToGregorian(sessionPickerYear, sessionPickerMonth, sessionPickerDay);
               const targetDate = new Date(gy, gm - 1, gd, h, m, 0);
-              handleSaveExactSessionReminder(targetDate.getTime());
+              await handleSaveExactSessionReminder(targetDate.getTime(), h, m);
             }
           }}
         />

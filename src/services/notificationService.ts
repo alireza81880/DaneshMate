@@ -558,6 +558,8 @@ class NotificationService {
     const occurrenceDate = scheduleDate.toISOString().split('T')[0];
     const occurrenceTimestamp = scheduleDate.getTime();
 
+    console.log(`[SESSION REMINDER] schedule requested for id=${targetId} at ${scheduleDate.toISOString()} (notifId=${notifId})`);
+
     // Concise, readable Persian notification titles & bodies (Part 8)
     const notifTitle = '📚 یادآوری جلسه';
     const rawTime = opts.exactTime || scheduleDate.toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' });
@@ -599,12 +601,14 @@ class NotificationService {
             },
           ],
         });
+        console.log(`[SESSION REMINDER] native schedule returned successfully for id=${targetId} (notifId=${notifId}) at ${scheduleDate.toLocaleString('fa-IR')}`);
         console.log(`[NotificationService] Scheduled notification #${notifId} for ${scheduleDate.toLocaleString('fa-IR')}`);
       } catch (err: any) {
         console.error('[NotificationService] Native schedule failure:', err);
         throw new Error(err?.message || 'خطا در زمان‌بندی آلارم در سیستم‌عامل اندروید');
       }
     } else {
+      console.log(`[SESSION REMINDER] simulated web schedule for id=${targetId} (notifId=${notifId}) at ${scheduleDate.toISOString()}`);
       console.log(`[NotificationService Web] Simulated schedule for #${notifId} at ${scheduleDate.toISOString()}`);
     }
 

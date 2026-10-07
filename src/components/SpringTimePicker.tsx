@@ -17,7 +17,7 @@ export interface SpringTimePickerTheme {
 export interface SpringTimePickerProps {
   isOpen: boolean;
   onClose: () => void;
-  onConfirm: (hour: number, minute: number, formattedTime: string) => void;
+  onConfirm: (hour: number, minute: number, formattedTime: string) => void | Promise<void>;
   initialHour?: number;
   initialMinute?: number;
   title?: string;
@@ -92,12 +92,22 @@ export const SpringTimePicker: React.FC<SpringTimePickerProps> = React.memo(({
     };
   }, []);
 
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
   if (!isOpen) return null;
 
-  const handleConfirm = () => {
-    const formatted = `${selectedHour.toString().padStart(2, '0')}:${selectedMinute.toString().padStart(2, '0')}`;
-    onConfirm(selectedHour, selectedMinute, formatted);
-    onClose();
+  const handleConfirm = async () => {
+    if (isSubmitting) return;
+    try {
+      setIsSubmitting(true);
+      const formatted = `${selectedHour.toString().padStart(2, '0')}:${selectedMinute.toString().padStart(2, '0')}`;
+      await Promise.resolve(onConfirm(selectedHour, selectedMinute, formatted));
+      onClose();
+    } catch (err) {
+      console.error('[SpringTimePicker] Confirmation error:', err);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleHourScroll = (e: React.UIEvent<HTMLDivElement>) => {
@@ -450,23 +460,25 @@ export const SpringTimePicker: React.FC<SpringTimePickerProps> = React.memo(({
             <button
               type="button"
               onClick={onClose}
+              disabled={isSubmitting}
               style={{
                 backgroundColor: theme.innerBg,
                 borderColor: theme.borderLuminous,
                 color: theme.textSecondary,
               }}
-              className="px-3.5 py-2.5 rounded-2xl text-xs font-bold border hover:text-white cursor-pointer transition-colors active:scale-95"
+              className="px-3.5 py-2.5 rounded-2xl text-xs font-bold border hover:text-white cursor-pointer transition-colors active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               انصراف
             </button>
             <button
               type="button"
               onClick={handleConfirm}
+              disabled={isSubmitting}
               style={{
                 backgroundColor: theme.primary,
                 boxShadow: `0 0 14px ${theme.glowColor}`,
               }}
-              className="flex-1 py-2.5 px-3 rounded-2xl text-xs font-black text-white shadow-md cursor-pointer hover:opacity-95 flex items-center justify-center gap-1.5 transition-all active:scale-[0.98]"
+              className="flex-1 py-2.5 px-3 rounded-2xl text-xs font-black text-white shadow-md cursor-pointer hover:opacity-95 flex items-center justify-center gap-1.5 transition-all active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Check className="w-3.5 h-3.5" />
               <span>{confirmText || `انتخاب ساعت ${formattedPersianHour}:${formattedPersianMin}`}</span>
