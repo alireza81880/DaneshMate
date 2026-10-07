@@ -151,6 +151,7 @@ export const MyketSupportCard: React.FC<MyketSupportCardProps> = React.memo(({
         setCancelledMessage('خرید لغو شد.');
         setErrorMessage(null);
         setStatus('ready');
+        setTimeout(() => setCancelledMessage((prev) => (prev === 'خرید لغو شد.' ? null : prev)), 3500);
       } else if (rawMsg.includes('MYKET_NOT_INSTALLED')) {
         setIsMyketInstalled(false);
         setStatus('idle');
@@ -464,7 +465,11 @@ export const MyketSupportCard: React.FC<MyketSupportCardProps> = React.memo(({
                     <button
                       key={meta.sku}
                       type="button"
-                      onClick={() => setSelectedSku(meta.sku)}
+                      onClick={() => {
+                        setSelectedSku(meta.sku);
+                        setErrorMessage(null);
+                        setCancelledMessage(null);
+                      }}
                       aria-pressed={isSelected}
                       aria-label={`${meta.title}، ${priceText}`}
                       style={{
