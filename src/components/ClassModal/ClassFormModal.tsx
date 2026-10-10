@@ -20,6 +20,7 @@ import {
   PERSIAN_MONTHS,
   toPersianDigits,
   detectClassConflict,
+  gregorianToJalali,
   jalaliToGregorian,
   getDaysInJalaliMonth,
   jalaliToTimestamp,
@@ -62,9 +63,18 @@ export const ClassFormModal: React.FC<ClassFormModalProps> = React.memo(({
   const [formAnchorLabel, setFormAnchorLabel] = useState<string>('');
   const [formScheduledSessions, setFormScheduledSessions] = useState<number[]>([]);
   const [isJalaliSpringModalOpen, setIsJalaliSpringModalOpen] = useState<boolean>(false);
-  const [calSelectedYear, setCalSelectedYear] = useState<number>(1405);
-  const [calSelectedMonth, setCalSelectedMonth] = useState<number>(7);
-  const [calSelectedDay, setCalSelectedDay] = useState<number>(4);
+  const [calSelectedYear, setCalSelectedYear] = useState<number>(() => {
+    const [jy] = gregorianToJalali(new Date().getFullYear(), new Date().getMonth() + 1, new Date().getDate());
+    return jy;
+  });
+  const [calSelectedMonth, setCalSelectedMonth] = useState<number>(() => {
+    const [, jm] = gregorianToJalali(new Date().getFullYear(), new Date().getMonth() + 1, new Date().getDate());
+    return jm;
+  });
+  const [calSelectedDay, setCalSelectedDay] = useState<number>(() => {
+    const [, , jd] = gregorianToJalali(new Date().getFullYear(), new Date().getMonth() + 1, new Date().getDate());
+    return jd;
+  });
   const [formProfessor, setFormProfessor] = useState('');
   const [formLocation, setFormLocation] = useState('');
   const [classErrors, setClassErrors] = useState<{ name?: string }>({});
@@ -109,6 +119,18 @@ export const ClassFormModal: React.FC<ClassFormModalProps> = React.memo(({
         setFormAnchorTimestamp(editingClass.anchor_timestamp);
         setFormAnchorLabel(editingClass.anchor_date ? `تاریخ اولین جلسه: ${editingClass.anchor_date}` : '');
         setFormScheduledSessions(editingClass.scheduled_session_timestamps || []);
+        if (editingClass.anchor_timestamp) {
+          const d = new Date(editingClass.anchor_timestamp);
+          const [jy, jm, jd] = gregorianToJalali(d.getFullYear(), d.getMonth() + 1, d.getDate());
+          setCalSelectedYear(jy);
+          setCalSelectedMonth(jm);
+          setCalSelectedDay(jd);
+        } else {
+          const [jy, jm, jd] = gregorianToJalali(new Date().getFullYear(), new Date().getMonth() + 1, new Date().getDate());
+          setCalSelectedYear(jy);
+          setCalSelectedMonth(jm);
+          setCalSelectedDay(jd);
+        }
         setFormProfessor(editingClass.professor || '');
         setFormLocation(editingClass.location || '');
         setClassErrors({});
@@ -131,6 +153,10 @@ export const ClassFormModal: React.FC<ClassFormModalProps> = React.memo(({
         setFormAnchorTimestamp(undefined);
         setFormAnchorLabel('');
         setFormScheduledSessions([]);
+        const [jy, jm, jd] = gregorianToJalali(new Date().getFullYear(), new Date().getMonth() + 1, new Date().getDate());
+        setCalSelectedYear(jy);
+        setCalSelectedMonth(jm);
+        setCalSelectedDay(jd);
         setFormProfessor('');
         setFormLocation('');
         setClassErrors({});

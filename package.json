@@ -1,7 +1,7 @@
 {
   "name": "react-example",
   "private": true,
-  "version": "1.0.4",
+  "version": "1.0.5",
   "type": "module",
   "scripts": {
     "dev": "vite --port=3000 --host=0.0.0.0",
@@ -11,6 +11,7 @@
     "lint": "tsc --noEmit",
     "test:ffi": "tsx scripts/run_smoke_test.ts",
     "test:reminder": "tsx scripts/run_reminder_tests.ts",
+    "test:timeline": "tsx scripts/run_timeline_reminder_tests.ts",
     "build:rust:release": "cd backend && cargo build --release",
     "cap:sync": "npm run build && npx cap sync android",
     "cap:build:apk": "npm run cap:sync && cd android && ./gradlew assembleDebug"

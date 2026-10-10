@@ -7,8 +7,8 @@ android {
         applicationId "com.daneshmate.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode project.hasProperty('versionCode') ? Integer.parseInt(project.property('versionCode').toString()) : 1000004
-        versionName project.hasProperty('versionName') ? project.property('versionName').toString() : "1.0.4"
+        versionCode project.hasProperty('versionCode') ? Integer.parseInt(project.property('versionCode').toString()) : 1000005
+        versionName project.hasProperty('versionName') ? project.property('versionName').toString() : "1.0.5"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         manifestPlaceholders = [
             marketPermission: "ir.mservices.market.BILLING",

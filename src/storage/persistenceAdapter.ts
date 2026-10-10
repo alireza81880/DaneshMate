@@ -39,6 +39,8 @@ export interface AttachedFileData {
   sizeText: string;
   uri?: string;
   url?: string;
+  addedAt?: number;
+  addedAtTimestamp?: number;
 }
 
 export interface SessionLogData {
@@ -57,7 +59,7 @@ export interface SessionLogData {
   reminderTimeText?: string;
   snoozedUntil?: string;
   notificationId?: number;
-  chatMessages?: Array<{ id: string; text: string; time: string }>;
+  chatMessages?: Array<{ id: string; text: string; time: string; timestamp?: number }>;
   acknowledgedAt?: number;
 }
 

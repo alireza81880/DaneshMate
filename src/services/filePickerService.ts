@@ -73,8 +73,11 @@ class FilePickerService {
         }
 
         const attachedFiles: AttachedFile[] = [];
+        const baseTime = Date.now();
 
-        for (const file of result.files) {
+        for (let i = 0; i < result.files.length; i++) {
+          const file = result.files[i];
+          const itemTime = baseTime + i;
           const category = this.determineCategory(file.name, file.mimeType);
           const sizeText = this.formatFileSize(file.size);
 
@@ -86,12 +89,14 @@ class FilePickerService {
           );
 
           attachedFiles.push({
-            id: `att_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+            id: `att_${itemTime}_${Math.random().toString(36).substring(2, 6)}`,
             name: file.name,
             type: category,
             sizeText,
             uri: saved.persistentUri,
             url: saved.webViewUrl,
+            addedAt: itemTime,
+            addedAtTimestamp: itemTime,
           });
         }
 
@@ -118,8 +123,11 @@ class FilePickerService {
 
           const files = Array.from(input.files);
           const attachedFiles: AttachedFile[] = [];
+          const baseTime = Date.now();
 
-          for (const file of files) {
+          for (let i = 0; i < files.length; i++) {
+            const file = files[i];
+            const itemTime = baseTime + i;
             const category = this.determineCategory(file.name, file.type);
             const sizeText = this.formatFileSize(file.size);
 
@@ -130,12 +138,14 @@ class FilePickerService {
             );
 
             attachedFiles.push({
-              id: `att_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+              id: `att_${itemTime}_${Math.random().toString(36).substring(2, 6)}`,
               name: file.name,
               type: category,
               sizeText,
               uri: saved.persistentUri,
               url: saved.webViewUrl,
+              addedAt: itemTime,
+              addedAtTimestamp: itemTime,
             });
           }
 

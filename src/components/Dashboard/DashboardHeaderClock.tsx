@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Calendar } from 'lucide-react';
+import { gregorianToJalali } from '../../App';
 
 interface DashboardHeaderClockProps {
   theme: {
@@ -28,13 +29,17 @@ export const DashboardHeaderClock: React.FC<DashboardHeaderClockProps> = React.m
         month: 'numeric',
         day: 'numeric',
       }).formatToParts(d);
-      const year = parts.find((p) => p.type === 'year')?.value || '1405';
-      const month = parts.find((p) => p.type === 'month')?.value || '7';
-      const day = parts.find((p) => p.type === 'day')?.value || '5';
-      return `${year}/${month}/${day}`;
+      const year = parts.find((p) => p.type === 'year')?.value;
+      const month = parts.find((p) => p.type === 'month')?.value;
+      const day = parts.find((p) => p.type === 'day')?.value;
+      if (year && month && day) {
+        return `${year}/${month}/${day}`;
+      }
     } catch {
-      return '1405/7/5';
+      // Fallback below
     }
+    const [jy, jm, jd] = gregorianToJalali(d.getFullYear(), d.getMonth() + 1, d.getDate());
+    return `${jy}/${jm}/${jd}`;
   };
 
   const getTimeString = (): string => {
