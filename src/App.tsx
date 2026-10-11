@@ -35,7 +35,8 @@ import {
   ChevronUp,
   ChevronDown,
 } from 'lucide-react';
-import { Capacitor } from '@capacitor/core';
+import { Capacitor, PluginListenerHandle } from '@capacitor/core';
+import { App as CapApp } from '@capacitor/app';
 import { persistenceAdapter, AppSnapshot } from './storage/persistenceAdapter';
 import { syncBridge, SyncState } from './api/syncBridge';
 import { nativeStorageService } from './services/nativeStorageService';
@@ -795,6 +796,36 @@ export function detectClassConflict(
   return { hasConflict: false };
 }
 
+export interface AndroidBackNavigationState {
+  selectedChatSessionLog: any | null;
+  previewFile: any | null;
+  isSessionDatePickerOpen: boolean;
+  isSessionTimePickerOpen: boolean;
+}
+
+export type AndroidBackAction =
+  | 'close_preview_file'
+  | 'close_time_picker'
+  | 'close_date_picker'
+  | 'close_timeline_review'
+  | 'exit_app';
+
+/**
+ * Resolves the appropriate Android Back button action based on current UI state.
+ * When in Timeline Review (or any sub-dialog opened from it), navigation closes
+ * the top-most modal/picker and returns to Logs without exiting the app.
+ * Outside Timeline Review, it preserves the existing app exit behavior.
+ */
+export function resolveAndroidBackAction(state: AndroidBackNavigationState): AndroidBackAction {
+  if (state.selectedChatSessionLog) {
+    if (state.previewFile) return 'close_preview_file';
+    if (state.isSessionTimePickerOpen) return 'close_time_picker';
+    if (state.isSessionDatePickerOpen) return 'close_date_picker';
+    return 'close_timeline_review';
+  }
+  return 'exit_app';
+}
+
 const NAME_REGEX = /^[a-zA-Z\u0600-\u06FF\uFB8A\u067E\u0686\u06AF\u200c\s]+$/;
 
 export default function App() {
@@ -877,6 +908,71 @@ export default function App() {
   const [sessionPickerDay, setSessionPickerDay] = useState(() => getTodayJalaliDefaults().day);
   const [sessionPickerHour, setSessionPickerHour] = useState(() => getTodayJalaliDefaults().hour);
   const [sessionPickerMin, setSessionPickerMin] = useState(() => getTodayJalaliDefaults().minute);
+
+  // Synchronized refs for Android hardware back button listener to prevent stale state closures
+  const selectedChatSessionLogRef = useRef(selectedChatSessionLog);
+  selectedChatSessionLogRef.current = selectedChatSessionLog;
+
+  const previewFileRef = useRef(previewFile);
+  previewFileRef.current = previewFile;
+
+  const isSessionDatePickerOpenRef = useRef(isSessionDatePickerOpen);
+  isSessionDatePickerOpenRef.current = isSessionDatePickerOpen;
+
+  const isSessionTimePickerOpenRef = useRef(isSessionTimePickerOpen);
+  isSessionTimePickerOpenRef.current = isSessionTimePickerOpen;
+
+  // Android hardware back button and back gesture navigation handler
+  useEffect(() => {
+    let isMounted = true;
+    let listenerHandle: PluginListenerHandle | null = null;
+
+    if (Capacitor.isNativePlatform()) {
+      CapApp.addListener('backButton', () => {
+        const action = resolveAndroidBackAction({
+          selectedChatSessionLog: selectedChatSessionLogRef.current,
+          previewFile: previewFileRef.current,
+          isSessionDatePickerOpen: isSessionDatePickerOpenRef.current,
+          isSessionTimePickerOpen: isSessionTimePickerOpenRef.current,
+        });
+
+        switch (action) {
+          case 'close_preview_file':
+            setPreviewFile(null);
+            break;
+          case 'close_time_picker':
+            setIsSessionTimePickerOpen(false);
+            break;
+          case 'close_date_picker':
+            setIsSessionDatePickerOpen(false);
+            break;
+          case 'close_timeline_review':
+            setSelectedChatSessionLog(null);
+            break;
+          case 'exit_app':
+            CapApp.exitApp();
+            break;
+        }
+      })
+        .then((handle) => {
+          if (!isMounted) {
+            handle.remove();
+          } else {
+            listenerHandle = handle;
+          }
+        })
+        .catch((err) => {
+          console.warn('Could not register Android backButton listener:', err);
+        });
+    }
+
+    return () => {
+      isMounted = false;
+      if (listenerHandle) {
+        listenerHandle.remove();
+      }
+    };
+  }, []);
 
   // Offline-First Snapshot Hydration & Cloud Sync & Native Notification Action Listener
   useEffect(() => {

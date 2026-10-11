@@ -20,6 +20,7 @@ import {
   gregorianToJalali,
   jalaliToGregorian,
   toPersianDigits,
+  resolveAndroidBackAction,
 } from '../src/App';
 import { notificationService } from '../src/services/notificationService';
 import { ClassSessionLog, AttachedFile } from '../src/types';
@@ -375,6 +376,89 @@ async function runTimelineAndReminderTests() {
   const expectedOccs = notificationService.getClassExpectedOccurrences(classItem, Date.now());
   assert(expectedOccs.length > 0, 'SCENARIO 7.2: Class reminder generates valid expected occurrences');
   assert(expectedOccs[0].notifId > 0, 'SCENARIO 7.3: Class reminder has valid numeric notification ID');
+
+  // -------------------------------------------------------------------------
+  // SCENARIO 8: Android Hardware Back Navigation in Timeline Review
+  // -------------------------------------------------------------------------
+  console.log('\n--- SCENARIO 8: Android Hardware Back Navigation in Timeline Review ---');
+
+  const dummySessionLog: ClassSessionLog = {
+    id: '1700000000000',
+    className: 'ریاضی مهندسی',
+    classId: 'c1',
+    createdAt: '1405/07/15 - 10:00',
+    notesText: 'نکات آزمون میان‌ترم',
+    hasReminder: false,
+    attachedFiles: [],
+    chatMessages: [],
+  };
+
+  const dummyAttachedFile: AttachedFile = {
+    id: 'f_preview_1',
+    name: 'جزوه.pdf',
+    type: 'pdf',
+    sizeText: '2.5 MB',
+  };
+
+  // 8.1 When inside Timeline Review, Back button closes Timeline Review and returns to Logs
+  const actionInTimeline = resolveAndroidBackAction({
+    selectedChatSessionLog: dummySessionLog,
+    previewFile: null,
+    isSessionDatePickerOpen: false,
+    isSessionTimePickerOpen: false,
+  });
+  assert(
+    actionInTimeline === 'close_timeline_review',
+    'SCENARIO 8.1: Back button in Timeline Review dismisses review without exiting app'
+  );
+
+  // 8.2 When file preview is opened from Timeline Review, Back button closes file preview only
+  const actionWithFilePreview = resolveAndroidBackAction({
+    selectedChatSessionLog: dummySessionLog,
+    previewFile: dummyAttachedFile,
+    isSessionDatePickerOpen: false,
+    isSessionTimePickerOpen: false,
+  });
+  assert(
+    actionWithFilePreview === 'close_preview_file',
+    'SCENARIO 8.2: Back button closes attached file preview and preserves Timeline Review'
+  );
+
+  // 8.3 When time picker is open in Timeline Review, Back button closes time picker only
+  const actionWithTimePicker = resolveAndroidBackAction({
+    selectedChatSessionLog: dummySessionLog,
+    previewFile: null,
+    isSessionDatePickerOpen: false,
+    isSessionTimePickerOpen: true,
+  });
+  assert(
+    actionWithTimePicker === 'close_time_picker',
+    'SCENARIO 8.3: Back button closes time picker and preserves Timeline Review'
+  );
+
+  // 8.4 When date picker is open in Timeline Review, Back button closes date picker only
+  const actionWithDatePicker = resolveAndroidBackAction({
+    selectedChatSessionLog: dummySessionLog,
+    previewFile: null,
+    isSessionDatePickerOpen: true,
+    isSessionTimePickerOpen: false,
+  });
+  assert(
+    actionWithDatePicker === 'close_date_picker',
+    'SCENARIO 8.4: Back button closes date picker and preserves Timeline Review'
+  );
+
+  // 8.5 Outside Timeline Review (e.g. Logs or Home screen), Back button triggers standard app exit
+  const actionOutsideTimeline = resolveAndroidBackAction({
+    selectedChatSessionLog: null,
+    previewFile: null,
+    isSessionDatePickerOpen: false,
+    isSessionTimePickerOpen: false,
+  });
+  assert(
+    actionOutsideTimeline === 'exit_app',
+    'SCENARIO 8.5: Back button outside Timeline Review preserves standard app exit behavior'
+  );
 
   console.log('\n----------------------------------------------------');
   console.log(`Timeline & Reminder Test Suite Summary: ${passedCount} PASSED, ${failedCount} FAILED`);
