@@ -12,6 +12,8 @@
     "test:ffi": "tsx scripts/run_smoke_test.ts",
     "test:reminder": "tsx scripts/run_reminder_tests.ts",
     "test:timeline": "tsx scripts/run_timeline_reminder_tests.ts",
+    "test:timeline-utils": "tsx scripts/run_timeline_utils_tests.ts",
+    "test:back-policy": "tsx scripts/run_android_back_policy_tests.ts",
     "build:rust:release": "cd backend && cargo build --release",
     "cap:sync": "npm run build && npx cap sync android",
     "cap:build:apk": "npm run cap:sync && cd android && ./gradlew assembleDebug"

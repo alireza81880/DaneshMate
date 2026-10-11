@@ -48,23 +48,62 @@ import { DashboardHeaderClock } from './components/Dashboard/DashboardHeaderCloc
 import { ClassFormModal } from './components/ClassModal/ClassFormModal';
 import { SettingsScreen } from './components/Settings/SettingsScreen';
 import { MyketSupportCard } from './components/Settings/MyketSupportCard';
+import { SessionTimelineModal } from './components/Timeline/SessionTimelineModal';
+import {
+  PERSIAN_DIGITS_MAP,
+  toPersianDigits,
+  LATIN_DIGITS_MAP,
+  toLatinDigits,
+  PERSIAN_MONTHS,
+  gregorianToJalali,
+  jalaliToGregorian,
+  getDaysInJalaliMonth,
+  jalaliToTimestamp,
+  formatJalaliDate,
+  parseJalaliDateTimeToTimestamp,
+  formatPersianTime,
+  getTodayJalaliDefaults,
+} from './utils/jalaliDate';
+import type { JalaliDateDefaults } from './utils/jalaliDate';
+import { resolveAndroidBackAction } from './navigation/androidBackPolicy';
+import type { AndroidBackAction, AndroidBackNavigationState } from './navigation/androidBackPolicy';
+import type { FileCategory, AttachedFile, ClassSessionLog } from './types/sessionLog';
+import { getMessageTimestamp, getFileTimestamp } from './utils/timeline';
+
+export {
+  resolveAndroidBackAction,
+  getMessageTimestamp,
+  getFileTimestamp,
+};
+export type {
+  AndroidBackAction,
+  AndroidBackNavigationState,
+  FileCategory,
+  AttachedFile,
+  ClassSessionLog,
+};
+
+export {
+  PERSIAN_DIGITS_MAP,
+  toPersianDigits,
+  LATIN_DIGITS_MAP,
+  toLatinDigits,
+  PERSIAN_MONTHS,
+  gregorianToJalali,
+  jalaliToGregorian,
+  getDaysInJalaliMonth,
+  jalaliToTimestamp,
+  formatJalaliDate,
+  parseJalaliDateTimeToTimestamp,
+  formatPersianTime,
+  getTodayJalaliDefaults,
+};
+export type { JalaliDateDefaults };
 
 export type WeekDay = 'شنبه' | 'یکشنبه' | 'دوشنبه' | 'سه‌شنبه' | 'چهارشنبه' | 'پنج‌شنبه';
 export type RecurrenceType = 'every_week' | 'even_weeks' | 'odd_weeks' | 'bi_weekly' | 'biweekly';
 export type ThemeCategory = 'Dark & Monochromatic' | 'Premium High-Contrast' | 'Light Minimal' | 'Neumorphic';
 type MainTab = 'home' | 'notes' | 'reports' | 'profile' | 'settings';
-export type FileCategory = 'image' | 'audio' | 'pdf' | 'powerpoint' | 'word' | 'other';
-
-export interface AttachedFile {
-  id: string;
-  name: string;
-  type: FileCategory;
-  sizeText: string;
-  uri?: string;
-  url?: string;
-  addedAt?: number;
-  addedAtTimestamp?: number;
-}
 
 export interface ClassItem {
   id: string;
@@ -85,26 +124,6 @@ export interface ClassItem {
   reminderExactTime?: string;
   reminderDay?: WeekDay;
   reminderTriggerText?: string;
-}
-
-interface ClassSessionLog {
-  id: string;
-  classId: string;
-  className: string;
-  classCode?: string;
-  createdAt: string;
-  notesText: string;
-  attachedFiles?: AttachedFile[];
-  voiceMemoSeconds?: number;
-  voiceMemoUri?: string;
-  hasReminder: boolean;
-  reminderTimestamp?: number;
-  reminderTrigger?: string;
-  reminderTimeText?: string;
-  snoozedUntil?: string;
-  notificationId?: number;
-  chatMessages?: Array<{ id: string; text: string; time: string; timestamp?: number }>;
-  acknowledgedAt?: number;
 }
 
 export interface PaletteTheme {
@@ -414,256 +433,6 @@ export const COMMON_SLOTS = [
   '16:00 - 18:00',
 ];
 
-const PERSIAN_DIGITS_MAP: Record<string, string> = {
-  '0': '۰',
-  '1': '۱',
-  '2': '۲',
-  '3': '۳',
-  '4': '۴',
-  '5': '۵',
-  '6': '۶',
-  '7': '۷',
-  '8': '۸',
-  '9': '۹',
-};
-
-export const toPersianDigits = (input: string | number): string =>
-  String(input).replace(/[0-9]/g, (w) => PERSIAN_DIGITS_MAP[w] || w);
-
-export const PERSIAN_MONTHS = [
-  'فروردین', 'اردیبهشت', 'خرداد', 'تیر', 'مرداد', 'شهریور',
-  'مهر', 'آبان', 'آذر', 'دی', 'بهمن', 'اسفند',
-];
-
-export function gregorianToJalali(gy: number, gm: number, gd: number): [number, number, number] {
-  const g_d_m = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334];
-  let jy: number;
-  let gy2 = gm > 2 ? gy + 1 : gy;
-  let days =
-    355666 +
-    365 * gy +
-    Math.floor((gy2 + 3) / 4) -
-    Math.floor((gy2 + 99) / 100) +
-    Math.floor((gy2 + 399) / 400) +
-    gd +
-    g_d_m[gm - 1];
-  jy = -1595 + 33 * Math.floor(days / 12053);
-  days %= 12053;
-  jy += 4 * Math.floor(days / 1461);
-  days %= 1461;
-  if (days > 365) {
-    jy += Math.floor((days - 1) / 365);
-    days = (days - 1) % 365;
-  }
-  let jm: number;
-  let jd: number;
-  if (days < 186) {
-    jm = 1 + Math.floor(days / 31);
-    jd = 1 + (days % 31);
-  } else {
-    jm = 7 + Math.floor((days - 186) / 30);
-    jd = 1 + ((days - 186) % 30);
-  }
-  return [jy, jm, jd];
-}
-
-export function jalaliToGregorian(jy: number, jm: number, jd: number): [number, number, number] {
-  let gy: number;
-  let days: number;
-  const sal_a = [0, 31, 62, 93, 124, 155, 186, 216, 246, 276, 306, 336];
-  jy += 1595;
-  days =
-    -355668 +
-    365 * jy +
-    Math.floor(jy / 33) * 8 +
-    Math.floor(((jy % 33) + 3) / 4) +
-    jd +
-    sal_a[jm - 1];
-  gy = 400 * Math.floor(days / 146097);
-  days %= 146097;
-  if (days > 36524) {
-    gy += 100 * Math.floor(--days / 36524);
-    days %= 36524;
-    if (days >= 365) days++;
-  }
-  gy += 4 * Math.floor(days / 1461);
-  days %= 1461;
-  if (days > 365) {
-    gy += Math.floor((days - 1) / 365);
-    days = (days - 1) % 365;
-  }
-  let gd = days + 1;
-  const sal_g = [
-    0, 31, (gy % 4 === 0 && gy % 100 !== 0) || gy % 400 === 0 ? 29 : 28,
-    31, 30, 31, 30, 31, 31, 30, 31, 30, 31,
-  ];
-  let gm = 0;
-  while (gm < 13 && gd > sal_g[gm]) {
-    gd -= sal_g[gm];
-    gm++;
-  }
-  return [gy, gm, gd];
-}
-
-export function getDaysInJalaliMonth(year: number, month: number): number {
-  if (month <= 6) return 31;
-  if (month <= 11) return 30;
-  const isLeap = ((year + 38) * 31) % 128 < 31;
-  return isLeap ? 30 : 29;
-}
-
-export function jalaliToTimestamp(jy: number, jm: number, jd: number): number {
-  const [gy, gm, gd] = jalaliToGregorian(jy, jm, jd);
-  const d = new Date(gy, gm - 1, gd, 0, 0, 0, 0);
-  return d.getTime();
-}
-
-/**
- * Format timestamp into Persian Jalali date (e.g. "۱۴۰۵/۰۷/۰۵")
- */
-export function formatJalaliDate(timestamp: number | Date): string {
-  if (!timestamp) return '';
-  if (typeof timestamp === 'number' && (isNaN(timestamp) || timestamp <= 0)) return '';
-  const d = typeof timestamp === 'number' ? new Date(timestamp) : timestamp;
-  if (!d || isNaN(d.getTime()) || d.getTime() <= 0) return '';
-  try {
-    const [jy, jm, jd] = gregorianToJalali(d.getFullYear(), d.getMonth() + 1, d.getDate());
-    return `${toPersianDigits(jy)}/${toPersianDigits(jm.toString().padStart(2, '0'))}/${toPersianDigits(jd.toString().padStart(2, '0'))}`;
-  } catch {
-    return '';
-  }
-}
-
-const LATIN_DIGITS_MAP: Record<string, string> = {
-  '۰': '0', '۱': '1', '۲': '2', '۳': '3', '۴': '4',
-  '۵': '5', '۶': '6', '۷': '7', '۸': '8', '۹': '9',
-  '٠': '0', '١': '1', '٢': '2', '٣': '3', '٤': '4',
-  '٥': '5', '٦': '6', '٧': '7', '٨': '8', '٩': '9',
-};
-
-export function toLatinDigits(input: string | number | undefined | null): string {
-  if (input === undefined || input === null) return '';
-  return String(input).replace(/[۰-۹٠-٩]/g, (w) => LATIN_DIGITS_MAP[w] || w);
-}
-
-/**
- * Robustly parse Jalali date/time string (e.g. "۱۴۰۵/۰۷/۰۵ - ۱۴:۳۰") into numeric milliseconds timestamp
- */
-export function parseJalaliDateTimeToTimestamp(createdAtStr?: string): number {
-  if (!createdAtStr) return 0;
-  try {
-    const clean = toLatinDigits(createdAtStr).trim();
-    const parts = clean.split('-').map((s) => s.trim());
-    if (parts.length >= 1 && parts[0].includes('/')) {
-      const dateParts = parts[0].split('/').map((s) => parseInt(s, 10));
-      if (dateParts.length === 3 && !dateParts.some(isNaN)) {
-        const [jy, jm, jd] = dateParts;
-        let hour = 12;
-        let minute = 0;
-        if (parts.length >= 2) {
-          const timeMatch = parts[1].match(/(\d{1,2}):(\d{2})/);
-          if (timeMatch) {
-            hour = parseInt(timeMatch[1], 10);
-            minute = parseInt(timeMatch[2], 10);
-          }
-        }
-        const [gy, gm, gd] = jalaliToGregorian(jy, jm, jd);
-        const d = new Date(gy, gm - 1, gd, hour, minute, 0);
-        return isNaN(d.getTime()) ? 0 : d.getTime();
-      }
-    }
-  } catch {
-    // fallback
-  }
-  return 0;
-}
-
-/**
- * Format timestamp into Persian local time (e.g. "۱۲:۳۴")
- */
-export function formatPersianTime(timestamp: number | Date): string {
-  if (!timestamp) return '';
-  if (typeof timestamp === 'number' && (isNaN(timestamp) || timestamp <= 0)) return '';
-  const d = typeof timestamp === 'number' ? new Date(timestamp) : timestamp;
-  if (!d || isNaN(d.getTime()) || d.getTime() <= 0) return '';
-  const h = d.getHours().toString().padStart(2, '0');
-  const m = d.getMinutes().toString().padStart(2, '0');
-  return `${toPersianDigits(h)}:${toPersianDigits(m)}`;
-}
-
-/**
- * Safe timestamp resolution for chat messages with legacy fallback
- */
-export function getMessageTimestamp(
-  msg: { id: string; timestamp?: number; time?: string },
-  sessionTimestamp?: number
-): number {
-  if (typeof msg.timestamp === 'number' && !isNaN(msg.timestamp) && msg.timestamp > 0) {
-    return msg.timestamp;
-  }
-  const parsed = parseInt(msg.id, 10);
-  if (!isNaN(parsed) && parsed > 1600000000000) {
-    return parsed;
-  }
-  if (sessionTimestamp && sessionTimestamp > 0) {
-    return sessionTimestamp;
-  }
-  return 0;
-}
-
-/**
- * Safe timestamp resolution for attached files with legacy fallback
- */
-export function getFileTimestamp(
-  file: AttachedFile,
-  sessionTimestamp?: number
-): number {
-  if (typeof file.addedAt === 'number' && !isNaN(file.addedAt) && file.addedAt > 0) {
-    return file.addedAt;
-  }
-  if (typeof file.addedAtTimestamp === 'number' && !isNaN(file.addedAtTimestamp) && file.addedAtTimestamp > 0) {
-    return file.addedAtTimestamp;
-  }
-  if (file.id && file.id.startsWith('att_')) {
-    const parts = file.id.split('_');
-    if (parts.length >= 2) {
-      const parsed = parseInt(parts[1], 10);
-      if (!isNaN(parsed) && parsed > 1600000000000) {
-        return parsed;
-      }
-    }
-  }
-  const parsed = parseInt(file.id, 10);
-  if (!isNaN(parsed) && parsed > 1600000000000) {
-    return parsed;
-  }
-  if (sessionTimestamp && sessionTimestamp > 0) {
-    return sessionTimestamp;
-  }
-  return 0;
-}
-
-/**
- * Compute today's Jalali date & safe future default reminder time based on local device clock
- */
-export function getTodayJalaliDefaults(referenceDate: Date = new Date()): {
-  year: number;
-  month: number;
-  day: number;
-  hour: number;
-  minute: number;
-} {
-  const now = referenceDate;
-  const [jy, jm, jd] = gregorianToJalali(now.getFullYear(), now.getMonth() + 1, now.getDate());
-  let h = now.getHours() + 1;
-  let m = 0;
-  if (h >= 24) {
-    h = 23;
-    m = 59;
-  }
-  return { year: jy, month: jm, day: jd, hour: h, minute: m };
-}
-
 export const WEEK_DAYS: WeekDay[] = [
   'شنبه',
   'یکشنبه',
@@ -794,36 +563,6 @@ export function detectClassConflict(
   }
 
   return { hasConflict: false };
-}
-
-export interface AndroidBackNavigationState {
-  selectedChatSessionLog: any | null;
-  previewFile: any | null;
-  isSessionDatePickerOpen: boolean;
-  isSessionTimePickerOpen: boolean;
-}
-
-export type AndroidBackAction =
-  | 'close_preview_file'
-  | 'close_time_picker'
-  | 'close_date_picker'
-  | 'close_timeline_review'
-  | 'exit_app';
-
-/**
- * Resolves the appropriate Android Back button action based on current UI state.
- * When in Timeline Review (or any sub-dialog opened from it), navigation closes
- * the top-most modal/picker and returns to Logs without exiting the app.
- * Outside Timeline Review, it preserves the existing app exit behavior.
- */
-export function resolveAndroidBackAction(state: AndroidBackNavigationState): AndroidBackAction {
-  if (state.selectedChatSessionLog) {
-    if (state.previewFile) return 'close_preview_file';
-    if (state.isSessionTimePickerOpen) return 'close_time_picker';
-    if (state.isSessionDatePickerOpen) return 'close_date_picker';
-    return 'close_timeline_review';
-  }
-  return 'exit_app';
 }
 
 const NAME_REGEX = /^[a-zA-Z\u0600-\u06FF\uFB8A\u067E\u0686\u06AF\u200c\s]+$/;
@@ -3194,590 +2933,33 @@ export default function App() {
         )}
 
         {/* INTERACTIVE CHAT-STYLE SESSION VIEWER MODAL */}
-        {selectedChatSessionLog && (
-          <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-md z-[100] flex items-center justify-center p-2 sm:p-4 overflow-hidden">
-            <div
-              style={{
-                backgroundColor: theme.cardBg,
-                borderColor: theme.borderLuminous,
-              }}
-              className="liquid-glass rounded-3xl max-w-xl w-full h-[92vh] max-h-[850px] border shadow-2xl flex flex-col overflow-hidden transition-all"
-            >
-              {/* Top Navigation Header (Distinct Two-Row Layout) */}
-              <div
-                style={{
-                  backgroundColor: theme.innerBg,
-                  borderBottomColor: theme.borderLuminous,
-                }}
-                className="p-3.5 border-b space-y-2.5 flex-shrink-0"
-              >
-                {/* Row 1: Top Actions */}
-                <div className="flex items-center justify-between">
-                  <button
-                    onClick={() => setSelectedChatSessionLog(null)}
-                    style={{ color: theme.primary, borderColor: theme.borderLuminous }}
-                    className="flex items-center gap-1 text-xs font-black cursor-pointer hover:opacity-80 py-1.5 px-3 rounded-xl border bg-black/10"
-                  >
-                    <span className="text-base font-bold">›</span>
-                    <span>بازگشت</span>
-                  </button>
-
-                  <button
-                    onClick={() => {
-                      if (selectedChatSessionLog) {
-                        handleDeleteFullSessionLog(selectedChatSessionLog);
-                      }
-                    }}
-                    className="flex items-center gap-1.5 text-rose-400 hover:text-rose-500 text-xs font-bold cursor-pointer py-1.5 px-3 rounded-xl bg-rose-500/10 border border-rose-500/20"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                    <span>حذف جلسه</span>
-                  </button>
-                </div>
-
-                {/* Row 2: Class Title & Numeric Jalali Timestamp Banner */}
-                {(() => {
-                  const parsedId = parseInt(selectedChatSessionLog.id, 10);
-                  const parsedCreated = parseJalaliDateTimeToTimestamp(selectedChatSessionLog.createdAt);
-                  const sessionTimestamp = (parsedId > 1600000000000 ? parsedId : 0) || parsedCreated;
-                  const sessionCreationDateStr = sessionTimestamp > 0
-                    ? formatJalaliDate(sessionTimestamp)
-                    : (selectedChatSessionLog.createdAt.includes('/') ? selectedChatSessionLog.createdAt.split('-')[0].trim() : (selectedChatSessionLog.createdAt ? selectedChatSessionLog.createdAt.split('-')[0].trim() : 'جلسه گذشته'));
-                  const sessionTimeDisplay = selectedChatSessionLog.createdAt.split('-').pop()?.trim() || selectedChatSessionLog.createdAt;
-
-                  return (
-                    <div
-                      style={{ backgroundColor: theme.cardBg, borderColor: theme.borderLuminous }}
-                      className="p-2.5 rounded-xl border text-center"
-                    >
-                      <h3 style={{ color: theme.textPrimary }} className="text-sm font-black flex items-center justify-center gap-1.5">
-                        <span>🎓</span>
-                        <span>{selectedChatSessionLog.className}</span>
-                      </h3>
-                      <span style={{ color: theme.textMuted }} className="text-[11px] font-mono block mt-0.5">
-                        تایم‌لاین تعاملی جلسه • {sessionCreationDateStr} • ساعت {sessionTimeDisplay}
-                      </span>
-                    </div>
-                  );
-                })()}
-              </div>
-
-              {/* Toast for file opening intent */}
-              {fileToast && (
-                <div
-                  style={{ backgroundColor: theme.primary }}
-                  className="py-1.5 px-4 text-center text-xs font-bold text-white shadow-sm transition-all"
-                >
-                  {fileToast}
-                </div>
-              )}
-
-              {/* Chat Timeline Stream */}
-              <div className="flex-1 overflow-y-auto overflow-x-hidden p-2.5 sm:p-4 space-y-3 sm:space-y-4">
-                {(() => {
-                  const parsedId = parseInt(selectedChatSessionLog.id, 10);
-                  const parsedCreated = parseJalaliDateTimeToTimestamp(selectedChatSessionLog.createdAt);
-                  const sessionTimestamp = (parsedId > 1600000000000 ? parsedId : 0) || parsedCreated;
-                  const sessionCreationDateStr = sessionTimestamp > 0
-                    ? formatJalaliDate(sessionTimestamp)
-                    : (selectedChatSessionLog.createdAt.includes('/') ? selectedChatSessionLog.createdAt.split('-')[0].trim() : (selectedChatSessionLog.createdAt ? selectedChatSessionLog.createdAt.split('-')[0].trim() : 'جلسه گذشته'));
-                  const sessionTimeDisplay = selectedChatSessionLog.createdAt.split('-').pop()?.trim() || selectedChatSessionLog.createdAt;
-
-                  const chatDocFiles = (selectedChatSessionLog.attachedFiles || []).filter((f) => {
-                    if (selectedChatSessionLog.voiceMemoUri && (f.uri === selectedChatSessionLog.voiceMemoUri || f.url === selectedChatSessionLog.voiceMemoUri)) return false;
-                    if ((selectedChatSessionLog.voiceMemoUri || selectedChatSessionLog.voiceMemoSeconds) && f.type === 'audio') return false;
-                    return true;
-                  });
-
-                  type TimelineEvent =
-                    | { type: 'message'; id: string; timestamp: number; message: { id: string; text: string; time: string; timestamp?: number } }
-                    | { type: 'file'; id: string; timestamp: number; file: AttachedFile };
-
-                  const activeChatMessages = selectedChatSessionLog.chatMessages || [];
-
-                  const timelineEvents: TimelineEvent[] = [
-                    ...chatDocFiles.map((f, idx) => ({
-                      type: 'file' as const,
-                      id: f.id,
-                      timestamp: getFileTimestamp(f, sessionTimestamp) || (sessionTimestamp ? sessionTimestamp + idx : idx),
-                      file: f,
-                    })),
-                    ...activeChatMessages.map((m, idx) => ({
-                      type: 'message' as const,
-                      id: m.id,
-                      timestamp: getMessageTimestamp(m, sessionTimestamp) || (sessionTimestamp ? sessionTimestamp + chatDocFiles.length + idx : chatDocFiles.length + idx),
-                      message: m,
-                    })),
-                  ];
-
-                  timelineEvents.sort((a, b) => a.timestamp - b.timestamp);
-
-                  let lastDatePill = sessionCreationDateStr;
-
-                  return (
-                    <>
-                      {/* Date Separator Pill */}
-                      <div className="flex justify-center">
-                        <span
-                          style={{
-                            backgroundColor: theme.innerBg,
-                            borderColor: theme.borderLuminous,
-                            color: theme.textSecondary,
-                          }}
-                          className="px-3 py-1 rounded-full text-[11px] font-bold border font-mono"
-                        >
-                          {sessionCreationDateStr}
-                        </span>
-                      </div>
-
-                      {/* 1. Concise System Welcome Badge */}
-                      <div className="flex justify-center">
-                        <div
-                          style={{
-                            backgroundColor: theme.innerBg,
-                            borderColor: theme.borderLuminous,
-                            color: theme.textSecondary,
-                          }}
-                          className="px-4 py-2 rounded-2xl border text-xs font-bold text-center max-w-md shadow-xs"
-                        >
-                          ✦ جلسه «{selectedChatSessionLog.className}»
-                        </div>
-                      </div>
-
-                      {/* 2. Interactive Voice Memo Chat Bubble */}
-                      {selectedChatSessionLog.voiceMemoSeconds && (
-                        <div className="flex items-start gap-2 sm:gap-2.5 w-full min-w-0 max-w-full">
-                          <div className="w-8 h-8 rounded-full flex items-center justify-center bg-purple-500/20 text-purple-400 border border-purple-500/30 flex-shrink-0 mt-1">
-                            <Mic className="w-4 h-4" />
-                          </div>
-
-                          <div
-                            style={{
-                              backgroundColor: theme.innerBg,
-                              borderColor: theme.borderLuminous,
-                            }}
-                            className="flex-1 min-w-0 max-w-full rounded-2xl p-2.5 sm:p-3.5 border shadow-sm overflow-hidden"
-                          >
-                            <div className="flex items-center justify-between pb-2 mb-2 border-b border-white/5 gap-2 min-w-0">
-                              <span className="text-xs font-black text-purple-400 truncate min-w-0">
-                                صوت ضبط شده جلسه
-                              </span>
-                              <div className="flex items-center gap-2 flex-shrink-0">
-                                <span style={{ color: theme.textMuted }} className="text-[10px] font-mono whitespace-nowrap">
-                                  {sessionCreationDateStr}
-                                </span>
-                                <button
-                                  type="button"
-                                  onClick={handleDeleteSessionAudioWeb}
-                                  className="p-1 rounded-lg hover:bg-rose-500/15 text-rose-400 cursor-pointer transition-colors"
-                                  title="حذف صوت ضبط شده"
-                                >
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                </button>
-                              </div>
-                            </div>
-
-                            <div
-                              style={{ backgroundColor: theme.cardBg, borderColor: theme.borderLuminous }}
-                              className="rounded-xl p-3 border space-y-2.5 w-full min-w-0"
-                            >
-                              <div className="flex items-center gap-3">
-                                <button
-                                  type="button"
-                                  onClick={() => setChatAudioPlaying(!chatAudioPlaying)}
-                                  style={{ backgroundColor: theme.primary }}
-                                  className="w-9 h-9 rounded-full flex items-center justify-center text-white flex-shrink-0 cursor-pointer shadow-md hover:opacity-90 active:scale-95"
-                                >
-                                  {chatAudioPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4 translate-x-[-1px]" />}
-                                </button>
-
-                                <div className="flex-1 space-y-1.5 min-w-0">
-                                  <div className="flex items-center justify-between h-4 px-1 gap-1">
-                                    {[35, 75, 25, 95, 60, 100, 45, 80, 50, 70, 90, 40, 85].map((h, i) => (
-                                      <span
-                                        key={i}
-                                        style={{
-                                          height: chatAudioPlaying ? `${h}%` : '20%',
-                                          backgroundColor: chatAudioPlaying ? theme.primary : theme.textMuted,
-                                          width: '3px',
-                                        }}
-                                        className="rounded-full transition-all duration-300"
-                                      />
-                                    ))}
-                                  </div>
-
-                                  <div className="w-full bg-white/10 rounded-full h-1.5 overflow-hidden">
-                                    <div
-                                      style={{
-                                        width: `${Math.min(
-                                          100,
-                                          Math.round(
-                                            (chatAudioSeconds / (selectedChatSessionLog.voiceMemoSeconds || 60)) * 100
-                                          )
-                                        )}%`,
-                                        backgroundColor: theme.primary,
-                                      }}
-                                      className="h-full rounded-full transition-all duration-200"
-                                    />
-                                  </div>
-
-                                  <div className="flex items-center justify-between text-[10px] font-mono">
-                                    <span style={{ color: theme.textMuted }}>
-                                      {formatTimer(chatAudioSeconds)} / {formatTimer(selectedChatSessionLog.voiceMemoSeconds)}
-                                    </span>
-                                    <span style={{ color: chatAudioPlaying ? theme.primary : theme.textMuted }} className="font-bold">
-                                      {chatAudioPlaying ? 'درحال پخش...' : 'متوقف'}
-                                    </span>
-                                  </div>
-                                </div>
-
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    if (chatAudioSpeed === 1) setChatAudioSpeed(1.5);
-                                    else if (chatAudioSpeed === 1.5) setChatAudioSpeed(2);
-                                    else setChatAudioSpeed(1);
-                                  }}
-                                  style={{
-                                    backgroundColor: theme.innerBg,
-                                    borderColor: theme.borderLuminous,
-                                    color: theme.primary,
-                                  }}
-                                  className="px-2 py-1 rounded-lg border text-[10px] font-black cursor-pointer hover:border-white/20 flex-shrink-0"
-                                >
-                                  {chatAudioSpeed}x
-                                </button>
-                              </div>
-                            </div>
-
-                            <div className="flex justify-start pt-1.5 mt-1 border-t border-white/5">
-                              <span style={{ color: theme.textMuted }} className="text-[10px] font-mono">
-                                {sessionTimeDisplay}
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-                      )}
-
-                      {/* 3. Lecture Notes Message Bubble */}
-                      {selectedChatSessionLog.notesText && (
-                        <div className="flex items-start gap-2 sm:gap-2.5 w-full min-w-0 max-w-full">
-                          <div className="w-8 h-8 rounded-full flex items-center justify-center bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 flex-shrink-0 mt-1">
-                            <FileText className="w-4 h-4" />
-                          </div>
-
-                          <div
-                            style={{
-                              backgroundColor: theme.innerBg,
-                              borderColor: theme.borderLuminous,
-                            }}
-                            className="flex-1 min-w-0 max-w-full rounded-2xl p-2.5 sm:p-3.5 border shadow-sm overflow-hidden"
-                          >
-                            <div className="flex items-center justify-between pb-2 mb-2 border-b border-white/5 gap-2 min-w-0">
-                              <span className="text-xs font-black text-emerald-400 truncate min-w-0">
-                                نکات و خلاصه تدریس استاد
-                              </span>
-                              <span style={{ color: theme.textMuted }} className="text-[10px] font-mono whitespace-nowrap flex-shrink-0">
-                                {sessionCreationDateStr}
-                              </span>
-                            </div>
-
-                            <p style={{ color: theme.textPrimary }} className="text-xs leading-relaxed break-words py-1">
-                              {selectedChatSessionLog.notesText}
-                            </p>
-
-                            <div className="flex justify-start pt-1.5 mt-1 border-t border-white/5">
-                              <span style={{ color: theme.textMuted }} className="text-[10px] font-mono">
-                                {sessionTimeDisplay}
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-                      )}
-
-                      {/* 4. Interactive Session Reminder Controller in Timeline */}
-                      <div className="w-full min-w-0 max-w-full">
-                        {selectedChatSessionLog.hasReminder ? (
-                          <div className="flex items-start gap-2 sm:gap-2.5 w-full min-w-0 max-w-full">
-                            <div className="w-8 h-8 rounded-full flex items-center justify-center bg-rose-500/20 text-rose-400 border border-rose-500/30 flex-shrink-0 mt-1">
-                              <Bell className="w-4 h-4" />
-                            </div>
-
-                            <div
-                              style={{
-                                backgroundColor: theme.innerBg,
-                                borderColor: 'rgba(244, 63, 94, 0.3)',
-                              }}
-                              className="flex-1 min-w-0 max-w-full rounded-2xl p-2.5 sm:p-3.5 border shadow-sm overflow-hidden"
-                            >
-                              <div className="flex items-center justify-between pb-2 mb-2 border-b border-white/5 gap-2 min-w-0">
-                                <span className="text-xs font-black text-rose-400 flex items-center gap-1.5 truncate min-w-0">
-                                  <span>یادآور این جلسه</span>
-                                </span>
-                                <span style={{ color: theme.textMuted }} className="text-[10px] font-mono whitespace-nowrap flex-shrink-0">
-                                  {selectedChatSessionLog.reminderTimestamp ? formatJalaliDate(selectedChatSessionLog.reminderTimestamp) : sessionCreationDateStr}
-                                </span>
-                              </div>
-
-                              <div className="text-right py-1 space-y-0.5 min-w-0">
-                                <span style={{ color: theme.textMuted }} className="text-[10px] font-bold block">
-                                  یادآوری:
-                                </span>
-                                <div className="text-xs font-black text-sky-400 break-words">
-                                  {selectedChatSessionLog.reminderTimeText || formatPersianReminderText(selectedChatSessionLog.reminderTrigger, selectedChatSessionLog.reminderTimeText)}
-                                </div>
-                              </div>
-
-                              <div className="flex items-center gap-2 pt-2 mt-2 border-t border-white/5 w-full min-w-0">
-                                <button
-                                  type="button"
-                                  onClick={handleOpenEditTimelineReminder}
-                                  style={{
-                                    backgroundColor: theme.innerBg,
-                                    borderColor: theme.borderLuminous,
-                                    color: theme.textPrimary,
-                                  }}
-                                  className="flex-1 min-w-0 py-2 px-2.5 rounded-xl text-xs font-bold border hover:border-white/30 cursor-pointer transition-colors text-center"
-                                >
-                                  ✏️ ویرایش
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={handleToggleTimelineReminder}
-                                  className="flex-1 min-w-0 py-2 px-2.5 rounded-xl text-xs font-bold bg-rose-500/10 text-rose-400 border border-rose-500/20 hover:bg-rose-500/20 cursor-pointer transition-colors text-center"
-                                >
-                                  🔕 لغو یادآور
-                                </button>
-                              </div>
-                            </div>
-                          </div>
-                        ) : (
-                          <div
-                            style={{
-                              backgroundColor: theme.innerBg,
-                              borderColor: theme.borderLuminous,
-                            }}
-                            className="rounded-2xl p-3 border flex items-center justify-between gap-2 w-full min-w-0 max-w-full"
-                          >
-                            <div className="flex items-center gap-2 min-w-0 flex-1">
-                              <div className="w-7 h-7 rounded-lg flex items-center justify-center bg-slate-500/20 text-slate-400 flex-shrink-0">
-                                <Bell className="w-3.5 h-3.5" />
-                              </div>
-                              <span style={{ color: theme.textSecondary }} className="text-xs font-semibold truncate">
-                                برای این جلسه یادآور تنظیم نشده است
-                              </span>
-                            </div>
-                            <button
-                              type="button"
-                              onClick={handleOpenSetTimelineReminder}
-                              style={{ backgroundColor: theme.primary }}
-                              className="py-1.5 px-3 rounded-xl text-xs font-black text-white cursor-pointer hover:opacity-90 transition-all flex items-center gap-1 shadow-sm flex-shrink-0"
-                            >
-                              <Plus className="w-3.5 h-3.5" />
-                              <span>تنظیم یادآور</span>
-                            </button>
-                          </div>
-                        )}
-                      </div>
-
-                      {/* 5. Chronological Unified Events Stream (Interleaved Messages & Attached Files) */}
-                      {timelineEvents.map((ev) => {
-                        const evDateStr = formatJalaliDate(ev.timestamp) || sessionCreationDateStr;
-                        const showDayPill = evDateStr !== lastDatePill;
-                        if (showDayPill) {
-                          lastDatePill = evDateStr;
-                        }
-
-                        return (
-                          <React.Fragment key={ev.id}>
-                            {showDayPill && (
-                              <div className="flex justify-center my-1.5">
-                                <span
-                                  style={{
-                                    backgroundColor: theme.innerBg,
-                                    borderColor: theme.borderLuminous,
-                                    color: theme.textSecondary,
-                                  }}
-                                  className="px-3 py-0.5 rounded-full text-[10px] font-bold border font-mono opacity-90 shadow-xs"
-                                >
-                                  {evDateStr}
-                                </span>
-                              </div>
-                            )}
-
-                            {ev.type === 'message' ? (
-                              <div className="flex justify-end">
-                                <div
-                                  style={{ backgroundColor: theme.primary }}
-                                  className="rounded-2xl rounded-br-sm p-3 text-white max-w-[85%] shadow-md space-y-1.5"
-                                >
-                                  <div className="flex items-center justify-between gap-4 border-b border-white/10 pb-1">
-                                    <span className="text-[10px] font-bold text-white/80">شما</span>
-                                    <span className="text-[9px] text-white/70 font-mono">
-                                      {evDateStr}
-                                    </span>
-                                  </div>
-                                  <p className="text-xs leading-relaxed break-words">{ev.message.text}</p>
-                                  <div className="flex justify-start pt-0.5">
-                                    <span className="text-[9px] text-white/70 font-mono">
-                                      {formatPersianTime(ev.timestamp) || ev.message.time}
-                                    </span>
-                                  </div>
-                                </div>
-                              </div>
-                            ) : (
-                              <div className="flex items-start gap-2 sm:gap-2.5 w-full min-w-0 max-w-full">
-                                <div className="w-8 h-8 rounded-full flex items-center justify-center bg-blue-500/20 text-blue-400 border border-blue-500/30 flex-shrink-0 mt-1">
-                                  <Paperclip className="w-4 h-4" />
-                                </div>
-
-                                <div
-                                  style={{
-                                    backgroundColor: theme.innerBg,
-                                    borderColor: theme.borderLuminous,
-                                  }}
-                                  className="flex-1 min-w-0 max-w-full rounded-2xl p-2.5 sm:p-3 border shadow-sm overflow-hidden"
-                                >
-                                  <div className="flex items-center justify-between pb-1.5 mb-2 border-b border-white/5 gap-2 min-w-0">
-                                    <span className="text-xs font-black text-blue-400 truncate min-w-0 flex items-center gap-1">
-                                      <span>فایل پیوست</span>
-                                    </span>
-                                    <span style={{ color: theme.textMuted }} className="text-[10px] font-mono whitespace-nowrap flex-shrink-0">
-                                      {evDateStr}
-                                    </span>
-                                  </div>
-
-                                  <div
-                                    style={{
-                                      backgroundColor: theme.cardBg,
-                                      borderColor: theme.borderLuminous,
-                                    }}
-                                    className="p-2 sm:p-2.5 rounded-xl border flex items-center justify-between gap-1.5 sm:gap-2 transition-all group w-full min-w-0 max-w-full box-border"
-                                  >
-                                    <div
-                                      onClick={() => handleOpenFileWeb(ev.file)}
-                                      className="flex items-center gap-1.5 sm:gap-2 overflow-hidden cursor-pointer flex-1 min-w-0"
-                                      title={ev.file.name}
-                                    >
-                                      <div className="shrink-0">{renderFileTypeTag(ev.file.type)}</div>
-                                      <span
-                                        style={{ color: theme.textPrimary }}
-                                        className="text-xs font-bold truncate group-hover:text-blue-400 transition-colors min-w-0 flex-1"
-                                      >
-                                        {truncateFileNameMiddle(ev.file.name, 16)}
-                                      </span>
-                                    </div>
-
-                                    <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
-                                      <span style={{ color: theme.textMuted }} className="text-[10px] whitespace-nowrap hidden sm:inline">
-                                        {ev.file.sizeText}
-                                      </span>
-                                      <button
-                                        type="button"
-                                        onClick={() => handleOpenFileWeb(ev.file)}
-                                        className="p-2 sm:p-1.5 hover:bg-blue-500/15 rounded-xl text-blue-400 cursor-pointer shrink-0 transition-all active:scale-95 flex items-center justify-center"
-                                        title="باز کردن فایل"
-                                        aria-label="باز کردن فایل"
-                                      >
-                                        <ExternalLink className="w-4 h-4 sm:w-3.5 sm:h-3.5" />
-                                      </button>
-                                      <button
-                                        type="button"
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          handleDeleteSessionFileWeb(ev.file.id);
-                                        }}
-                                        className="p-2 sm:p-1.5 bg-rose-500/15 hover:bg-rose-500/25 rounded-xl text-rose-400 cursor-pointer transition-all active:scale-95 shrink-0 flex items-center justify-center border border-rose-500/20"
-                                        title="حذف فایل پیوست"
-                                        aria-label="حذف فایل پیوست"
-                                      >
-                                        <Trash2 className="w-4 h-4 sm:w-3.5 sm:h-3.5" />
-                                      </button>
-                                    </div>
-                                  </div>
-
-                                  <div className="flex justify-start pt-1.5 mt-1 border-t border-white/5">
-                                    <span style={{ color: theme.textMuted }} className="text-[10px] font-mono">
-                                      {formatPersianTime(ev.timestamp) || sessionTimeDisplay}
-                                    </span>
-                                  </div>
-                                </div>
-                              </div>
-                            )}
-                          </React.Fragment>
-                        );
-                      })}
-                    </>
-                  );
-                })()}
-              </div>
-
-              {/* Hidden Native Operating System File Picker */}
-              <input
-                type="file"
-                ref={chatFileInputRef}
-                onChange={handleChatSystemFileUpload}
-                multiple
-                className="hidden"
-                accept="*/*"
-              />
-
-              {/* Bottom Interactive Message Bar (With Real System File Picker) */}
-              <form
-                onSubmit={handleSendChatFollowUp}
-                style={{
-                  backgroundColor: theme.innerBg,
-                  borderTopColor: theme.borderLuminous,
-                }}
-                className="p-3 border-t flex items-center gap-2 flex-shrink-0"
-              >
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (Capacitor.isNativePlatform()) {
-                      handleChatNativeFilePicker();
-                    } else {
-                      chatFileInputRef.current?.click();
-                    }
-                  }}
-                  style={{
-                    backgroundColor: theme.cardBg,
-                    borderColor: theme.borderLuminous,
-                    color: theme.primary,
-                  }}
-                  className="w-9 h-9 rounded-xl border flex items-center justify-center cursor-pointer hover:opacity-80 shadow-sm flex-shrink-0"
-                  title="انتخاب و پیوست فایل واقعی از حافظه دستگاه"
-                >
-                  <Paperclip className="w-4 h-4" />
-                </button>
-
-                <button
-                  type="submit"
-                  disabled={!chatInputText.trim()}
-                  style={{ backgroundColor: chatInputText.trim() ? theme.primary : 'transparent' }}
-                  className={`w-9 h-9 rounded-xl flex items-center justify-center text-white transition-opacity flex-shrink-0 ${
-                    chatInputText.trim() ? 'cursor-pointer hover:opacity-90 shadow-sm' : 'opacity-40 cursor-not-allowed'
-                  }`}
-                >
-                  <Send className="w-4 h-4 translate-x-[-1px]" />
-                </button>
-
-                <input
-                  type="text"
-                  value={chatInputText}
-                  onChange={(e) => setChatInputText(e.target.value)}
-                  placeholder="افزودن یادداشت تکمیلی یا نکته جدید به جلسه..."
-                  style={{
-                    backgroundColor: theme.cardBg,
-                    borderColor: theme.borderLuminous,
-                    color: theme.textPrimary,
-                  }}
-                  className="flex-1 py-2 px-3.5 rounded-xl border text-xs focus:outline-none text-right min-w-0"
-                />
-              </form>
-            </div>
-          </div>
-        )}
+        <SessionTimelineModal
+          sessionLog={selectedChatSessionLog}
+          theme={theme}
+          fileToast={fileToast}
+          chatAudioPlaying={chatAudioPlaying}
+          chatAudioSeconds={chatAudioSeconds}
+          chatAudioSpeed={chatAudioSpeed}
+          chatInputText={chatInputText}
+          onClose={() => setSelectedChatSessionLog(null)}
+          onDeleteSession={handleDeleteFullSessionLog}
+          onToggleAudioPlayback={() => setChatAudioPlaying(!chatAudioPlaying)}
+          onAudioSpeedChange={() => {
+            if (chatAudioSpeed === 1) setChatAudioSpeed(1.5);
+            else if (chatAudioSpeed === 1.5) setChatAudioSpeed(2);
+            else setChatAudioSpeed(1);
+          }}
+          onDeleteAudio={handleDeleteSessionAudioWeb}
+          onOpenEditReminder={handleOpenEditTimelineReminder}
+          onToggleReminder={handleToggleTimelineReminder}
+          onOpenSetReminder={handleOpenSetTimelineReminder}
+          onOpenFile={handleOpenFileWeb}
+          onDeleteFile={handleDeleteSessionFileWeb}
+          onNativePickFile={handleChatNativeFilePicker}
+          onUploadSystemFiles={handleChatSystemFileUpload}
+          onSendFollowUp={handleSendChatFollowUp}
+          onChangeInputText={setChatInputText}
+        />
 
         {/* IN-APP FILE & MEDIA VIEWER MODAL (Problem 7) */}
         {previewFile && (

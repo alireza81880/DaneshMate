@@ -8,6 +8,7 @@ on:
     paths:
       - 'src/**'
       - 'android/**'
+      - 'backend/**'
       - 'capacitor.config.ts'
       - 'package.json'
       - 'vite.config.ts'
@@ -18,7 +19,7 @@ permissions:
 
 jobs:
   build-capacitor-apk:
-    name: Build Capacitor Android APK (WebView Shell)
+    name: Build Capacitor Android Debug APK (Rust Core + WebView Shell)
     runs-on: ubuntu-latest
     steps:
       - name: 1. Checkout Repository
@@ -36,49 +37,129 @@ jobs:
           distribution: 'temurin'
           java-version: '21'
 
-      - name: 4. Install Root Project Dependencies
+      - name: 4. Set Up Android NDK
+        id: setup-ndk
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r26b
+          add-to-path: true
+
+      - name: 5. Set Up Rust Toolchain (arm64-v8a & armeabi-v7a Android Targets)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: |
+            aarch64-linux-android
+            armv7-linux-androideabi
+
+      - name: 6. Install cargo-ndk
+        run: |
+          cargo install cargo-ndk --locked
+
+      - name: 7. Install Project Dependencies
         run: |
           npm install --no-audit --no-fund --legacy-peer-deps
 
-      - name: 5. Build Web Production Application (Vite + Tailwind)
+      - name: 8. Run Automated Test Suites and Linter
+        run: |
+          npm run lint
+          npm run test:timeline-utils
+          npm run test:timeline
+          npm run test:back-policy
+          npm run test:reminder
+          npm run test:ffi
+
+      - name: 9. Build Web Production Application (Vite + Tailwind)
         run: |
           npm run build
 
-      - name: 6. Sync Web Assets with Capacitor Android Shell
+      - name: 10. Sync Web Assets with Capacitor Android Shell
         run: |
           npx cap sync android
 
-      - name: 7. Verify Embedded Web Assets in Android Project
+      - name: 11. Cross-Compile & Strip Rust Native Library (libdaneshmate_core.so)
+        env:
+          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
         run: |
-          echo "[+] Checking assets copied to android/app/src/main/assets/public/ ..."
-          test -f android/app/src/main/assets/public/index.html || {
-            echo "[-] ERROR: Missing android/app/src/main/assets/public/index.html"
+          chmod +x backend/scripts/build_rust_mobile.sh
+          ./backend/scripts/build_rust_mobile.sh
+
+          test -f android/app/src/main/jniLibs/arm64-v8a/libdaneshmate_core.so || {
+            echo "[-] ERROR: Missing arm64-v8a/libdaneshmate_core.so"
             exit 1
           }
-          echo "[✓] Web assets verified in Capacitor Android container."
+          test -f android/app/src/main/jniLibs/armeabi-v7a/libdaneshmate_core.so || {
+            echo "[-] ERROR: Missing armeabi-v7a/libdaneshmate_core.so"
+            exit 1
+          }
 
-      - name: 8. Assemble Android Debug APK
+          # Remove non-target architectures (retain only arm64-v8a and armeabi-v7a)
+          rm -rf android/app/src/main/jniLibs/x86
+          rm -rf android/app/src/main/jniLibs/x86_64
+
+          # Strip debug symbols using llvm-strip from NDK to optimize file size
+          STRIP_TOOL="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip"
+          if [ ! -f "$STRIP_TOOL" ]; then
+            STRIP_TOOL=$(command -v llvm-strip || command -v strip || true)
+          fi
+
+          if [ -n "$STRIP_TOOL" ]; then
+            echo "[+] Stripping libdaneshmate_core.so symbols using $STRIP_TOOL..."
+            find android/app/src/main/jniLibs -name "libdaneshmate_core.so" -exec "$STRIP_TOOL" --strip-all {} + || true
+          fi
+
+          echo "=== Embedded Android jniLibs (arm64-v8a & armeabi-v7a) ==="
+          ls -lh android/app/src/main/jniLibs/arm64-v8a/libdaneshmate_core.so
+          ls -lh android/app/src/main/jniLibs/armeabi-v7a/libdaneshmate_core.so
+
+      - name: 12. Assemble Android Debug APK
         run: |
           cd android
           chmod +x gradlew
           ./gradlew assembleDebug --stacktrace
 
-      - name: 9. Locate and Verify Generated APK
+      - name: 13. Locate and Validate Generated Debug APK Contents
         id: locate-apk
         run: |
           mkdir -p "${GITHUB_WORKSPACE}/artifacts"
           APK_PATH=$(find android/app/build/outputs/apk/debug -name "*.apk" | head -n 1)
-          if [ -n "$APK_PATH" ] && [ -f "$APK_PATH" ]; then
-            echo "[✓] Located APK at: $APK_PATH"
-            cp "$APK_PATH" "${GITHUB_WORKSPACE}/artifacts/DaneshMate-Capacitor-Debug.apk"
-            echo "apk_path=${GITHUB_WORKSPACE}/artifacts/DaneshMate-Capacitor-Debug.apk" >> "$GITHUB_OUTPUT"
-            ls -lh "${GITHUB_WORKSPACE}/artifacts/DaneshMate-Capacitor-Debug.apk"
-          else
-            echo "[-] ERROR: APK was not generated!"
+          if [ -z "$APK_PATH" ] || [ ! -f "$APK_PATH" ]; then
+            echo "[-] ERROR: Debug APK was not generated!"
             exit 1
           fi
 
-      - name: 10. Upload Capacitor Test APK Artifact
+          TARGET_APK="${GITHUB_WORKSPACE}/artifacts/DaneshMate-Capacitor-Debug.apk"
+          cp "$APK_PATH" "$TARGET_APK"
+          echo "[✓] Located APK at: $APK_PATH -> $TARGET_APK"
+          ls -lh "$TARGET_APK"
+
+          echo "=== Verifying Embedded Web Assets & Native Rust Libraries in APK ==="
+          unzip -l "$TARGET_APK" | grep -q "assets/public/index.html" || {
+            echo "[-] ERROR: Missing assets/public/index.html inside APK!"
+            exit 1
+          }
+          echo "[✓] Verified assets/public/index.html is present in APK."
+
+          unzip -l "$TARGET_APK" | grep -q "lib/arm64-v8a/libdaneshmate_core.so" || {
+            echo "[-] ERROR: Missing lib/arm64-v8a/libdaneshmate_core.so inside APK!"
+            exit 1
+          }
+          echo "[✓] Verified lib/arm64-v8a/libdaneshmate_core.so is present in APK."
+
+          unzip -l "$TARGET_APK" | grep -q "lib/armeabi-v7a/libdaneshmate_core.so" || {
+            echo "[-] ERROR: Missing lib/armeabi-v7a/libdaneshmate_core.so inside APK!"
+            exit 1
+          }
+          echo "[✓] Verified lib/armeabi-v7a/libdaneshmate_core.so is present in APK."
+
+      - name: 14. Upload Gradle Build Failure Reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-debug-build-reports
+          path: android/app/build/reports/
+          if-no-files-found: ignore
+
+      - name: 15. Upload Capacitor Test APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: DaneshMate-Capacitor-Debug-APK
