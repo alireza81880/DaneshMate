@@ -1,6 +1,7 @@
 import { Capacitor } from '@capacitor/core';
 import { LocalNotifications, ActionPerformed } from '@capacitor/local-notifications';
-import { parseTime, toPersianDigits } from '../utils/time';
+import { parseTime, toPersianDigits, toLatinDigits } from '../utils/time';
+import { jalaliToTimestamp } from '../utils/jalaliDate';
 
 const CHANNEL_ID = 'daneshmate-reminders';
 
@@ -226,12 +227,12 @@ class NotificationService {
         }
       }
 
-      // Check Exact Alarm for Android 12+ (API 31+)
+      // Check Exact Alarm status for Android 12+ (API 31+) without prematurely opening settings
+      // (LocalNotifications.schedule handles exact alarm prompt/fallback natively)
       try {
         const exactStatus = await LocalNotifications.checkExactNotificationSetting();
         if (exactStatus.exact_alarm !== 'granted') {
           console.info('[NotificationService] Exact alarm setting status:', exactStatus);
-          await LocalNotifications.changeExactNotificationSetting();
         }
       } catch (exactErr) {
         console.warn('[NotificationService] Exact alarm check notice:', exactErr);
@@ -248,21 +249,22 @@ class NotificationService {
    * Parse minutes before class from trigger string or explicit number
    */
   public parseMinutesBefore(trigger?: string, explicitMinutes?: number): number {
-    if (explicitMinutes !== undefined && !isNaN(explicitMinutes)) {
-      return explicitMinutes;
+    if (explicitMinutes !== undefined && explicitMinutes !== null && !isNaN(Number(explicitMinutes))) {
+      return Number(explicitMinutes);
     }
     if (!trigger) return 30; // default 30 minutes before class
 
-    const trg = trigger.toLowerCase();
-    if (trg.includes('15') || trg.includes('۱۵')) return 15;
-    if (trg.includes('30') || trg.includes('۳۰')) return 30;
-    if (trg.includes('45') || trg.includes('۴۵')) return 45;
-    if (trg.includes('2 hour') || trg.includes('۲ ساعت') || trg.includes('120')) return 120;
-    if (trg.includes('1 hour') || trg.includes('۱ ساعت') || trg.includes('60')) return 60;
-    if (trg.includes('24 hour') || trg.includes('۲۴ ساعت') || trg.includes('1 day') || trg.includes('۱ روز') || trg.includes('1440')) return 1440;
-    if (trg.includes('2 days') || trg.includes('۲ روز')) return 2880;
+    const trg = toLatinDigits(trigger).toLowerCase();
+    if (trg.includes('هم‌زمان') || trg.includes('همزمان')) return 0;
+    if (trg.includes('15')) return 15;
+    if (trg.includes('30')) return 30;
+    if (trg.includes('45')) return 45;
+    if (trg.includes('2 hour') || trg.includes('2 ساعت') || trg.includes('120')) return 120;
+    if (trg.includes('1 hour') || trg.includes('1 ساعت') || trg.includes('60')) return 60;
+    if (trg.includes('24 hour') || trg.includes('24 ساعت') || trg.includes('1 day') || trg.includes('1 روز') || trg.includes('1440')) return 1440;
+    if (trg.includes('2 days') || trg.includes('2 روز')) return 2880;
 
-    const numMatch = trigger.match(/(\d+)/);
+    const numMatch = trg.match(/(\d+)/);
     if (numMatch) {
       const val = parseInt(numMatch[1], 10);
       if (trg.includes('hour') || trg.includes('ساعت')) return val * 60;
@@ -353,14 +355,14 @@ class NotificationService {
       }
     }
 
-    // 3. Parse class start hour & minute (e.g. "08:00 - 10:00" -> 8:00)
+    // 3. Parse class start hour & minute (e.g. "08:00 - 10:00" or "۰۸:۰۰ - ۱۰:۰۰" -> 8:00)
     let classHour = 8;
     let classMin = 0;
     if (classTime) {
-      const match = classTime.match(/(\d{1,2}):(\d{2})/);
-      if (match) {
-        classHour = parseInt(match[1], 10);
-        classMin = parseInt(match[2], 10);
+      const parsedStart = parseTime(classTime);
+      if (parsedStart) {
+        classHour = parsedStart.hour;
+        classMin = parsedStart.minute;
       }
     }
 
@@ -431,18 +433,19 @@ class NotificationService {
   ): Date {
     const baseDate = new Date(occurrenceTimestamp);
 
-    // Parse class start hour & minute (default 08:00)
+    // Parse class start hour & minute (default 08:00, supports both Latin and Persian numerals)
     let classHour = 8;
     let classMin = 0;
     if (classTime) {
-      const match = classTime.match(/(\d{1,2}):(\d{2})/);
-      if (match) {
-        classHour = parseInt(match[1], 10);
-        classMin = parseInt(match[2], 10);
+      const parsedStart = parseTime(classTime);
+      if (parsedStart) {
+        classHour = parsedStart.hour;
+        classMin = parsedStart.minute;
       }
     }
 
-    const isExact = reminderMode === 'exact_time' && Boolean(exactTime);
+    const effectiveMode = reminderMode || (exactTime ? 'exact_time' : 'before_class');
+    const isExact = effectiveMode === 'exact_time' && Boolean(exactTime);
     if (isExact && exactTime) {
       const parsedExact = parseTime(exactTime);
       const remHour = parsedExact ? parsedExact.hour : classHour;
@@ -456,51 +459,113 @@ class NotificationService {
   }
 
   /**
+   * Resolve anchor timestamp for a bi-weekly class from anchor_timestamp, scheduled_session_timestamps, or anchor_date.
+   */
+  private resolveBiWeeklyAnchorTimestamp(classItem: any): number | null {
+    const rawTs = Number(classItem?.anchor_timestamp);
+    if (!isNaN(rawTs) && rawTs > 0) {
+      return rawTs;
+    }
+    if (Array.isArray(classItem?.scheduled_session_timestamps) && classItem.scheduled_session_timestamps.length > 0) {
+      const firstTs = Number(classItem.scheduled_session_timestamps[0]);
+      if (!isNaN(firstTs) && firstTs > 0) {
+        return firstTs;
+      }
+    }
+    if (classItem?.anchor_date && typeof classItem.anchor_date === 'string') {
+      const cleanDate = toLatinDigits(classItem.anchor_date).trim();
+      const parts = cleanDate.split('/').map((s) => parseInt(s, 10));
+      if (parts.length === 3 && !parts.some(isNaN)) {
+        const parsed = jalaliToTimestamp(parts[0], parts[1], parts[2]);
+        if (!isNaN(parsed) && parsed > 0) {
+          return parsed;
+        }
+      }
+    }
+    return null;
+  }
+
+  /**
    * Determine all expected future occurrences (and deterministic notification IDs) for a class within 16-week horizon.
    */
   public getClassExpectedOccurrences(
     classItem: any,
     now: number = Date.now()
   ): { occurrenceTimestamp: number; fireDate: Date; notifId: number }[] {
-    if (!classItem.hasReminder) return [];
+    if (!classItem || !classItem.hasReminder) return [];
 
     const isBiWeekly =
       classItem.recurrence === 'bi_weekly' ||
       classItem.recurrence === 'biweekly' ||
       classItem.recurrence === 'even_weeks' ||
-      classItem.recurrence === 'odd_weeks';
+      classItem.recurrence === 'odd_weeks' ||
+      classItem.recurrence_type === 'bi_weekly' ||
+      classItem.recurrence_type === 'even' ||
+      classItem.recurrence_type === 'odd';
+
+    const effectiveMode: 'before_class' | 'exact_time' =
+      classItem.reminderMode || (classItem.reminderExactTime ? 'exact_time' : 'before_class');
+    const isExact = effectiveMode === 'exact_time' && Boolean(classItem.reminderExactTime);
+    const minsBefore = isExact ? undefined : (classItem.reminderMinutesBefore ?? 30);
 
     let sessionTimestamps: number[] = [];
 
     if (isBiWeekly) {
-      // Requirement 11: If bi-weekly and NO anchor_timestamp, do NOT guess. Return empty.
-      if (!classItem.anchor_timestamp) {
+      // Requirement 11: If bi-weekly and NO anchor_timestamp/anchor_date, do NOT guess. Return empty.
+      const anchorTs = this.resolveBiWeeklyAnchorTimestamp(classItem);
+      if (!anchorTs) {
         console.warn(`[NotificationService] Class ${classItem.id} (${classItem.name}) is bi-weekly but has no anchor_timestamp; skipping reminders.`);
         return [];
       }
-      sessionTimestamps = generateBiWeeklyOccurrences(classItem.anchor_timestamp);
+      sessionTimestamps = generateBiWeeklyOccurrences(anchorTs);
     } else {
-      // Weekly schedule
-      let startTimestamp = classItem.anchor_timestamp;
-      if (!startTimestamp) {
-        const PERSIAN_DAY_TO_JS: Record<string, number> = {
-          'یکشنبه': 0, 'دوشنبه': 1, 'سه‌شنبه': 2, 'چهارشنبه': 3, 'پنج‌شنبه': 4, 'جمعه': 5, 'شنبه': 6,
-        };
-        const targetDayIndex = classItem.day ? PERSIAN_DAY_TO_JS[classItem.day] : undefined;
-        const nowDate = new Date(now);
-        if (targetDayIndex !== undefined) {
-          const daysAhead = (targetDayIndex - nowDate.getDay() + 7) % 7;
-          const nextDay = new Date(nowDate.getFullYear(), nowDate.getMonth(), nowDate.getDate() + daysAhead);
-          startTimestamp = nextDay.getTime();
-        } else {
-          startTimestamp = now;
+      // Weekly schedule: compute 16 upcoming occurrences on the class's weekday
+      const PERSIAN_DAY_TO_JS: Record<string, number> = {
+        'یکشنبه': 0, 'دوشنبه': 1, 'سه‌شنبه': 2, 'چهارشنبه': 3, 'پنج‌شنبه': 4, 'جمعه': 5, 'شنبه': 6,
+      };
+      const targetDayIndex = classItem.day ? PERSIAN_DAY_TO_JS[classItem.day] : undefined;
+      const nowDate = new Date(now);
+      let startTimestamp: number;
+
+      if (targetDayIndex !== undefined) {
+        const daysAhead = (targetDayIndex - nowDate.getDay() + 7) % 7;
+        let nextDay = new Date(nowDate.getFullYear(), nowDate.getMonth(), nowDate.getDate() + daysAhead);
+
+        // If today is the class weekday, check whether today's reminder fire time has already passed.
+        // If it has already passed, start the 16-week horizon from next week (+7 days) so all 16 future weeks are scheduled.
+        if (daysAhead === 0) {
+          const todayFireDate = this.calculateOccurrenceFireDate(
+            nextDay.getTime(),
+            classItem.time,
+            effectiveMode,
+            minsBefore,
+            classItem.reminderExactTime,
+            classItem.reminderTriggerText
+          );
+          if (todayFireDate.getTime() <= now) {
+            nextDay = new Date(nowDate.getFullYear(), nowDate.getMonth(), nowDate.getDate() + 7);
+          }
         }
+
+        // If an explicit future anchor_timestamp on the same weekday is provided, honor it
+        const rawAnchor = Number(classItem.anchor_timestamp);
+        if (!isNaN(rawAnchor) && rawAnchor > 0) {
+          const anchorD = new Date(rawAnchor);
+          const anchorMidnight = new Date(anchorD.getFullYear(), anchorD.getMonth(), anchorD.getDate());
+          if (anchorMidnight.getDay() === targetDayIndex && anchorMidnight.getTime() > nextDay.getTime()) {
+            nextDay = anchorMidnight;
+          }
+        }
+
+        startTimestamp = nextDay.getTime();
+      } else if (classItem.anchor_timestamp && !isNaN(Number(classItem.anchor_timestamp))) {
+        startTimestamp = Number(classItem.anchor_timestamp);
+      } else {
+        startTimestamp = now;
       }
+
       sessionTimestamps = generateWeeklyOccurrences(startTimestamp);
     }
-
-    const isExact = classItem.reminderMode === 'exact_time' && Boolean(classItem.reminderExactTime);
-    const minsBefore = isExact ? undefined : (classItem.reminderMinutesBefore ?? 30);
 
     const occurrences: { occurrenceTimestamp: number; fireDate: Date; notifId: number }[] = [];
 
@@ -508,7 +573,7 @@ class NotificationService {
       const fireDate = this.calculateOccurrenceFireDate(
         occTs,
         classItem.time,
-        classItem.reminderMode || (isExact ? 'exact_time' : 'before_class'),
+        effectiveMode,
         minsBefore,
         classItem.reminderExactTime,
         classItem.reminderTriggerText
@@ -746,8 +811,8 @@ class NotificationService {
       // 1. Cancel legacy single notification ID
       idsToCancel.add(this.getNotificationId(`cls_${classId}`));
 
-      // 2. If anchor or scheduled timestamps are known, compute and cancel all occurrence IDs
-      const anchorTs = classItem?.anchor_timestamp;
+      // 2. If anchor or scheduled timestamps or classItem are known, compute and cancel all occurrence IDs
+      const anchorTs = this.resolveBiWeeklyAnchorTimestamp(classItem);
       if (anchorTs) {
         const biWeeklyOccs = generateBiWeeklyOccurrences(anchorTs);
         for (const ts of biWeeklyOccs) {
@@ -761,7 +826,18 @@ class NotificationService {
 
       if (classItem?.scheduled_session_timestamps) {
         for (const ts of classItem.scheduled_session_timestamps) {
-          idsToCancel.add(this.getClassOccurrenceNotificationId(classId, ts));
+          idsToCancel.add(this.getClassOccurrenceNotificationId(classId, Number(ts)));
+        }
+      }
+
+      if (classItem) {
+        const expectedOccs = this.getClassExpectedOccurrences({
+          ...classItem,
+          id: classId,
+          hasReminder: true,
+        });
+        for (const occ of expectedOccs) {
+          idsToCancel.add(occ.notifId);
         }
       }
 
@@ -769,8 +845,9 @@ class NotificationService {
       try {
         const pending = await LocalNotifications.getPending();
         for (const p of pending.notifications) {
+          const pId = Number(p.id);
           if (p.extra?.classId === classId || p.extra?.id?.startsWith(`cls_${classId}`)) {
-            idsToCancel.add(p.id);
+            if (!isNaN(pId)) idsToCancel.add(pId);
           }
         }
       } catch (err) {
@@ -799,21 +876,32 @@ class NotificationService {
     try {
       await this.ensureChannel();
       const pending = await LocalNotifications.getPending();
-      const pendingIds = new Set(pending.notifications.map((n) => n.id));
+      const pendingScheduleMap = new Map<number, number>();
+      for (const n of pending.notifications) {
+        const nId = Number(n.id);
+        if (!isNaN(nId)) {
+          const atTime = n.schedule?.at ? new Date(n.schedule.at).getTime() : 0;
+          pendingScheduleMap.set(nId, isNaN(atTime) ? 0 : atTime);
+        }
+      }
       const now = Date.now();
 
       const activeExpectedIds = new Set<number>();
 
       // 1. Sync one-time session log reminders (if in future)
-      const activeLogsWithReminder = sessionLogs.filter(
-        (l) => l.hasReminder && l.reminderTimestamp && l.reminderTimestamp > now
+      const activeLogsWithReminder = (sessionLogs || []).filter(
+        (l) => l && l.hasReminder && l.reminderTimestamp && l.reminderTimestamp > now
       );
       for (const log of activeLogsWithReminder) {
         const notifId = this.getNotificationId(log.id);
         activeExpectedIds.add(notifId);
 
-        if (!pendingIds.has(notifId)) {
-          const cls = classes.find((c) => c.id === log.classId);
+        const existingAt = pendingScheduleMap.get(notifId);
+        const isProperlyScheduled =
+          existingAt !== undefined && Math.abs(existingAt - Number(log.reminderTimestamp)) < 1000;
+
+        if (!isProperlyScheduled) {
+          const cls = (classes || []).find((c) => c.id === log.classId);
           try {
             await this.scheduleReminder({
               id: log.id,
@@ -834,26 +922,25 @@ class NotificationService {
       }
 
       // 2. Sync class-level recurring occurrences
-      const activeClassesWithReminder = classes.filter((c) => c.hasReminder);
+      const activeClassesWithReminder = (classes || []).filter((c) => c && c.hasReminder);
       for (const cls of activeClassesWithReminder) {
         const expectedOccurrences = this.getClassExpectedOccurrences(cls, now);
         const missingNotifications: any[] = [];
-
-        const isBiWeekly =
-          cls.recurrence === 'bi_weekly' ||
-          cls.recurrence === 'biweekly' ||
-          cls.recurrence === 'even_weeks' ||
-          cls.recurrence === 'odd_weeks';
 
         const notifTitle = '🎓 یادآوری کلاس';
 
         expectedOccurrences.forEach(({ occurrenceTimestamp, fireDate, notifId }) => {
           activeExpectedIds.add(notifId);
 
-          if (!pendingIds.has(notifId)) {
+          const existingAt = pendingScheduleMap.get(notifId);
+          const isProperlyScheduled =
+            existingAt !== undefined && Math.abs(existingAt - fireDate.getTime()) < 1000;
+
+          if (!isProperlyScheduled) {
             const occurrenceDate = new Date(occurrenceTimestamp).toISOString().split('T')[0];
             let startTime = cls.time || '';
-            const timeMatch = startTime.match(/(\d{1,2}:\d{2})/);
+            const cleanTime = toLatinDigits(startTime);
+            const timeMatch = cleanTime.match(/(\d{1,2}:\d{2})/);
             if (timeMatch) {
               startTime = timeMatch[1];
             }
@@ -898,8 +985,15 @@ class NotificationService {
         }
       }
 
-      // 3. Cancel orphaned native notifications
-      const orphanedIds = pending.notifications.filter((p) => !activeExpectedIds.has(p.id)).map((p) => ({ id: p.id }));
+      // 3. Cancel orphaned future native notifications (preserve already-fired notifications in shade)
+      const orphanedIds = pending.notifications
+        .filter((p) => {
+          const pId = Number(p.id);
+          if (activeExpectedIds.has(pId)) return false;
+          const scheduledAt = p.schedule?.at ? new Date(p.schedule.at).getTime() : 0;
+          return scheduledAt === 0 || scheduledAt > now;
+        })
+        .map((p) => ({ id: Number(p.id) }));
       if (orphanedIds.length > 0) {
         await LocalNotifications.cancel({ notifications: orphanedIds }).catch(() => {});
         console.log(`[NotificationService] Cancelled ${orphanedIds.length} orphaned notifications`);

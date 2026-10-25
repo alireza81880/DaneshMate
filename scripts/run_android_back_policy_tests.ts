@@ -226,6 +226,7 @@ function runDirectAndroidBackPolicyTests() {
     'close_time_picker',
     'close_date_picker',
     'close_timeline_review',
+    'navigate_back_from_profile',
     'exit_app',
   ];
   const allResults = [res1_1, res1_2, res1_3, res1_4, res1_5, res2_1, res2_2, res2_3, res2_4, res3_1, res3_2, res3_3];
@@ -233,6 +234,104 @@ function runDirectAndroidBackPolicyTests() {
   assert(
     allValidTypes,
     '3.4: All returned actions conform strictly to AndroidBackAction union type'
+  );
+
+  // -------------------------------------------------------------------------
+  // SUITE 4: Profile Page Back Navigation & Root Exit Hierarchy (Bug 2 Fix)
+  // -------------------------------------------------------------------------
+  console.log('\n--- 4. Profile Page Back Navigation & Root Exit Hierarchy ---');
+
+  // 4.1 User is on Profile tab -> Back must NOT exit app; returns navigate_back_from_profile
+  const res4_1 = resolveAndroidBackAction({
+    selectedChatSessionLog: null,
+    previewFile: null,
+    isSessionDatePickerOpen: false,
+    isSessionTimePickerOpen: false,
+    activeTab: 'profile',
+    isEditingProfile: false,
+  });
+  assert(
+    res4_1 === 'navigate_back_from_profile',
+    '4.1: Back on Profile tab -> navigate_back_from_profile (does NOT exit app)',
+    `Expected 'navigate_back_from_profile', got '${res4_1}'`
+  );
+
+  // 4.2 User is editing profile on dashboard -> Back closes profile edit mode without exiting
+  const res4_2 = resolveAndroidBackAction({
+    selectedChatSessionLog: null,
+    previewFile: null,
+    isSessionDatePickerOpen: false,
+    isSessionTimePickerOpen: false,
+    activeTab: 'home',
+    isEditingProfile: true,
+  });
+  assert(
+    res4_2 === 'navigate_back_from_profile',
+    '4.2: Back while editing profile -> navigate_back_from_profile (does NOT exit app)',
+    `Expected 'navigate_back_from_profile', got '${res4_2}'`
+  );
+
+  // 4.3 User is on root home tab (not on profile, no modal open) -> Back exits app
+  const res4_3 = resolveAndroidBackAction({
+    selectedChatSessionLog: null,
+    previewFile: null,
+    isSessionDatePickerOpen: false,
+    isSessionTimePickerOpen: false,
+    activeTab: 'home',
+    isEditingProfile: false,
+  });
+  assert(
+    res4_3 === 'exit_app',
+    '4.3: Back on root Home tab -> exit_app',
+    `Expected 'exit_app', got '${res4_3}'`
+  );
+
+  // 4.4 Priority check: Timeline Review open while activeTab is profile -> closes modal/picker first before profile
+  const res4_4a = resolveAndroidBackAction({
+    selectedChatSessionLog: dummySession,
+    previewFile: dummyFile,
+    isSessionDatePickerOpen: true,
+    isSessionTimePickerOpen: true,
+    activeTab: 'profile',
+    isEditingProfile: true,
+  });
+  const res4_4b = resolveAndroidBackAction({
+    selectedChatSessionLog: dummySession,
+    previewFile: null,
+    isSessionDatePickerOpen: false,
+    isSessionTimePickerOpen: false,
+    activeTab: 'profile',
+    isEditingProfile: false,
+  });
+  assert(
+    res4_4a === 'close_preview_file' && res4_4b === 'close_timeline_review',
+    '4.4: Open Timeline Review / Preview modals take strict priority over Profile tab back navigation',
+    `Got '${res4_4a}' and '${res4_4b}'`
+  );
+
+  // 4.5 Sequential 2-step flow: Profile -> Back (returns to Home) -> Back again (exits app)
+  let simulatedActiveTab = 'profile';
+  const step1Action = resolveAndroidBackAction({
+    selectedChatSessionLog: null,
+    previewFile: null,
+    isSessionDatePickerOpen: false,
+    isSessionTimePickerOpen: false,
+    activeTab: simulatedActiveTab,
+  });
+  if (step1Action === 'navigate_back_from_profile') {
+    simulatedActiveTab = 'home';
+  }
+  const step2Action = resolveAndroidBackAction({
+    selectedChatSessionLog: null,
+    previewFile: null,
+    isSessionDatePickerOpen: false,
+    isSessionTimePickerOpen: false,
+    activeTab: simulatedActiveTab,
+  });
+  assert(
+    step1Action === 'navigate_back_from_profile' && simulatedActiveTab === 'home' && step2Action === 'exit_app',
+    '4.5: Two-step flow (Profile -> Back -> Root Home -> Back -> exit_app) executes in exact order',
+    `step1=${step1Action}, tabAfterStep1=${simulatedActiveTab}, step2=${step2Action}`
   );
 
   // -------------------------------------------------------------------------

@@ -19,6 +19,8 @@ export interface AndroidBackNavigationState {
   previewFile: any | null;
   isSessionDatePickerOpen: boolean;
   isSessionTimePickerOpen: boolean;
+  activeTab?: string;
+  isEditingProfile?: boolean;
 }
 
 export type AndroidBackAction =
@@ -26,13 +28,16 @@ export type AndroidBackAction =
   | 'close_time_picker'
   | 'close_date_picker'
   | 'close_timeline_review'
+  | 'navigate_back_from_profile'
   | 'exit_app';
 
 /**
  * Resolves the appropriate Android Back button action based on current UI state.
  * When in Timeline Review (or any sub-dialog opened from it), navigation closes
  * the top-most modal/picker and returns to Logs without exiting the app.
- * Outside Timeline Review, it preserves the existing app exit behavior.
+ * When on the Profile screen (or editing profile), it navigates back to the
+ * previous/main screen instead of exiting the application.
+ * On the main root screen, it preserves the existing app exit behavior.
  */
 export function resolveAndroidBackAction(state: AndroidBackNavigationState): AndroidBackAction {
   if (state.selectedChatSessionLog) {
@@ -40,6 +45,9 @@ export function resolveAndroidBackAction(state: AndroidBackNavigationState): And
     if (state.isSessionTimePickerOpen) return 'close_time_picker';
     if (state.isSessionDatePickerOpen) return 'close_date_picker';
     return 'close_timeline_review';
+  }
+  if (state.isEditingProfile || state.activeTab === 'profile') {
+    return 'navigate_back_from_profile';
   }
   return 'exit_app';
 }

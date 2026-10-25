@@ -4,15 +4,8 @@ on:
   workflow_dispatch:
   push:
     branches:
-      - main
-    paths:
-      - 'src/**'
-      - 'android/**'
-      - 'backend/**'
-      - 'capacitor.config.ts'
-      - 'package.json'
-      - 'vite.config.ts'
-      - '.github/workflows/capacitor-test.yml'
+      - '**'
+  pull_request:
 
 permissions:
   contents: read

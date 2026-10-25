@@ -174,8 +174,13 @@ jobs:
           ls -lh android/app/src/main/jniLibs/arm64-v8a/libdaneshmate_core.so
           ls -lh android/app/src/main/jniLibs/armeabi-v7a/libdaneshmate_core.so
 
-      - name: 11. Run Automated TypeScript FFI Smoke Tests
+      - name: 11. Run Automated Test Suites and Linter
         run: |
+          npm run lint
+          npm run test:timeline-utils
+          npm run test:timeline
+          npm run test:back-policy
+          npm run test:reminder
           npm run test:ffi
 
       - name: 12. Verify & Decode Production Release Keystore (Strict Production Security)
@@ -432,11 +437,194 @@ jobs:
           if-no-files-found: error
 
   # ============================================================================
-  # JOB 4: Create Git Tag & Publish Production GitHub Release (Automated)
+  # JOB 4: Automated Production Continuous Deployment to Myket (Server-to-Server)
+  # ============================================================================
+  myket-publish:
+    name: Deploy to Myket Store (${{ needs.version-check.outputs.tag }})
+    needs: [version-check, build-android]
+    if: needs.version-check.outputs.should_release == 'true' && needs.version-check.outputs.is_pr == 'false'
+    runs-on: ubuntu-latest
+    outputs:
+      myket_status: ${{ steps.deploy-myket.outputs.status }}
+      myket_message: ${{ steps.deploy-myket.outputs.message }}
+    steps:
+      - name: 1. Checkout Repository (Release Notes)
+        uses: actions/checkout@v4
+
+      - name: 2. Download Signed Production Android APK
+        uses: actions/download-artifact@v4
+        with:
+          name: android-artifacts
+          path: release-artifacts
+
+      - name: 3. Verify Production APK Presence & Expected Version
+        env:
+          APP_VERSION: ${{ needs.version-check.outputs.version }}
+        run: |
+          TARGET_APK="release-artifacts/DaneshMate-Android-v${APP_VERSION}.apk"
+          if [ ! -f "$TARGET_APK" ]; then
+            echo "[-] ERROR: Signed production APK '$TARGET_APK' not found in artifacts!"
+            exit 1
+          fi
+          echo "[✓] Production APK found: $TARGET_APK ($(du -h "$TARGET_APK" | cut -f1))"
+
+      - name: 4. Execute Secure Myket Continuous Deployment Pipeline
+        id: deploy-myket
+        env:
+          MYKET_ACCESS_TOKEN: ${{ secrets.MYKET_ACCESS_TOKEN }}
+          MYKET_PACKAGE_NAME: ${{ vars.MYKET_PACKAGE_NAME }}
+          MYKET_APP_TITLE: ${{ vars.MYKET_APP_TITLE }}
+          MYKET_STAGED_ROLLOUT: ${{ vars.MYKET_STAGED_ROLLOUT_PERCENT }}
+          APP_VERSION: ${{ needs.version-check.outputs.version }}
+          APP_VERSION_CODE: ${{ needs.version-check.outputs.version_code }}
+        run: |
+          set -euo pipefail
+
+          PACKAGE_NAME="${MYKET_PACKAGE_NAME:-com.daneshmate.app}"
+          APP_TITLE="${MYKET_APP_TITLE:-دانش‌یار (DaneshMate)}"
+          STAGED_ROLLOUT="${MYKET_STAGED_ROLLOUT:-100}"
+          APK_FILE="release-artifacts/DaneshMate-Android-v${APP_VERSION}.apk"
+
+          # 1. Verify Secret Presence without leaking
+          if [ -z "${MYKET_ACCESS_TOKEN:-}" ]; then
+            echo "================================================================="
+            echo "[-] ERROR: Required GitHub Actions Secret 'MYKET_ACCESS_TOKEN' is missing or empty."
+            echo "[-] Please configure MYKET_ACCESS_TOKEN under Repo -> Settings -> Secrets and variables -> Actions."
+            echo "[-] Note: MYKET_ACCESS_TOKEN is your Server-to-Server API token from Myket Developer Panel."
+            echo "================================================================="
+            exit 1
+          fi
+
+          # 2. Read Single Source of Truth for Persian Release Notes
+          RELEASE_NOTES_FILE="release-notes/fa.txt"
+          if [ ! -f "$RELEASE_NOTES_FILE" ]; then
+            echo "[-] ERROR: Persian release notes file '$RELEASE_NOTES_FILE' is missing!"
+            exit 1
+          fi
+
+          CHANGELOG_FA=$(python3 -c "
+import json
+with open('release-notes/fa.txt', 'r', encoding='utf-8') as f:
+    text = f.read().strip()
+print(json.dumps(text))
+")
+
+          echo "========================================================"
+          echo "  DaneshMate Automated Myket Release Deployment Pipeline  "
+          echo "========================================================"
+          echo "[*] Package Name:        ${PACKAGE_NAME}"
+          echo "[*] Target Version:      ${APP_VERSION} (code: ${APP_VERSION_CODE})"
+          echo "[*] App Title:           ${APP_TITLE}"
+          echo "[*] Staged Rollout:      ${STAGED_ROLLOUT}%"
+          echo "========================================================"
+
+          # 3. Check Active Bundles on Myket (Idempotency & Duplicate Prevention)
+          echo "[+] Step 0: Checking existing release bundles on Myket to prevent duplicate uploads..."
+          BUNDLE_QUERY_RESP=$(curl -sS -w "\n%{http_code}" -X GET \
+            "https://developer.myket.ir/api/partners/applications/${PACKAGE_NAME}/release-bundle" \
+            -H "X-Access-Token: ${MYKET_ACCESS_TOKEN}")
+
+          QUERY_HTTP_CODE=$(echo "$BUNDLE_QUERY_RESP" | tail -n1)
+          QUERY_BODY=$(echo "$BUNDLE_QUERY_RESP" | sed '$d')
+
+          if [ "$QUERY_HTTP_CODE" -ge 200 ] && [ "$QUERY_HTTP_CODE" -lt 300 ]; then
+            if echo "$QUERY_BODY" | grep -q '"status":"WaitingForApproval"'; then
+              echo "[!] Safe Guard: A release bundle is currently pending approval ('WaitingForApproval') on Myket."
+              echo "[!] Skipping new upload to prevent overwriting or duplicate pending reviews."
+              echo "status=skipped_waiting_approval" >> "$GITHUB_OUTPUT"
+              echo "message=Existing bundle waiting for approval on Myket" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+          else
+            echo "[!] Notice: Querying existing bundles returned HTTP ${QUERY_HTTP_CODE}; proceeding with release bundle update."
+          fi
+
+          # 4. Step 1: PUT /release-bundle (Create / Update Metadata)
+          echo "[+] Step 1: Submitting release bundle metadata via PUT /release-bundle..."
+          METADATA_JSON=$(cat <<EOF
+{
+  "title": "${APP_TITLE}",
+  "stagedRolloutPercent": ${STAGED_ROLLOUT},
+  "translationInfos": [
+    {
+      "language": "fa",
+      "description": ${CHANGELOG_FA}
+    }
+  ]
+}
+EOF
+)
+
+          PUT_RESP=$(curl -sS -w "\n%{http_code}" -X PUT \
+            "https://developer.myket.ir/api/partners/applications/${PACKAGE_NAME}/release-bundle" \
+            -H "X-Access-Token: ${MYKET_ACCESS_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "$METADATA_JSON")
+
+          PUT_HTTP_CODE=$(echo "$PUT_RESP" | tail -n1)
+          PUT_BODY=$(echo "$PUT_RESP" | sed '$d')
+
+          if [ "$PUT_HTTP_CODE" -lt 200 ] || [ "$PUT_HTTP_CODE" -ge 300 ]; then
+            echo "[-] ERROR: Step 1 (PUT release-bundle) failed with HTTP ${PUT_HTTP_CODE}!"
+            echo "[-] Response Body: ${PUT_BODY}"
+            exit 1
+          fi
+          echo "[✓] Step 1 Succeeded: Release bundle metadata registered (HTTP ${PUT_HTTP_CODE})."
+
+          # 5. Step 2: PUT /release-bundle/upload (Upload Signed APK)
+          echo "[+] Step 2: Uploading signed production APK via PUT /release-bundle/upload..."
+          UPLOAD_RESP=$(curl -sS -w "\n%{http_code}" -X PUT \
+            "https://developer.myket.ir/api/partners/applications/${PACKAGE_NAME}/release-bundle/upload" \
+            -H "X-Access-Token: ${MYKET_ACCESS_TOKEN}" \
+            -F "file=@${APK_FILE}")
+
+          UPLOAD_HTTP_CODE=$(echo "$UPLOAD_RESP" | tail -n1)
+          UPLOAD_BODY=$(echo "$UPLOAD_RESP" | sed '$d')
+
+          if [ "$UPLOAD_HTTP_CODE" -lt 200 ] || [ "$UPLOAD_HTTP_CODE" -ge 300 ]; then
+            echo "[-] ERROR: Step 2 (PUT release-bundle/upload) failed with HTTP ${UPLOAD_HTTP_CODE}!"
+            echo "[-] Response Body: ${UPLOAD_BODY}"
+            exit 1
+          fi
+          echo "[✓] Step 2 Succeeded: Production APK uploaded to Myket (HTTP ${UPLOAD_HTTP_CODE})."
+
+          # 6. Step 3: POST /release-bundle/commit (Submit for Admin Review with Auto-Publish)
+          # Note: In Myket KB documentation, the commit endpoint URL is sometimes cited with a typo (e.g. /comit).
+          # The canonical RESTful endpoint conforming to adjacent endpoints is /release-bundle/commit.
+          echo "[+] Step 3: Submitting release bundle for review via POST /release-bundle/commit (isManualPublish=false)..."
+          COMMIT_JSON=$(cat <<EOF
+{
+  "isManualPublish": false,
+  "message": "DaneshMate v${APP_VERSION} (code ${APP_VERSION_CODE}) production release with recurrence and reminder bug fixes"
+}
+EOF
+)
+
+          COMMIT_RESP=$(curl -sS -w "\n%{http_code}" -X POST \
+            "https://developer.myket.ir/api/partners/applications/${PACKAGE_NAME}/release-bundle/commit" \
+            -H "X-Access-Token: ${MYKET_ACCESS_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "$COMMIT_JSON")
+
+          COMMIT_HTTP_CODE=$(echo "$COMMIT_RESP" | tail -n1)
+          COMMIT_BODY=$(echo "$COMMIT_RESP" | sed '$d')
+
+          if [ "$COMMIT_HTTP_CODE" -lt 200 ] || [ "$COMMIT_HTTP_CODE" -ge 300 ]; then
+            echo "[-] ERROR: Step 3 (POST release-bundle/commit) failed with HTTP ${COMMIT_HTTP_CODE}!"
+            echo "[-] Response Body: ${COMMIT_BODY}"
+            exit 1
+          fi
+
+          echo "[✓] Step 3 Succeeded: Release bundle successfully committed and submitted for Myket review (HTTP ${COMMIT_HTTP_CODE})."
+          echo "status=submitted_for_review" >> "$GITHUB_OUTPUT"
+          echo "message=Successfully submitted to Myket for review with automatic publishing" >> "$GITHUB_OUTPUT"
+
+  # ============================================================================
+  # JOB 5: Create Git Tag & Publish Production GitHub Release (Automated)
   # ============================================================================
   release-publish:
     name: Publish Production GitHub Release (${{ needs.version-check.outputs.tag }})
-    needs: [version-check, build-android, build-pwa]
+    needs: [version-check, build-android, build-pwa, myket-publish]
     if: needs.version-check.outputs.should_release == 'true'
     runs-on: ubuntu-latest
     permissions:
@@ -471,7 +659,19 @@ jobs:
           cat SHA256SUMS.txt >> "$GITHUB_OUTPUT"
           echo "EOF" >> "$GITHUB_OUTPUT"
 
-      - name: 5. Create & Push Git Release Tag
+      - name: 5. Load Persian Release Notes from Single Source of Truth
+        id: release-notes
+        run: |
+          if [ -f "release-notes/fa.txt" ]; then
+            FA_NOTES=$(cat release-notes/fa.txt)
+          else
+            FA_NOTES="رفع خطای تداخل کلاس‌های یک‌هفته‌درمیان، اصلاح بازگشت از صفحه پروفایل و بهبود زمان‌بندی و همگام‌سازی یادآورهای کلاس."
+          fi
+          echo "fa_notes<<EOF" >> "$GITHUB_OUTPUT"
+          echo "$FA_NOTES" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
+      - name: 6. Create & Push Git Release Tag
         env:
           TAG: ${{ needs.version-check.outputs.tag }}
         run: |
@@ -488,7 +688,7 @@ jobs:
           git push origin "${TAG}"
           echo "[✓] Successfully pushed tag ${TAG} to repository."
 
-      - name: 6. Publish GitHub Release with Bilingual User Guide
+      - name: 7. Publish GitHub Release with Bilingual User Guide
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ needs.version-check.outputs.tag }}
@@ -507,12 +707,10 @@ jobs:
             * **معماری:** `Universal (arm64-v8a + armeabi-v7a)`
             * **نوع انتشار:** Production
             * **داده‌ها:** Local-first / Offline
+            * **انتشار در مایکت:** `${{ needs.myket-publish.outputs.myket_message || 'ارسال‌شده برای بررسی و انتشار خودکار در مایکت' }}`
 
             ### 🚀 تغییرات و بهبودهای این نگارش
-            * **رفع مشکل اسکرول در برخی صفحات اصلی:** بهبود روانی و حذف تداخل‌های لمسی در ناوبری صفحات اصلی.
-            * **بهبود سازگاری با گوشی‌های اندرویدی قدیمی‌تر:** پشتیبانی همه‌جانبه Universal از هر دو معماری ۶۴ بیتی (`arm64-v8a`) و ۳۲ بیتی (`armeabi-v7a`).
-            * **بهبود تجربه پرداخت و نمایش صحیح لغو خرید:** نمایش وضعیت آرام و خنثی در صورت انصراف کاربر بدون خطای فنی.
-            * **بهبود پایداری و عملکرد کلی برنامه:** بهینه‌سازی بارگذاری المان‌ها، مدیریت حافظه و رندرهای گرافیکی.
+            ${{ steps.release-notes.outputs.fa_notes }}
 
             ### 📱 نسخه ویژه اندروید (Capacitor + Rust Core)
             * **معماری فراگیر:** کامپایل‌شده برای هر دو معماری `arm64-v8a` و `armeabi-v7a` به همراه هسته بومی C-ABI راست و وب‌ویوی بومی Capacitor.
@@ -538,6 +736,7 @@ jobs:
             * **Architecture:** `Universal (arm64-v8a + armeabi-v7a)`
             * **Release Type:** Production
             * **Data Model:** Local-first / Offline
+            * **Myket Status:** `${{ needs.myket-publish.outputs.myket_status || 'Submitted' }}`
             * **Artifacts:** High-performance signed Android APK and PWA bundle.
           files: |
             release-artifacts/*

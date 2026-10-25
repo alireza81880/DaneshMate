@@ -289,7 +289,19 @@ export const ClassFormModal: React.FC<ClassFormModalProps> = React.memo(({
 
     // Detect class time conflict and block saving with clear Persian error
     const editingId = editingClass ? editingClass.id : null;
-    const conflict = detectClassConflict(formDay, finalTime, classes, editingId);
+    const isBiWeekly = formRecurrence !== 'every_week';
+    const resolvedScheduledSessions = isBiWeekly
+      ? (formScheduledSessions.length > 0
+          ? formScheduledSessions
+          : (formAnchorTimestamp ? generateBiWeeklyOccurrences(formAnchorTimestamp) : undefined))
+      : undefined;
+
+    const conflict = detectClassConflict(formDay, finalTime, classes, editingId, {
+      recurrence: formRecurrence,
+      anchor_date: isBiWeekly ? (formAnchorDate || undefined) : undefined,
+      anchor_timestamp: isBiWeekly ? formAnchorTimestamp : undefined,
+      scheduled_session_timestamps: resolvedScheduledSessions,
+    });
     if (conflict.hasConflict && conflict.conflictingClass) {
       const c = conflict.conflictingClass;
       setConflictError(
@@ -319,10 +331,9 @@ export const ClassFormModal: React.FC<ClassFormModalProps> = React.memo(({
       time: finalTime,
       recurrence: formRecurrence,
       recurrence_type: recType,
-      anchor_date: formAnchorDate || undefined,
-      anchor_timestamp: formAnchorTimestamp,
-      scheduled_session_timestamps:
-        formScheduledSessions.length > 0 ? formScheduledSessions : undefined,
+      anchor_date: isBiWeekly ? (formAnchorDate || undefined) : undefined,
+      anchor_timestamp: isBiWeekly ? formAnchorTimestamp : undefined,
+      scheduled_session_timestamps: resolvedScheduledSessions,
       professor: formProfessor.trim() || undefined,
       location: formLocation.trim() || undefined,
       hasReminder: formHasReminder,
@@ -570,6 +581,9 @@ export const ClassFormModal: React.FC<ClassFormModalProps> = React.memo(({
                           setIsJalaliSpringModalOpen(true);
                         } else {
                           setFormScheduledSessions([]);
+                          setFormAnchorDate('');
+                          setFormAnchorTimestamp(undefined);
+                          setFormAnchorLabel('');
                         }
                       }}
                       style={{

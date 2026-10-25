@@ -8,6 +8,10 @@ import {
   generateWeeklyOccurrences,
   notificationService,
 } from '../src/services/notificationService';
+import {
+  detectClassConflict,
+  ClassItem,
+} from '../src/App';
 
 let passedCount = 0;
 let failedCount = 0;
@@ -24,7 +28,7 @@ function assert(condition: boolean, testName: string, detail?: string) {
 
 async function runTests() {
   console.log('====================================================');
-  console.log('  DaneshMate Bi-Weekly Reminder Scheduling Tests     ');
+  console.log('  DaneshMate Bi-Weekly Reminder & Conflict Tests    ');
   console.log('====================================================\n');
 
   // Baseline anchor date: 2026-10-10 (Saturday / شنبه) at 00:00:00 local time
@@ -180,6 +184,245 @@ async function runTests() {
     sessionTimestamp
   );
   assert(sessionDate.getTime() === sessionTimestamp, 'TEST 12: Session Reminder directly preserves one-time exact timestamp untouched');
+
+  // -------------------------------------------------------------------------
+  // SUITE B: Bug 3 - Weekly & Bi-Weekly Multi-Week Horizon & Inactive App Tests
+  // -------------------------------------------------------------------------
+  console.log('\n--- Bug 3: Recurring Class Reminders Across Multi-Week Inactivity ---');
+
+  // TEST 13: Weekly class generates full 16 future occurrences even when created on class day AFTER class time passed
+  const sameDayAfterClassNow = new Date(2026, 9, 10, 15, 0, 0, 0).getTime(); // Saturday 15:00 (after 10:00 class)
+  const weeklyClassSameDay = {
+    id: 'weekly_sat_1',
+    name: 'معادلات دیفرانسیل',
+    day: 'شنبه',
+    time: '۱۰:۰۰ - ۱۲:۰۰', // Persian digits in time!
+    recurrence: 'every_week',
+    hasReminder: true,
+    reminderMode: 'before_class',
+    reminderMinutesBefore: 30,
+  };
+  const weeklyOccsSameDay = notificationService.getClassExpectedOccurrences(weeklyClassSameDay, sameDayAfterClassNow);
+  assert(
+    weeklyOccsSameDay.length === 16,
+    'TEST 13: Weekly class with Persian digits created after today class time still schedules full 16 future weekly occurrences',
+    `Expected 16, got ${weeklyOccsSameDay.length}`
+  );
+  // First occurrence must be next Saturday (2026-10-17) at 09:30:00
+  const expectedNextSatFire = new Date(2026, 9, 17, 9, 30, 0, 0).getTime();
+  assert(
+    weeklyOccsSameDay[0]?.fireDate.getTime() === expectedNextSatFire,
+    'TEST 14: Persian digit classTime (۱۰:۰۰ - ۱۲:۰۰) with 30m before fires at 09:30 on next Saturday (not 08:00 fallback)',
+    `Expected ${new Date(expectedNextSatFire).toISOString()}, got ${weeklyOccsSameDay[0]?.fireDate.toISOString()}`
+  );
+
+  // TEST 15: App not opened for 10 days (1+ week) -> future occurrences remain pre-scheduled in the 16-week horizon
+  const tenDaysLaterNow = sameDayAfterClassNow + 10 * 86400000; // Tuesday 10 days later
+  const remainingScheduledAfter10Days = weeklyOccsSameDay.filter((o) => o.fireDate.getTime() > tenDaysLaterNow);
+  assert(
+    remainingScheduledAfter10Days.length === 15,
+    'TEST 15: When user does not open app for 10 days, 15 future weekly occurrences are already pre-scheduled',
+    `Expected 15 remaining occurrences, got ${remainingScheduledAfter10Days.length}`
+  );
+
+  // TEST 16: Bi-weekly class when user does not open app for 15 days -> remaining 7 occurrences still pre-scheduled
+  const fifteenDaysAfterBefore = nowBefore + 15 * 86400000;
+  const remainingBiWeeklyAfter15Days = expectedOccsBefore.filter((o) => o.fireDate.getTime() > fifteenDaysAfterBefore);
+  assert(
+    remainingBiWeeklyAfter15Days.length === 7,
+    'TEST 16: Bi-weekly class still has 7 pre-scheduled future occurrences after 15 days of app inactivity',
+    `Expected 7, got ${remainingBiWeeklyAfter15Days.length}`
+  );
+
+  // TEST 17: Weekly class with stale past anchor_timestamp ignores stale anchor and schedules 16 future occurrences
+  const stalePastAnchor = new Date(2025, 0, 4, 0, 0, 0, 0).getTime(); // 1+ year in the past
+  const weeklyWithStaleAnchor = {
+    ...weeklyClassSameDay,
+    id: 'weekly_stale_anchor',
+    anchor_timestamp: stalePastAnchor,
+  };
+  const occsStaleWeekly = notificationService.getClassExpectedOccurrences(weeklyWithStaleAnchor, sameDayAfterClassNow);
+  assert(
+    occsStaleWeekly.length === 16,
+    'TEST 17: Weekly class with stale past anchor_timestamp still generates 16 future occurrences',
+    `Expected 16, got ${occsStaleWeekly.length}`
+  );
+
+  // -------------------------------------------------------------------------
+  // SUITE C: Bug 1 - Recurrence-Aware Class Conflict Detection Tests
+  // -------------------------------------------------------------------------
+  console.log('\n--- Bug 1: Recurrence-Aware Class Conflict Detection ---');
+
+  const satWeek1Anchor = new Date(2026, 9, 10, 12, 0, 0, 0).getTime(); // Saturday Week 1
+  const satWeek2Anchor = new Date(2026, 9, 17, 12, 0, 0, 0).getTime(); // Saturday Week 2 (7 days later - opposite week)
+  const satWeek3Anchor = new Date(2026, 9, 24, 12, 0, 0, 0).getTime(); // Saturday Week 3 (14 days later - same bi-weekly cycle as Week 1)
+
+  const existingWeeklySat: ClassItem = {
+    id: 'c_weekly_sat',
+    name: 'ساختمان داده',
+    day: 'شنبه',
+    time: '08:00 - 10:00',
+    recurrence: 'every_week',
+  };
+
+  const existingBiWeeklySatW1: ClassItem = {
+    id: 'c_biweekly_w1',
+    name: 'آزمایشگاه فیزیک (هفته اول)',
+    day: 'شنبه',
+    time: '10:00 - 12:00',
+    recurrence: 'bi_weekly',
+    anchor_date: '1405/07/18',
+    anchor_timestamp: satWeek1Anchor,
+    scheduled_session_timestamps: generateBiWeeklyOccurrences(satWeek1Anchor),
+  };
+
+  // TEST 18 (Scenario 1): Two every_week classes on same day & overlapping time -> CONFLICT
+  const conflict1 = detectClassConflict(
+    'شنبه',
+    '08:00 - 10:00',
+    [existingWeeklySat],
+    null,
+    { recurrence: 'every_week' }
+  );
+  assert(
+    conflict1.hasConflict && conflict1.conflictingClass?.id === 'c_weekly_sat',
+    'TEST 18 (Bug 1.1): Two every_week classes on same day and time -> hasConflict = true'
+  );
+
+  // TEST 19 (Scenario 2): Two bi_weekly classes on same day & time but OPPOSITE weeks (7 days apart) -> NO CONFLICT
+  const conflict2 = detectClassConflict(
+    'شنبه',
+    '10:00 - 12:00',
+    [existingBiWeeklySatW1],
+    null,
+    {
+      recurrence: 'bi_weekly',
+      anchor_date: '1405/07/25',
+      anchor_timestamp: satWeek2Anchor,
+      scheduled_session_timestamps: generateBiWeeklyOccurrences(satWeek2Anchor),
+    }
+  );
+  assert(
+    !conflict2.hasConflict,
+    'TEST 19 (Bug 1.2): Two bi_weekly classes on same day and time in opposite weeks (7 days apart) -> hasConflict = false'
+  );
+
+  // TEST 20 (Scenario 3): Two bi_weekly classes on same day & time in SAME week cycle (0 or 14 days apart) -> CONFLICT
+  const conflict3SameAnchor = detectClassConflict(
+    'شنبه',
+    '10:30 - 11:30',
+    [existingBiWeeklySatW1],
+    null,
+    {
+      recurrence: 'bi_weekly',
+      anchor_timestamp: satWeek1Anchor,
+      scheduled_session_timestamps: generateBiWeeklyOccurrences(satWeek1Anchor),
+    }
+  );
+  const conflict3Plus14Days = detectClassConflict(
+    'شنبه',
+    '10:00 - 12:00',
+    [existingBiWeeklySatW1],
+    null,
+    {
+      recurrence: 'bi_weekly',
+      anchor_timestamp: satWeek3Anchor,
+      scheduled_session_timestamps: generateBiWeeklyOccurrences(satWeek3Anchor),
+    }
+  );
+  assert(
+    conflict3SameAnchor.hasConflict && conflict3Plus14Days.hasConflict,
+    'TEST 20 (Bug 1.3): Two bi_weekly classes on same day & overlapping time in same week cycle (0 or +14 days) -> hasConflict = true'
+  );
+
+  // TEST 21 (Scenario 4): One every_week class + one bi_weekly class on same day & overlapping time -> CONFLICT
+  const conflict4a = detectClassConflict(
+    'شنبه',
+    '10:00 - 12:00',
+    [existingBiWeeklySatW1],
+    null,
+    { recurrence: 'every_week' }
+  );
+  const conflict4b = detectClassConflict(
+    'شنبه',
+    '08:30 - 09:30',
+    [existingWeeklySat],
+    null,
+    {
+      recurrence: 'bi_weekly',
+      anchor_timestamp: satWeek2Anchor,
+      scheduled_session_timestamps: generateBiWeeklyOccurrences(satWeek2Anchor),
+    }
+  );
+  assert(
+    conflict4a.hasConflict && conflict4b.hasConflict,
+    'TEST 21 (Bug 1.4): One every_week class and one bi_weekly class on same day & overlapping time -> hasConflict = true'
+  );
+
+  // TEST 22 (Scenario 5): Same day & same week, non-overlapping times (e.g., 08:00-10:00 and 10:00-12:00) -> NO CONFLICT
+  const conflict5 = detectClassConflict(
+    'شنبه',
+    '10:00 - 12:00',
+    [existingWeeklySat],
+    null,
+    { recurrence: 'every_week' }
+  );
+  assert(
+    !conflict5.hasConflict,
+    'TEST 22 (Bug 1.5): Same day & same week with adjacent non-overlapping times (08:00-10:00 vs 10:00-12:00) -> hasConflict = false'
+  );
+
+  // TEST 23 (Scenario 6): Editing an existing class does NOT conflict with itself (excludeId)
+  const conflict6 = detectClassConflict(
+    'شنبه',
+    '10:00 - 12:00',
+    [existingBiWeeklySatW1],
+    'c_biweekly_w1',
+    {
+      recurrence: 'bi_weekly',
+      anchor_timestamp: satWeek1Anchor,
+    }
+  );
+  assert(
+    !conflict6.hasConflict,
+    'TEST 23 (Bug 1.6): Editing an existing class with excludeId does not falsely conflict with itself'
+  );
+
+  // TEST 24 (Scenario 7): Legacy classes (without anchor_timestamp or with even_weeks/odd_weeks)
+  const legacyNoRecurrence: ClassItem = {
+    id: 'legacy_weekly',
+    name: 'کلاس قدیمی هفتگی',
+    day: 'یکشنبه',
+    time: '08:00 - 10:00',
+  };
+  const legacyEven: ClassItem = {
+    id: 'legacy_even',
+    name: 'کلاس زوج قدیمی',
+    day: 'دوشنبه',
+    time: '10:00 - 12:00',
+    recurrence: 'even_weeks',
+  };
+  const conflictLegacyWeekly = detectClassConflict('یکشنبه', '08:00 - 10:00', [legacyNoRecurrence], null);
+  const noConflictLegacyOppositeParity = detectClassConflict(
+    'دوشنبه',
+    '10:00 - 12:00',
+    [legacyEven],
+    null,
+    { recurrence: 'odd_weeks' }
+  );
+  const conservativeMissingAnchor = detectClassConflict(
+    'شنبه',
+    '10:00 - 12:00',
+    [existingBiWeeklySatW1],
+    null,
+    { recurrence: 'bi_weekly' } // Missing anchor_timestamp -> conservative conflict = true
+  );
+  assert(
+    conflictLegacyWeekly.hasConflict &&
+      !noConflictLegacyOppositeParity.hasConflict &&
+      conservativeMissingAnchor.hasConflict,
+    'TEST 24 (Bug 1.7): Legacy classes without recurrence/anchors behave safely and conservatively without crashing'
+  );
 
   console.log('\n----------------------------------------------------');
   console.log(`Test Execution Summary: ${passedCount} PASSED, ${failedCount} FAILED`);

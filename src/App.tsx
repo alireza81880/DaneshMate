@@ -42,7 +42,7 @@ import { syncBridge, SyncState } from './api/syncBridge';
 import { nativeStorageService } from './services/nativeStorageService';
 import { audioRecordingService } from './services/audioRecordingService';
 import { filePickerService } from './services/filePickerService';
-import { notificationService } from './services/notificationService';
+import { notificationService, generateBiWeeklyOccurrences } from './services/notificationService';
 import { SpringTimePicker } from './components/SpringTimePicker';
 import { DashboardHeaderClock } from './components/Dashboard/DashboardHeaderClock';
 import { ClassFormModal } from './components/ClassModal/ClassFormModal';
@@ -532,22 +532,132 @@ export function parseTimeInterval(timeStr: string): { start: number; end: number
   return { start: s, end: e };
 }
 
+export interface ClassConflictCandidate {
+  recurrence?: RecurrenceType;
+  anchor_date?: string;
+  anchor_timestamp?: number;
+  scheduled_session_timestamps?: number[];
+}
+
+function getCalendarDaySerial(timestamp: number): number | null {
+  if (!Number.isFinite(timestamp) || timestamp <= 0) return null;
+  const d = new Date(timestamp);
+  if (isNaN(d.getTime())) return null;
+  return Math.round(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()) / 86400000);
+}
+
+function resolveCandidateAnchorTimestamp(item: ClassConflictCandidate): number | undefined {
+  if (typeof item.anchor_timestamp === 'number' && Number.isFinite(item.anchor_timestamp) && item.anchor_timestamp > 0) {
+    return item.anchor_timestamp;
+  }
+  if (Array.isArray(item.scheduled_session_timestamps) && item.scheduled_session_timestamps.length > 0) {
+    const first = item.scheduled_session_timestamps[0];
+    if (typeof first === 'number' && Number.isFinite(first) && first > 0) {
+      return first;
+    }
+  }
+  if (item.anchor_date && typeof item.anchor_date === 'string') {
+    const parts = toLatinDigits(item.anchor_date.trim()).split('/').map(Number);
+    if (parts.length === 3 && !parts.some(isNaN) && parts[0] > 1300) {
+      return jalaliToTimestamp(parts[0], parts[1], parts[2]);
+    }
+  }
+  return undefined;
+}
+
+function doClassRecurrenceSchedulesCollide(
+  candidate: ClassConflictCandidate,
+  existing: ClassItem
+): boolean {
+  const candRec = candidate.recurrence || 'every_week';
+  const existRec = existing.recurrence || 'every_week';
+
+  // Weekly classes occur every week, so they always collide with any class on the same weekday & overlapping time
+  if (candRec === 'every_week' || existRec === 'every_week') {
+    return true;
+  }
+
+  const candAnchorTs = resolveCandidateAnchorTimestamp(candidate);
+  const existAnchorTs = resolveCandidateAnchorTimestamp(existing);
+
+  // Legacy even_weeks / odd_weeks support when explicit anchor timestamps are absent
+  if (!candAnchorTs && !existAnchorTs) {
+    if (
+      (candRec === 'even_weeks' && existRec === 'odd_weeks') ||
+      (candRec === 'odd_weeks' && existRec === 'even_weeks')
+    ) {
+      return false;
+    }
+    return true;
+  }
+
+  // Conservative fallback if either bi-weekly class lacks enough anchor metadata to prove opposite weeks
+  if (!candAnchorTs || !existAnchorTs) {
+    return true;
+  }
+
+  const candSessions =
+    Array.isArray(candidate.scheduled_session_timestamps) && candidate.scheduled_session_timestamps.length > 0
+      ? candidate.scheduled_session_timestamps
+      : generateBiWeeklyOccurrences(candAnchorTs);
+
+  const existSessions =
+    Array.isArray(existing.scheduled_session_timestamps) && existing.scheduled_session_timestamps.length > 0
+      ? existing.scheduled_session_timestamps
+      : generateBiWeeklyOccurrences(existAnchorTs);
+
+  const existDaySerials = new Set<number>();
+  for (const ts of existSessions) {
+    const serial = getCalendarDaySerial(ts);
+    if (serial !== null) existDaySerials.add(serial);
+  }
+
+  for (const ts of candSessions) {
+    const serial = getCalendarDaySerial(ts);
+    if (serial !== null && existDaySerials.has(serial)) {
+      return true;
+    }
+  }
+
+  const candAnchorSerial = getCalendarDaySerial(candAnchorTs);
+  const existAnchorSerial = getCalendarDaySerial(existAnchorTs);
+  if (candAnchorSerial === null || existAnchorSerial === null) {
+    return true;
+  }
+
+  const dayDiff = Math.abs(candAnchorSerial - existAnchorSerial);
+  return dayDiff % 14 === 0;
+}
+
 /**
  * Real class time conflict detector (Part 3 & 4)
- * Two classes conflict when they occur on the same weekday and their time intervals overlap.
+ * Two classes conflict when they occur on the same weekday, their time intervals overlap,
+ * and their recurrence schedules share the same week/session dates.
  * Excludes class currently being edited.
  */
 export function detectClassConflict(
   day: WeekDay,
   timeStr: string,
   existingClasses: ClassItem[],
-  excludeId?: string | null
+  excludeId?: string | null,
+  candidateRecurrenceOrInfo?: ClassConflictCandidate | RecurrenceType,
+  candidateAnchorTimestamp?: number,
+  candidateScheduledTimestamps?: number[]
 ): { hasConflict: boolean; conflictingClass?: ClassItem } {
   const currentInterval = parseTimeInterval(timeStr);
   if (!currentInterval) {
     // If class has invalid/missing time: do not crash; skip conflict validation for that class.
     return { hasConflict: false };
   }
+
+  const candidateInfo: ClassConflictCandidate =
+    typeof candidateRecurrenceOrInfo === 'string'
+      ? {
+          recurrence: candidateRecurrenceOrInfo,
+          anchor_timestamp: candidateAnchorTimestamp,
+          scheduled_session_timestamps: candidateScheduledTimestamps,
+        }
+      : candidateRecurrenceOrInfo || {};
 
   for (const cls of existingClasses) {
     if (excludeId && cls.id === excludeId) continue;
@@ -558,7 +668,9 @@ export function detectClassConflict(
 
     // Overlap: startA < endB and startB < endA
     if (currentInterval.start < otherInterval.end && otherInterval.start < currentInterval.end) {
-      return { hasConflict: true, conflictingClass: cls };
+      if (doClassRecurrenceSchedulesCollide(candidateInfo, cls)) {
+        return { hasConflict: true, conflictingClass: cls };
+      }
     }
   }
 
@@ -648,7 +760,7 @@ export default function App() {
   const [sessionPickerHour, setSessionPickerHour] = useState(() => getTodayJalaliDefaults().hour);
   const [sessionPickerMin, setSessionPickerMin] = useState(() => getTodayJalaliDefaults().minute);
 
-  // Synchronized refs for Android hardware back button listener to prevent stale state closures
+  // Synchronized refs for Android hardware back button & background listeners to prevent stale state closures
   const selectedChatSessionLogRef = useRef(selectedChatSessionLog);
   selectedChatSessionLogRef.current = selectedChatSessionLog;
 
@@ -660,6 +772,26 @@ export default function App() {
 
   const isSessionTimePickerOpenRef = useRef(isSessionTimePickerOpen);
   isSessionTimePickerOpenRef.current = isSessionTimePickerOpen;
+
+  const activeTabRef = useRef<MainTab>(activeTab);
+  activeTabRef.current = activeTab;
+
+  const previousNonProfileTabRef = useRef<MainTab>('home');
+  if (activeTab !== 'profile') {
+    previousNonProfileTabRef.current = activeTab;
+  }
+
+  const isEditingProfileRef = useRef(isEditingProfile);
+  isEditingProfileRef.current = isEditingProfile;
+
+  const userProfileRef = useRef(userProfile);
+  userProfileRef.current = userProfile;
+
+  const classesRef = useRef(classes);
+  classesRef.current = classes;
+
+  const sessionLogsRef = useRef(sessionLogs);
+  sessionLogsRef.current = sessionLogs;
 
   // Android hardware back button and back gesture navigation handler
   useEffect(() => {
@@ -673,6 +805,8 @@ export default function App() {
           previewFile: previewFileRef.current,
           isSessionDatePickerOpen: isSessionDatePickerOpenRef.current,
           isSessionTimePickerOpen: isSessionTimePickerOpenRef.current,
+          activeTab: activeTabRef.current,
+          isEditingProfile: Boolean(isEditingProfileRef.current && userProfileRef.current),
         });
 
         switch (action) {
@@ -687,6 +821,19 @@ export default function App() {
             break;
           case 'close_timeline_review':
             setSelectedChatSessionLog(null);
+            break;
+          case 'navigate_back_from_profile':
+            if (isEditingProfileRef.current && userProfileRef.current) {
+              setIsEditingProfile(false);
+              setPErrors({});
+            }
+            if (activeTabRef.current === 'profile') {
+              const targetTab =
+                previousNonProfileTabRef.current && previousNonProfileTabRef.current !== 'profile'
+                  ? previousNonProfileTabRef.current
+                  : 'home';
+              setActiveTab(targetTab);
+            }
             break;
           case 'exit_app':
             CapApp.exitApp();
@@ -715,15 +862,22 @@ export default function App() {
 
   // Offline-First Snapshot Hydration & Cloud Sync & Native Notification Action Listener
   useEffect(() => {
+    let appStateListenerHandle: PluginListenerHandle | null = null;
+
     // If initial snapshot was not loaded synchronously, load from local storage
     if (!initialSnap) {
       persistenceAdapter.loadAppSnapshot().then((snapshot) => {
         if (snapshot) {
           if (snapshot.studentProfile) setUserProfile(snapshot.studentProfile);
-          if (snapshot.classes && snapshot.classes.length > 0) setClasses(snapshot.classes);
-          if (snapshot.sessionLogs && snapshot.sessionLogs.length > 0) setSessionLogs(snapshot.sessionLogs);
+          const loadedClasses = snapshot.classes && snapshot.classes.length > 0 ? snapshot.classes : [];
+          const loadedLogs = snapshot.sessionLogs && snapshot.sessionLogs.length > 0 ? snapshot.sessionLogs : [];
+          if (loadedClasses.length > 0) setClasses(loadedClasses);
+          if (loadedLogs.length > 0) setSessionLogs(loadedLogs);
           if (snapshot.activeThemeId && THEMES_2026[snapshot.activeThemeId]) {
             setCurrentThemeId(snapshot.activeThemeId);
+          }
+          if (loadedLogs.length > 0 || loadedClasses.length > 0) {
+            notificationService.syncPendingNotifications(loadedLogs, loadedClasses).catch(() => {});
           }
         }
       });
@@ -731,8 +885,8 @@ export default function App() {
 
     // Part 1: Defer heavy native notification reconciliation and cloud sync until after first paint
     const deferTimer = setTimeout(() => {
-      const logs = initialSnap?.sessionLogs || sessionLogs;
-      const clss = initialSnap?.classes || classes;
+      const logs = sessionLogsRef.current.length > 0 ? sessionLogsRef.current : (initialSnap?.sessionLogs || []);
+      const clss = classesRef.current.length > 0 ? classesRef.current : (initialSnap?.classes || []);
       if (logs.length > 0 || clss.length > 0) {
         notificationService.syncPendingNotifications(logs, clss).catch(() => {});
       }
@@ -748,10 +902,27 @@ export default function App() {
       }).catch(() => {});
     }, 1000);
 
+    // Re-reconcile recurring notifications whenever the app resumes to foreground
+    if (Capacitor.isNativePlatform()) {
+      CapApp.addListener('appStateChange', ({ isActive }) => {
+        if (isActive) {
+          const logs = sessionLogsRef.current;
+          const clss = classesRef.current;
+          if (logs.length > 0 || clss.length > 0) {
+            notificationService.syncPendingNotifications(logs, clss).catch(() => {});
+          }
+        }
+      })
+        .then((handle) => {
+          appStateListenerHandle = handle;
+        })
+        .catch(() => {});
+    }
+
     // Native notification tap listener (navigates to relevant session if applicable)
     const unsubscribeAction = notificationService.addActionListener((actionId, data) => {
       if (actionId === 'tap' && data.logId) {
-        const found = sessionLogs.find((l) => l.id === data.logId);
+        const found = sessionLogsRef.current.find((l) => l.id === data.logId);
         if (found) {
           setSelectedChatSessionLog(found);
         }
@@ -761,6 +932,9 @@ export default function App() {
     return () => {
       clearTimeout(deferTimer);
       unsubscribeAction();
+      if (appStateListenerHandle) {
+        appStateListenerHandle.remove();
+      }
     };
   }, []);
 
