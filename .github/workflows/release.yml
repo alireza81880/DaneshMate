@@ -502,12 +502,6 @@ jobs:
             exit 1
           fi
 
-          CHANGELOG_FA=$(python3 -c "
-import json
-with open('release-notes/fa.txt', 'r', encoding='utf-8') as f:
-    text = f.read().strip()
-print(json.dumps(text))
-")
 
           echo "========================================================"
           echo "  DaneshMate Automated Myket Release Deployment Pipeline  "
@@ -541,19 +535,16 @@ print(json.dumps(text))
 
           # 4. Step 1: PUT /release-bundle (Create / Update Metadata)
           echo "[+] Step 1: Submitting release bundle metadata via PUT /release-bundle..."
-          METADATA_JSON=$(cat <<EOF
-{
-  "title": "${APP_TITLE}",
-  "stagedRolloutPercent": ${STAGED_ROLLOUT},
-  "translationInfos": [
-    {
-      "language": "fa",
-      "description": ${CHANGELOG_FA}
-    }
-  ]
-}
-EOF
-)
+          METADATA_JSON=$(node -e '
+            const fs = require("fs");
+            const desc = fs.readFileSync("release-notes/fa.txt", "utf8").trim();
+            const data = {
+              title: process.env.APP_TITLE,
+              stagedRolloutPercent: Number(process.env.STAGED_ROLLOUT),
+              translationInfos: [{ language: "fa", description: desc }]
+            };
+            console.log(JSON.stringify(data));
+          ')
 
           PUT_RESP=$(curl -sS -w "\n%{http_code}" -X PUT \
             "https://developer.myket.ir/api/partners/applications/${PACKAGE_NAME}/release-bundle" \
@@ -592,13 +583,13 @@ EOF
           # Note: In Myket KB documentation, the commit endpoint URL is sometimes cited with a typo (e.g. /comit).
           # The canonical RESTful endpoint conforming to adjacent endpoints is /release-bundle/commit.
           echo "[+] Step 3: Submitting release bundle for review via POST /release-bundle/commit (isManualPublish=false)..."
-          COMMIT_JSON=$(cat <<EOF
-{
-  "isManualPublish": false,
-  "message": "DaneshMate v${APP_VERSION} (code ${APP_VERSION_CODE}) production release with recurrence and reminder bug fixes"
-}
-EOF
-)
+          COMMIT_JSON=$(node -e '
+            const data = {
+              isManualPublish: false,
+              message: `DaneshMate v${process.env.APP_VERSION} (code ${process.env.APP_VERSION_CODE}) production release with recurrence and reminder bug fixes`
+            };
+            console.log(JSON.stringify(data));
+          ')
 
           COMMIT_RESP=$(curl -sS -w "\n%{http_code}" -X POST \
             "https://developer.myket.ir/api/partners/applications/${PACKAGE_NAME}/release-bundle/commit" \
