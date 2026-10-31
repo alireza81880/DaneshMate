@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo, Suspense, lazy } from 'react';
 import {
   Plus,
   Edit2,
@@ -43,12 +43,22 @@ import { nativeStorageService } from './services/nativeStorageService';
 import { audioRecordingService } from './services/audioRecordingService';
 import { filePickerService } from './services/filePickerService';
 import { notificationService, generateBiWeeklyOccurrences } from './services/notificationService';
-import { SpringTimePicker } from './components/SpringTimePicker';
 import { DashboardHeaderClock } from './components/Dashboard/DashboardHeaderClock';
-import { ClassFormModal } from './components/ClassModal/ClassFormModal';
-import { SettingsScreen } from './components/Settings/SettingsScreen';
 import { MyketSupportCard } from './components/Settings/MyketSupportCard';
-import { SessionTimelineModal } from './components/Timeline/SessionTimelineModal';
+import { RadialMenu } from './components/Navigation/RadialMenu';
+
+const SpringTimePicker = lazy(() =>
+  import('./components/SpringTimePicker').then((m) => ({ default: m.SpringTimePicker }))
+);
+const ClassFormModal = lazy(() =>
+  import('./components/ClassModal/ClassFormModal').then((m) => ({ default: m.ClassFormModal }))
+);
+const SettingsScreen = lazy(() =>
+  import('./components/Settings/SettingsScreen').then((m) => ({ default: m.SettingsScreen }))
+);
+const SessionTimelineModal = lazy(() =>
+  import('./components/Timeline/SessionTimelineModal').then((m) => ({ default: m.SessionTimelineModal }))
+);
 import {
   PERSIAN_DIGITS_MAP,
   toPersianDigits,
@@ -680,7 +690,8 @@ export function detectClassConflict(
 const NAME_REGEX = /^[a-zA-Z\u0600-\u06FF\uFB8A\u067E\u0686\u06AF\u200c\s]+$/;
 
 export default function App() {
-  const initialSnap = useRef<AppSnapshot | null>(persistenceAdapter.getInitialSnapshotSync()).current;
+  // Lazy initializer runs strictly ONCE on initial mount (prevents re-reading localStorage & JSON.parse on every render)
+  const [initialSnap] = useState<AppSnapshot | null>(() => persistenceAdapter.getInitialSnapshotSync());
 
   const [currentThemeId, setCurrentThemeId] = useState<string>(() => initialSnap?.activeThemeId || 'deep-space');
   const theme = THEMES_2026[currentThemeId] || THEMES_2026['deep-space'];
@@ -688,15 +699,6 @@ export default function App() {
   // Navigation: Active Tab & Floating Radial Menu State
   const [activeTab, setActiveTab] = useState<MainTab>('home');
   const [isRadialOpen, setIsRadialOpen] = useState(false);
-  const [viewportWidth, setViewportWidth] = useState<number>(() =>
-    typeof window !== 'undefined' ? window.innerWidth : 390
-  );
-
-  useEffect(() => {
-    const handleResize = () => setViewportWidth(window.innerWidth);
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
 
   // User Profile - Strict Zero-Data Cold Start (No hardcoded names, loaded synchronously from persistent storage)
   const [userProfile, setUserProfile] = useState<{
@@ -758,16 +760,17 @@ export default function App() {
   // In-App File & Media Preview State (Problem 7)
   const [previewFile, setPreviewFile] = useState<AttachedFile | null>(null);
 
-  // Manual Session Timeline Reminder Configurator (Date + Time)
+  // Manual Session Timeline Reminder Configurator (Date + Time) - Computed once on mount
+  const [initialJalaliDefaults] = useState<JalaliDateDefaults>(() => getTodayJalaliDefaults());
   const [isTimelineReminderOpen, setIsTimelineReminderOpen] = useState(false);
   const [timelineReminderTrigger, setTimelineReminderTrigger] = useState<string>(QUICK_ALERT_TRIGGERS[0]);
   const [isSessionDatePickerOpen, setIsSessionDatePickerOpen] = useState(false);
   const [isSessionTimePickerOpen, setIsSessionTimePickerOpen] = useState(false);
-  const [sessionPickerYear, setSessionPickerYear] = useState(() => getTodayJalaliDefaults().year);
-  const [sessionPickerMonth, setSessionPickerMonth] = useState(() => getTodayJalaliDefaults().month);
-  const [sessionPickerDay, setSessionPickerDay] = useState(() => getTodayJalaliDefaults().day);
-  const [sessionPickerHour, setSessionPickerHour] = useState(() => getTodayJalaliDefaults().hour);
-  const [sessionPickerMin, setSessionPickerMin] = useState(() => getTodayJalaliDefaults().minute);
+  const [sessionPickerYear, setSessionPickerYear] = useState<number>(initialJalaliDefaults.year);
+  const [sessionPickerMonth, setSessionPickerMonth] = useState<number>(initialJalaliDefaults.month);
+  const [sessionPickerDay, setSessionPickerDay] = useState<number>(initialJalaliDefaults.day);
+  const [sessionPickerHour, setSessionPickerHour] = useState<number>(initialJalaliDefaults.hour);
+  const [sessionPickerMin, setSessionPickerMin] = useState<number>(initialJalaliDefaults.minute);
 
   // Synchronized refs for Android hardware back button & background listeners to prevent stale state closures
   const selectedChatSessionLogRef = useRef(selectedChatSessionLog);
@@ -1722,57 +1725,58 @@ export default function App() {
     return `${mins.toString().padStart(2, '0')}:${remainder.toString().padStart(2, '0')}`;
   };
 
-  const filteredClasses = classes.filter((c) => {
-    const matchesDay = selectedDayFilter === 'همه' || c.day === selectedDayFilter;
-    if (!matchesDay) return false;
+  const filteredClasses = useMemo(() => {
+    const trimmedQuery = searchQuery.trim().toLowerCase();
+    return classes.filter((c) => {
+      const matchesDay = selectedDayFilter === 'همه' || c.day === selectedDayFilter;
+      if (!matchesDay) return false;
+      if (!trimmedQuery) return true;
+      const nameMatch = c.name.toLowerCase().includes(trimmedQuery);
+      const profMatch = c.professor ? c.professor.toLowerCase().includes(trimmedQuery) : false;
+      return nameMatch || profMatch;
+    });
+  }, [classes, selectedDayFilter, searchQuery]);
 
-    if (!searchQuery.trim()) return true;
-    const query = searchQuery.trim().toLowerCase();
-    const nameMatch = c.name.toLowerCase().includes(query);
-    const profMatch = c.professor ? c.professor.toLowerCase().includes(query) : false;
-    return nameMatch || profMatch;
-  });
-
-  const deletingTargetClass = classes.find((c) => c.id === deletingId);
+  const deletingTargetClass = useMemo(
+    () => (deletingId ? classes.find((c) => c.id === deletingId) : undefined),
+    [classes, deletingId]
+  );
 
   const handleSelectTheme = useCallback((themeId: string) => {
     setCurrentThemeId(themeId);
     syncBridge.performOptimisticSync(userProfile, classes, sessionLogs, themeId);
   }, [userProfile, classes, sessionLogs]);
 
-  // Academic metrics for Analytics tab
-  const totalWeeklyHours = classes.length * 2;
-  const remindersCount = sessionLogs.filter((s) => s.hasReminder).length;
-  const dayBreakdown: Record<string, number> = {
-    شنبه: 0,
-    یکشنبه: 0,
-    دوشنبه: 0,
-    سه‌شنبه: 0,
-    چهارشنبه: 0,
-    پنج‌شنبه: 0,
-  };
-  classes.forEach((c) => {
-    if (dayBreakdown[c.day] !== undefined) {
-      dayBreakdown[c.day] += 1;
-    }
-  });
+  const handleToggleRadialMenu = useCallback(() => {
+    setIsRadialOpen((prev) => !prev);
+  }, []);
 
-  // Radial Menu Items with Vector Icons (Strictly NO childish emojis)
-  // Ordered RTL from right (+X, 22°) to left (-X, 158°) on an elevated upward arc
-  // Primary items (Dashboard, Notes, Reports) vs Complementary items (Profile, Theme Settings)
-  const RADIAL_ITEMS: {
-    id: MainTab;
-    label: string;
-    icon: React.ReactNode;
-    angleDeg: number;
-    isPrimary: boolean;
-  }[] = [
-    { id: 'home', label: 'داشبورد', icon: <Home className="w-5 h-5" />, angleDeg: 22, isPrimary: true },
-    { id: 'notes', label: 'یادداشت‌ها', icon: <Mic className="w-5 h-5" />, angleDeg: 56, isPrimary: true },
-    { id: 'reports', label: 'گزارشات', icon: <BarChart2 className="w-5 h-5" />, angleDeg: 90, isPrimary: true },
-    { id: 'profile', label: 'پروفایل', icon: <User className="w-5 h-5" />, angleDeg: 124, isPrimary: false },
-    { id: 'settings', label: 'تنظیمات پوسته', icon: <Palette className="w-5 h-5" />, angleDeg: 158, isPrimary: false },
-  ];
+  const handleCloseRadialMenu = useCallback(() => {
+    setIsRadialOpen(false);
+  }, []);
+
+  // Academic metrics for Analytics tab (memoized so unrelated state updates do not re-aggregate)
+  const totalWeeklyHours = classes.length * 2;
+  const remindersCount = useMemo(
+    () => sessionLogs.filter((s) => s.hasReminder).length,
+    [sessionLogs]
+  );
+  const dayBreakdown = useMemo(() => {
+    const counts: Record<string, number> = {
+      شنبه: 0,
+      یکشنبه: 0,
+      دوشنبه: 0,
+      سه‌شنبه: 0,
+      چهارشنبه: 0,
+      پنج‌شنبه: 0,
+    };
+    classes.forEach((c) => {
+      if (counts[c.day] !== undefined) {
+        counts[c.day] += 1;
+      }
+    });
+    return counts;
+  }, [classes]);
 
   const renderFileTypeTag = (type: FileCategory) => {
     const badges: Record<FileCategory, { tag: string; bg: string; color: string; lightColor: string }> = {
@@ -2761,11 +2765,13 @@ export default function App() {
 
             {/* 5. SETTINGS TAB: MODULAR SETTINGS SCREEN (THEME ENGINE & UPDATE SYSTEM) */}
             {activeTab === 'settings' && (
-              <SettingsScreen
-                theme={theme}
-                currentThemeId={currentThemeId}
-                onSelectTheme={handleSelectTheme}
-              />
+              <Suspense fallback={null}>
+                <SettingsScreen
+                  theme={theme}
+                  currentThemeId={currentThemeId}
+                  onSelectTheme={handleSelectTheme}
+                />
+              </Suspense>
             )}
 
             {/* Interactive "Made by null" branding footer visible across all tabs */}
@@ -3084,17 +3090,21 @@ export default function App() {
         )}
 
         {/* CLASS ADD/EDIT MODAL (Isolated Component) */}
-        <ClassFormModal
-          isOpen={isClassModalOpen}
-          onClose={() => {
-            setIsClassModalOpen(false);
-            setEditingClass(null);
-          }}
-          editingClass={editingClass}
-          classes={classes}
-          theme={theme}
-          onSave={handleSaveClass}
-        />
+        {isClassModalOpen && (
+          <Suspense fallback={null}>
+            <ClassFormModal
+              isOpen={isClassModalOpen}
+              onClose={() => {
+                setIsClassModalOpen(false);
+                setEditingClass(null);
+              }}
+              editingClass={editingClass}
+              classes={classes}
+              theme={theme}
+              onSave={handleSaveClass}
+            />
+          </Suspense>
+        )}
 
         {/* DELETE CONFIRMATION MODAL */}
         {deletingId && (
@@ -3139,33 +3149,37 @@ export default function App() {
         )}
 
         {/* INTERACTIVE CHAT-STYLE SESSION VIEWER MODAL */}
-        <SessionTimelineModal
-          sessionLog={selectedChatSessionLog}
-          theme={theme}
-          fileToast={fileToast}
-          chatAudioPlaying={chatAudioPlaying}
-          chatAudioSeconds={chatAudioSeconds}
-          chatAudioSpeed={chatAudioSpeed}
-          chatInputText={chatInputText}
-          onClose={() => setSelectedChatSessionLog(null)}
-          onDeleteSession={handleDeleteFullSessionLog}
-          onToggleAudioPlayback={() => setChatAudioPlaying(!chatAudioPlaying)}
-          onAudioSpeedChange={() => {
-            if (chatAudioSpeed === 1) setChatAudioSpeed(1.5);
-            else if (chatAudioSpeed === 1.5) setChatAudioSpeed(2);
-            else setChatAudioSpeed(1);
-          }}
-          onDeleteAudio={handleDeleteSessionAudioWeb}
-          onOpenEditReminder={handleOpenEditTimelineReminder}
-          onToggleReminder={handleToggleTimelineReminder}
-          onOpenSetReminder={handleOpenSetTimelineReminder}
-          onOpenFile={handleOpenFileWeb}
-          onDeleteFile={handleDeleteSessionFileWeb}
-          onNativePickFile={handleChatNativeFilePicker}
-          onUploadSystemFiles={handleChatSystemFileUpload}
-          onSendFollowUp={handleSendChatFollowUp}
-          onChangeInputText={setChatInputText}
-        />
+        {selectedChatSessionLog && (
+          <Suspense fallback={null}>
+            <SessionTimelineModal
+              sessionLog={selectedChatSessionLog}
+              theme={theme}
+              fileToast={fileToast}
+              chatAudioPlaying={chatAudioPlaying}
+              chatAudioSeconds={chatAudioSeconds}
+              chatAudioSpeed={chatAudioSpeed}
+              chatInputText={chatInputText}
+              onClose={() => setSelectedChatSessionLog(null)}
+              onDeleteSession={handleDeleteFullSessionLog}
+              onToggleAudioPlayback={() => setChatAudioPlaying(!chatAudioPlaying)}
+              onAudioSpeedChange={() => {
+                if (chatAudioSpeed === 1) setChatAudioSpeed(1.5);
+                else if (chatAudioSpeed === 1.5) setChatAudioSpeed(2);
+                else setChatAudioSpeed(1);
+              }}
+              onDeleteAudio={handleDeleteSessionAudioWeb}
+              onOpenEditReminder={handleOpenEditTimelineReminder}
+              onToggleReminder={handleToggleTimelineReminder}
+              onOpenSetReminder={handleOpenSetTimelineReminder}
+              onOpenFile={handleOpenFileWeb}
+              onDeleteFile={handleDeleteSessionFileWeb}
+              onNativePickFile={handleChatNativeFilePicker}
+              onUploadSystemFiles={handleChatSystemFileUpload}
+              onSendFollowUp={handleSendChatFollowUp}
+              onChangeInputText={setChatInputText}
+            />
+          </Suspense>
+        )}
 
         {/* IN-APP FILE & MEDIA VIEWER MODAL (Problem 7) */}
         {previewFile && (
@@ -3465,198 +3479,49 @@ export default function App() {
         )}
 
         {/* REUSABLE SPRING TIME PICKER MODAL FOR SESSION TIMELINE REMINDER (Rendered on top of chat view) */}
-        <SpringTimePicker
-          isOpen={isSessionTimePickerOpen}
-          onClose={() => setIsSessionTimePickerOpen(false)}
-          initialHour={sessionPickerHour}
-          initialMinute={sessionPickerMin}
-          title="تنظیم ساعت یادآور جلسه"
-          subtitle="ساعت موعد یادآوری این جلسه تحصیلی"
-          confirmText="ذخیره یادآور جلسه"
-          theme={theme}
-          zIndex="z-[210]"
-          onConfirm={async (h, m) => {
-            const [gy, gm, gd] = jalaliToGregorian(sessionPickerYear, sessionPickerMonth, sessionPickerDay);
-            const targetDate = new Date(gy, gm - 1, gd, h, m, 0);
-            if (targetDate.getTime() <= Date.now()) {
-              setFileToast('زمان انتخابی یادآور گذشته است. لطفاً ساعتی در آینده انتخاب فرمایید.');
-              setTimeout(() => setFileToast(null), 3000);
-              throw new Error('زمان یادآور گذشته است');
-            }
-            setSessionPickerHour(h);
-            setSessionPickerMin(m);
-            if (selectedChatSessionLog) {
-              await handleSaveExactSessionReminder(targetDate.getTime(), h, m);
-            }
-          }}
-        />
+        {isSessionTimePickerOpen && (
+          <Suspense fallback={null}>
+            <SpringTimePicker
+              isOpen={isSessionTimePickerOpen}
+              onClose={() => setIsSessionTimePickerOpen(false)}
+              initialHour={sessionPickerHour}
+              initialMinute={sessionPickerMin}
+              title="تنظیم ساعت یادآور جلسه"
+              subtitle="ساعت موعد یادآوری این جلسه تحصیلی"
+              confirmText="ذخیره یادآور جلسه"
+              theme={theme}
+              zIndex="z-[210]"
+              onConfirm={async (h, m) => {
+                const [gy, gm, gd] = jalaliToGregorian(sessionPickerYear, sessionPickerMonth, sessionPickerDay);
+                const targetDate = new Date(gy, gm - 1, gd, h, m, 0);
+                if (targetDate.getTime() <= Date.now()) {
+                  setFileToast('زمان انتخابی یادآور گذشته است. لطفاً ساعتی در آینده انتخاب فرمایید.');
+                  setTimeout(() => setFileToast(null), 3000);
+                  throw new Error('زمان یادآور گذشته است');
+                }
+                setSessionPickerHour(h);
+                setSessionPickerMin(m);
+                if (selectedChatSessionLog) {
+                  await handleSaveExactSessionReminder(targetDate.getTime(), h, m);
+                }
+              }}
+            />
+          </Suspense>
+        )}
 
       </main>
 
       {/* FLOATING CIRCULAR RADIAL MENU (CIRCLE MENU) - Hidden when modal is active */}
       {!selectedChatSessionLog && !isSessionCaptureOpen && !isClassModalOpen && !isEditingProfile && !deletingId && !previewFile && (
-        <>
-          {/* Backdrop blur dismiss layer */}
-          {isRadialOpen && (
-            <div
-              onClick={() => setIsRadialOpen(false)}
-              className={`fixed inset-0 z-40 transition-opacity duration-200 ${
-                theme.isDark ? 'bg-black/65 backdrop-blur-md' : 'bg-slate-900/30 backdrop-blur-sm'
-              }`}
-              aria-hidden="true"
-            />
-          )}
-
-          {/* Anchored Floating Radial Circle Orb at bottom-center above Android System Navigation Bar */}
-          <div
-            style={{
-              bottom: 'calc(var(--safe-area-inset-bottom, 0px) + 1.25rem)',
-            }}
-            className="fixed left-1/2 -translate-x-1/2 z-40 flex items-center justify-center pointer-events-auto select-none"
-          >
-            {/* Elevated Upward Fan-Out Arc (22° right to 158° left for RTL visual order) */}
-            {RADIAL_ITEMS.map((item, index) => {
-              const angleRad = (item.angleDeg * Math.PI) / 180;
-              const radius = viewportWidth < 360 ? 104 : viewportWidth < 400 ? 116 : 128;
-              const liftY = viewportWidth < 360 ? -16 : -18;
-              const targetX = Math.round(Math.cos(angleRad) * radius);
-              const targetY = -Math.round(Math.sin(angleRad) * radius) + liftY;
-
-              const isSelected = activeTab === item.id;
-              const badgeCount = item.id === 'notes' && sessionLogs.length > 0 ? sessionLogs.length : undefined;
-
-              return (
-                <div
-                  key={item.id}
-                  style={{
-                    transform: isRadialOpen
-                      ? `translate(${targetX}px, ${targetY}px) scale(1)`
-                      : 'translate(0px, 0px) scale(0)',
-                    opacity: isRadialOpen ? 1 : 0,
-                    pointerEvents: isRadialOpen ? 'auto' : 'none',
-                    transition: `all 0.32s cubic-bezier(0.175, 0.885, 0.32, 1.15) ${index * 0.025}s`,
-                  }}
-                  className="absolute flex flex-col items-center justify-center"
-                >
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setActiveTab(item.id);
-                      setIsRadialOpen(false);
-                    }}
-                    style={{
-                      backgroundColor: isSelected
-                        ? theme.primary
-                        : theme.isDark
-                        ? theme.cardBg
-                        : '#FFFFFF',
-                      borderColor: isSelected
-                        ? theme.primaryLight
-                        : item.isPrimary
-                        ? theme.primary
-                        : theme.borderLuminous,
-                      boxShadow: isSelected
-                        ? `0 0 22px ${theme.glowColor}, 0 10px 26px rgba(0,0,0,0.32)`
-                        : theme.isDark
-                        ? `0 10px 26px rgba(0,0,0,0.55), 0 0 12px ${theme.glowColor}`
-                        : '0 8px 22px rgba(15,23,42,0.14)',
-                      color: isSelected
-                        ? '#FFFFFF'
-                        : item.isPrimary
-                        ? theme.primary
-                        : theme.isDark
-                        ? theme.textPrimary
-                        : theme.textSecondary,
-                    }}
-                    className={`${
-                      item.isPrimary ? 'w-13 h-13 border-2' : 'w-12 h-12 border'
-                    } rounded-full flex items-center justify-center backdrop-blur-2xl cursor-pointer hover:scale-110 active:scale-95 transition-transform relative`}
-                    title={item.label}
-                    aria-label={item.label}
-                    aria-current={isSelected ? 'page' : undefined}
-                  >
-                    {item.icon}
-                    {badgeCount && (
-                      <span
-                        style={{ backgroundColor: theme.secondaryAccent || '#EC4899' }}
-                        className="absolute -top-1 -right-1 min-w-4 h-4 px-1 rounded-full text-white text-[9px] font-black flex items-center justify-center shadow-sm"
-                      >
-                        {badgeCount}
-                      </span>
-                    )}
-                  </button>
-
-                  {/* Readable Pill Label */}
-                  <div
-                    style={{
-                      backgroundColor: isSelected
-                        ? theme.primary
-                        : theme.isDark
-                        ? 'rgba(10, 13, 22, 0.94)'
-                        : 'rgba(255, 255, 255, 0.96)',
-                      borderColor: isSelected ? theme.primaryLight : theme.borderLuminous,
-                      color: isSelected
-                        ? '#FFFFFF'
-                        : theme.isDark
-                        ? '#F8FAFC'
-                        : '#0F172A',
-                      boxShadow: theme.isDark
-                        ? '0 4px 14px rgba(0,0,0,0.65)'
-                        : '0 4px 12px rgba(15,23,42,0.12)',
-                    }}
-                    className="px-2.5 py-0.5 mt-1.5 rounded-lg text-[10px] font-extrabold border tracking-tight whitespace-nowrap pointer-events-none transition-colors"
-                  >
-                    {item.label}
-                  </div>
-                </div>
-              );
-            })}
-
-            {/* Subtle Ambient Ring when Collapsed */}
-            {!isRadialOpen && (
-              <span
-                style={{
-                  borderColor: theme.primary,
-                }}
-                className="absolute w-18 h-18 rounded-full border-2 animate-ping opacity-20 pointer-events-none"
-              />
-            )}
-
-            {/* Central Orb Trigger Button */}
-            <button
-              type="button"
-              onClick={() => setIsRadialOpen(!isRadialOpen)}
-              style={{
-                backgroundColor: isRadialOpen
-                  ? theme.primary
-                  : theme.isDark
-                  ? theme.cardBg
-                  : '#FFFFFF',
-                borderColor: isRadialOpen ? theme.primaryLight : theme.borderLuminous,
-                boxShadow: theme.isDark
-                  ? `0 12px 32px rgba(0, 0, 0, 0.65), 0 0 24px ${theme.glowColor}`
-                  : `0 10px 28px rgba(15, 23, 42, 0.16), 0 0 16px ${theme.glowColor}`,
-                color: isRadialOpen ? '#FFFFFF' : theme.primary,
-              }}
-              className="w-15 h-15 rounded-full flex items-center justify-center border-2 backdrop-blur-2xl cursor-pointer transition-all duration-200 hover:scale-105 active:scale-95 relative group"
-              aria-label={isRadialOpen ? 'بستن منوی شعاعی' : 'باز کردن منوی ناوبری شعاعی'}
-              aria-expanded={isRadialOpen}
-            >
-              {isRadialOpen ? (
-                <X className="w-6 h-6 text-white transition-transform duration-200 rotate-90" />
-              ) : (
-                RADIAL_ITEMS.find((r) => r.id === activeTab)?.icon || <Home className="w-6 h-6" />
-              )}
-
-              {!isRadialOpen && (
-                <span
-                  style={{ backgroundColor: theme.primary }}
-                  className="absolute bottom-1.5 w-1.5 h-1.5 rounded-full"
-                />
-              )}
-            </button>
-          </div>
-        </>
+        <RadialMenu
+          activeTab={activeTab}
+          isOpen={isRadialOpen}
+          sessionLogsCount={sessionLogs.length}
+          theme={theme}
+          onSelectTab={setActiveTab}
+          onToggle={handleToggleRadialMenu}
+          onClose={handleCloseRadialMenu}
+        />
       )}
     </div>
   );

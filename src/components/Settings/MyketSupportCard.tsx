@@ -42,7 +42,7 @@ export const MyketSupportCard: React.FC<MyketSupportCardProps> = React.memo(({
 }) => {
   const isCompact = variant === 'compact';
   const [isExpanded, setIsExpanded] = useState<boolean>(!isCompact);
-  const [status, setStatus] = useState<SupportUIStatus>('loading-products');
+  const [status, setStatus] = useState<SupportUIStatus>(() => (isCompact ? 'idle' : 'loading-products'));
   const [isMyketInstalled, setIsMyketInstalled] = useState<boolean>(true);
   const [products, setProducts] = useState<SupportProductDetail[]>([]);
   const [selectedSku, setSelectedSku] = useState<MyketSupportSku>('support_treat');
@@ -87,30 +87,35 @@ export const MyketSupportCard: React.FC<MyketSupportCardProps> = React.memo(({
   }, []);
 
   useEffect(() => {
-    loadMyketProducts();
+    if (!isCompact) {
+      loadMyketProducts();
+    }
 
-    // Listen for background-recovered unconsumed purchases
+    // Listen for background-recovered unconsumed purchases after initial paint
     let unsubscribe: (() => void) | null = null;
-    myketBillingService
-      .onPurchaseRecovered((info) => {
-        if (info && info.recovered) {
-          setRecoveredNotice('یک خرید پیشین با موفقیت تایید و ثبت شد. ممنون از همراهیت! ☕❤️');
-          setTimeout(() => setRecoveredNotice(null), 8000);
-        }
-      })
-      .then((handle) => {
-        if (handle) {
-          unsubscribe = () => handle.remove();
-        }
-      })
-      .catch(() => {});
+    const timer = setTimeout(() => {
+      myketBillingService
+        .onPurchaseRecovered((info) => {
+          if (info && info.recovered) {
+            setRecoveredNotice('یک خرید پیشین با موفقیت تایید و ثبت شد. ممنون از همراهیت! ☕❤️');
+            setTimeout(() => setRecoveredNotice(null), 8000);
+          }
+        })
+        .then((handle) => {
+          if (handle) {
+            unsubscribe = () => handle.remove();
+          }
+        })
+        .catch(() => {});
+    }, 1200);
 
     return () => {
+      clearTimeout(timer);
       if (unsubscribe) {
         unsubscribe();
       }
     };
-  }, [loadMyketProducts]);
+  }, [isCompact, loadMyketProducts]);
 
   /**
    * Toggle or expand in compact mode
