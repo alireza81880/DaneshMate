@@ -586,7 +586,7 @@ jobs:
           COMMIT_JSON=$(node -e '
             const data = {
               isManualPublish: false,
-              message: `DaneshMate v${process.env.APP_VERSION} (code ${process.env.APP_VERSION_CODE}) production release with recurrence and reminder bug fixes`
+              message: `DaneshMate v${process.env.APP_VERSION} (code ${process.env.APP_VERSION_CODE}) startup performance, lazy-loading, and radial menu improvements`
             };
             console.log(JSON.stringify(data));
           ')
@@ -616,7 +616,7 @@ jobs:
   release-publish:
     name: Publish Production GitHub Release (${{ needs.version-check.outputs.tag }})
     needs: [version-check, build-android, build-pwa, myket-publish]
-    if: needs.version-check.outputs.should_release == 'true'
+    if: needs.version-check.outputs.should_release == 'true' && needs.myket-publish.outputs.myket_status == 'submitted_for_review'
     runs-on: ubuntu-latest
     permissions:
       contents: write

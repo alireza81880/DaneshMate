@@ -8,7 +8,7 @@
 
 DaneshMate is a privacy-first, offline-capable academic productivity application engineered specifically for university students operating on the **Persian (Jalali / Solar Hijri) calendar**. Built with **React 19**, **TypeScript**, **Capacitor 8**, and a **Rust Native Core**, it unifies weekly and biweekly class schedules, multimodal in-class session capture (voice, slides, PDFs, notes), and deterministic native Android notifications in a fast, zero-cloud-dependency mobile workspace.
 
-[![Version](https://img.shields.io/badge/version-1.6.0-2563EB?style=flat-square)](#release--distribution)
+[![Version](https://img.shields.io/badge/version-1.6.1-2563EB?style=flat-square)](#release--distribution)
 [![Platform](https://img.shields.io/badge/platform-Android%20%7C%20Web%20PWA-10B981?style=flat-square)](#android--capacitor-development)
 [![Stack](https://img.shields.io/badge/stack-React%2019%20%E2%80%A2%20TypeScript%20%E2%80%A2%20Capacitor%208%20%E2%80%A2%20Rust-6366F1?style=flat-square)](#tech-stack)
 [![Architecture](https://img.shields.io/badge/architecture-Offline--First%20%E2%80%A2%20Jalali%20RTL-F59E0B?style=flat-square)](#architecture-overview)
