@@ -688,6 +688,15 @@ export default function App() {
   // Navigation: Active Tab & Floating Radial Menu State
   const [activeTab, setActiveTab] = useState<MainTab>('home');
   const [isRadialOpen, setIsRadialOpen] = useState(false);
+  const [viewportWidth, setViewportWidth] = useState<number>(() =>
+    typeof window !== 'undefined' ? window.innerWidth : 390
+  );
+
+  useEffect(() => {
+    const handleResize = () => setViewportWidth(window.innerWidth);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   // User Profile - Strict Zero-Data Cold Start (No hardcoded names, loaded synchronously from persistent storage)
   const [userProfile, setUserProfile] = useState<{
@@ -773,6 +782,9 @@ export default function App() {
   const isSessionTimePickerOpenRef = useRef(isSessionTimePickerOpen);
   isSessionTimePickerOpenRef.current = isSessionTimePickerOpen;
 
+  const isRadialOpenRef = useRef(isRadialOpen);
+  isRadialOpenRef.current = isRadialOpen;
+
   const activeTabRef = useRef<MainTab>(activeTab);
   activeTabRef.current = activeTab;
 
@@ -805,6 +817,7 @@ export default function App() {
           previewFile: previewFileRef.current,
           isSessionDatePickerOpen: isSessionDatePickerOpenRef.current,
           isSessionTimePickerOpen: isSessionTimePickerOpenRef.current,
+          isRadialOpen: isRadialOpenRef.current,
           activeTab: activeTabRef.current,
           isEditingProfile: Boolean(isEditingProfileRef.current && userProfileRef.current),
         });
@@ -821,6 +834,9 @@ export default function App() {
             break;
           case 'close_timeline_review':
             setSelectedChatSessionLog(null);
+            break;
+          case 'close_radial_menu':
+            setIsRadialOpen(false);
             break;
           case 'navigate_back_from_profile':
             if (isEditingProfileRef.current && userProfileRef.current) {
@@ -1742,12 +1758,20 @@ export default function App() {
   });
 
   // Radial Menu Items with Vector Icons (Strictly NO childish emojis)
-  const RADIAL_ITEMS: { id: MainTab; label: string; icon: React.ReactNode; angleDeg: number }[] = [
-    { id: 'home', label: 'داشبورد', icon: <Home className="w-5 h-5" />, angleDeg: 180 },
-    { id: 'notes', label: 'یادداشت', icon: <Mic className="w-5 h-5" />, angleDeg: 135 },
-    { id: 'reports', label: 'گزارشات', icon: <BarChart2 className="w-5 h-5" />, angleDeg: 90 },
-    { id: 'profile', label: 'پروفایل', icon: <User className="w-5 h-5" />, angleDeg: 45 },
-    { id: 'settings', label: 'تنظیمات پوسته', icon: <Palette className="w-5 h-5" />, angleDeg: 0 },
+  // Ordered RTL from right (+X, 22°) to left (-X, 158°) on an elevated upward arc
+  // Primary items (Dashboard, Notes, Reports) vs Complementary items (Profile, Theme Settings)
+  const RADIAL_ITEMS: {
+    id: MainTab;
+    label: string;
+    icon: React.ReactNode;
+    angleDeg: number;
+    isPrimary: boolean;
+  }[] = [
+    { id: 'home', label: 'داشبورد', icon: <Home className="w-5 h-5" />, angleDeg: 22, isPrimary: true },
+    { id: 'notes', label: 'یادداشت‌ها', icon: <Mic className="w-5 h-5" />, angleDeg: 56, isPrimary: true },
+    { id: 'reports', label: 'گزارشات', icon: <BarChart2 className="w-5 h-5" />, angleDeg: 90, isPrimary: true },
+    { id: 'profile', label: 'پروفایل', icon: <User className="w-5 h-5" />, angleDeg: 124, isPrimary: false },
+    { id: 'settings', label: 'تنظیمات پوسته', icon: <Palette className="w-5 h-5" />, angleDeg: 158, isPrimary: false },
   ];
 
   const renderFileTypeTag = (type: FileCategory) => {
@@ -1869,7 +1893,10 @@ export default function App() {
         {/* User Avatar Button (Header Profile Shortcut - Creative Cyber-Luxe Glass Avatar) */}
         {userProfile && (
           <button
-            onClick={() => setActiveTab('profile')}
+            onClick={() => {
+              setIsRadialOpen(false);
+              setActiveTab('profile');
+            }}
             style={{
               backgroundColor: theme.cardBg,
               borderColor: theme.borderLuminous,
@@ -1901,7 +1928,12 @@ export default function App() {
       </header>
 
       {/* MAIN CONTAINER */}
-      <main className="w-full max-w-4xl z-10 pb-32">
+      <main
+        style={{
+          paddingBottom: 'calc(var(--safe-area-inset-bottom, 0px) + 7.5rem)',
+        }}
+        className="w-full max-w-4xl z-10"
+      >
         {!userProfile || isEditingProfile ? (
           /* ONBOARDING PROFILE SETUP */
           <div
@@ -3468,121 +3500,164 @@ export default function App() {
           {isRadialOpen && (
             <div
               onClick={() => setIsRadialOpen(false)}
-              className={`fixed inset-0 z-40 transition-opacity ${
-                theme.isDark ? 'bg-black/60 backdrop-blur-md' : 'bg-slate-900/25 backdrop-blur-sm'
+              className={`fixed inset-0 z-40 transition-opacity duration-200 ${
+                theme.isDark ? 'bg-black/65 backdrop-blur-md' : 'bg-slate-900/30 backdrop-blur-sm'
               }`}
+              aria-hidden="true"
             />
           )}
 
-          {/* Anchored Floating Radial Circle Orb at bottom-center */}
-          <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 flex items-center justify-center pointer-events-auto">
-        {/* Fan-Out Child Circular Glassmorphic Vector Icon Nodes (180° to 0° Arc Upward) */}
-        {RADIAL_ITEMS.map((item, index) => {
-          const angleDeg = 180 - index * (180 / (RADIAL_ITEMS.length - 1));
-          const angleRad = (angleDeg * Math.PI) / 180;
-          const radius = 100;
-          const targetX = Math.round(Math.cos(angleRad) * radius);
-          const targetY = -Math.round(Math.sin(angleRad) * radius);
-
-          const isSelected = activeTab === item.id;
-          const badgeCount = item.id === 'notes' && sessionLogs.length > 0 ? sessionLogs.length : undefined;
-
-          return (
-            <div
-              key={item.id}
-              style={{
-                transform: isRadialOpen
-                  ? `translate(${targetX}px, ${targetY}px) scale(1)`
-                  : 'translate(0px, 0px) scale(0)',
-                opacity: isRadialOpen ? 1 : 0,
-                pointerEvents: isRadialOpen ? 'auto' : 'none',
-                transition: `all 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.15) ${index * 0.03}s`,
-              }}
-              className="absolute flex flex-col items-center justify-center"
-            >
-              <button
-                onClick={() => {
-                  setActiveTab(item.id);
-                  setIsRadialOpen(false);
-                }}
-                style={{
-                  backgroundColor: isSelected ? theme.primary : (theme.isDark ? theme.cardBg : '#FFFFFF'),
-                  borderColor: isSelected ? theme.primaryLight : theme.borderLuminous,
-                  boxShadow: isSelected
-                    ? `0 0 20px ${theme.glowColor}, 0 8px 24px rgba(0,0,0,0.25)`
-                    : (theme.isDark ? '0 8px 24px rgba(0,0,0,0.5)' : '0 8px 20px rgba(0,0,0,0.12)'),
-                  color: isSelected ? '#FFFFFF' : (theme.isDark ? theme.textPrimary : theme.primary),
-                }}
-                className="w-13 h-13 rounded-full flex items-center justify-center text-xl border-2 backdrop-blur-2xl cursor-pointer hover:scale-110 active:scale-95 transition-transform relative"
-                title={item.label}
-              >
-                {item.icon}
-                {badgeCount && (
-                  <span
-                    style={{ backgroundColor: theme.secondaryAccent || '#EC4899' }}
-                    className="absolute -top-1 -right-1 w-4 h-4 rounded-full text-white text-[9px] font-black flex items-center justify-center shadow-sm"
-                  >
-                    {badgeCount}
-                  </span>
-                )}
-              </button>
-
-              {/* Label tooltip */}
-              <div
-                style={{
-                  backgroundColor: theme.isDark ? 'rgba(10, 13, 22, 0.95)' : '#FFFFFF',
-                  borderColor: theme.borderLuminous,
-                  color: isSelected ? theme.primary : (theme.isDark ? '#F8FAFC' : '#0F172A'),
-                  boxShadow: theme.isDark ? '0 4px 14px rgba(0,0,0,0.6)' : '0 4px 12px rgba(0,0,0,0.12)',
-                }}
-                className="px-2.5 py-1 mt-1 rounded-md text-[10px] font-black border tracking-wider whitespace-nowrap shadow-md pointer-events-none transition-colors"
-              >
-                {item.label}
-              </div>
-            </div>
-          );
-        })}
-
-        {/* Pulse Ring when Collapsed */}
-        {!isRadialOpen && (
-          <span
+          {/* Anchored Floating Radial Circle Orb at bottom-center above Android System Navigation Bar */}
+          <div
             style={{
-              borderColor: theme.primary,
+              bottom: 'calc(var(--safe-area-inset-bottom, 0px) + 1.25rem)',
             }}
-            className="absolute w-20 h-20 rounded-full border-2 animate-ping opacity-25 pointer-events-none"
-          />
-        )}
-
-          {/* Central Orb Trigger Button */}
-          <button
-            onClick={() => setIsRadialOpen(!isRadialOpen)}
-            style={{
-              backgroundColor: theme.isDark ? theme.cardBg : '#FFFFFF',
-              borderColor: isRadialOpen ? theme.primary : theme.borderLuminous,
-              boxShadow: theme.isDark
-                ? `0 12px 32px rgba(0, 0, 0, 0.6), 0 0 24px ${theme.glowColor}`
-                : `0 10px 28px rgba(0, 0, 0, 0.12), 0 0 16px ${theme.glowColor}`,
-              color: isRadialOpen ? (theme.isDark ? '#FFFFFF' : theme.textPrimary) : theme.primary,
-            }}
-            className="w-16 h-16 rounded-full flex items-center justify-center border-2 backdrop-blur-2xl cursor-pointer transition-all hover:scale-105 active:scale-95 relative group"
-            aria-label={isRadialOpen ? 'بستن منوی شعاعی' : 'باز کردن منوی ناوبری شعاعی'}
+            className="fixed left-1/2 -translate-x-1/2 z-40 flex items-center justify-center pointer-events-auto select-none"
           >
-            {isRadialOpen ? (
-              <X className="w-6 h-6" style={{ color: theme.isDark ? '#FFFFFF' : theme.textPrimary }} />
-            ) : (
-              RADIAL_ITEMS.find((r) => r.id === activeTab)?.icon || <Home className="w-6 h-6" />
-            )}
+            {/* Elevated Upward Fan-Out Arc (22° right to 158° left for RTL visual order) */}
+            {RADIAL_ITEMS.map((item, index) => {
+              const angleRad = (item.angleDeg * Math.PI) / 180;
+              const radius = viewportWidth < 360 ? 104 : viewportWidth < 400 ? 116 : 128;
+              const liftY = viewportWidth < 360 ? -16 : -18;
+              const targetX = Math.round(Math.cos(angleRad) * radius);
+              const targetY = -Math.round(Math.sin(angleRad) * radius) + liftY;
 
+              const isSelected = activeTab === item.id;
+              const badgeCount = item.id === 'notes' && sessionLogs.length > 0 ? sessionLogs.length : undefined;
+
+              return (
+                <div
+                  key={item.id}
+                  style={{
+                    transform: isRadialOpen
+                      ? `translate(${targetX}px, ${targetY}px) scale(1)`
+                      : 'translate(0px, 0px) scale(0)',
+                    opacity: isRadialOpen ? 1 : 0,
+                    pointerEvents: isRadialOpen ? 'auto' : 'none',
+                    transition: `all 0.32s cubic-bezier(0.175, 0.885, 0.32, 1.15) ${index * 0.025}s`,
+                  }}
+                  className="absolute flex flex-col items-center justify-center"
+                >
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveTab(item.id);
+                      setIsRadialOpen(false);
+                    }}
+                    style={{
+                      backgroundColor: isSelected
+                        ? theme.primary
+                        : theme.isDark
+                        ? theme.cardBg
+                        : '#FFFFFF',
+                      borderColor: isSelected
+                        ? theme.primaryLight
+                        : item.isPrimary
+                        ? theme.primary
+                        : theme.borderLuminous,
+                      boxShadow: isSelected
+                        ? `0 0 22px ${theme.glowColor}, 0 10px 26px rgba(0,0,0,0.32)`
+                        : theme.isDark
+                        ? `0 10px 26px rgba(0,0,0,0.55), 0 0 12px ${theme.glowColor}`
+                        : '0 8px 22px rgba(15,23,42,0.14)',
+                      color: isSelected
+                        ? '#FFFFFF'
+                        : item.isPrimary
+                        ? theme.primary
+                        : theme.isDark
+                        ? theme.textPrimary
+                        : theme.textSecondary,
+                    }}
+                    className={`${
+                      item.isPrimary ? 'w-13 h-13 border-2' : 'w-12 h-12 border'
+                    } rounded-full flex items-center justify-center backdrop-blur-2xl cursor-pointer hover:scale-110 active:scale-95 transition-transform relative`}
+                    title={item.label}
+                    aria-label={item.label}
+                    aria-current={isSelected ? 'page' : undefined}
+                  >
+                    {item.icon}
+                    {badgeCount && (
+                      <span
+                        style={{ backgroundColor: theme.secondaryAccent || '#EC4899' }}
+                        className="absolute -top-1 -right-1 min-w-4 h-4 px-1 rounded-full text-white text-[9px] font-black flex items-center justify-center shadow-sm"
+                      >
+                        {badgeCount}
+                      </span>
+                    )}
+                  </button>
+
+                  {/* Readable Pill Label */}
+                  <div
+                    style={{
+                      backgroundColor: isSelected
+                        ? theme.primary
+                        : theme.isDark
+                        ? 'rgba(10, 13, 22, 0.94)'
+                        : 'rgba(255, 255, 255, 0.96)',
+                      borderColor: isSelected ? theme.primaryLight : theme.borderLuminous,
+                      color: isSelected
+                        ? '#FFFFFF'
+                        : theme.isDark
+                        ? '#F8FAFC'
+                        : '#0F172A',
+                      boxShadow: theme.isDark
+                        ? '0 4px 14px rgba(0,0,0,0.65)'
+                        : '0 4px 12px rgba(15,23,42,0.12)',
+                    }}
+                    className="px-2.5 py-0.5 mt-1.5 rounded-lg text-[10px] font-extrabold border tracking-tight whitespace-nowrap pointer-events-none transition-colors"
+                  >
+                    {item.label}
+                  </div>
+                </div>
+              );
+            })}
+
+            {/* Subtle Ambient Ring when Collapsed */}
             {!isRadialOpen && (
               <span
-                style={{ backgroundColor: theme.primary }}
-                className="absolute bottom-1.5 w-1.5 h-1.5 rounded-full"
+                style={{
+                  borderColor: theme.primary,
+                }}
+                className="absolute w-18 h-18 rounded-full border-2 animate-ping opacity-20 pointer-events-none"
               />
             )}
-          </button>
-        </div>
-      </>
-    )}
+
+            {/* Central Orb Trigger Button */}
+            <button
+              type="button"
+              onClick={() => setIsRadialOpen(!isRadialOpen)}
+              style={{
+                backgroundColor: isRadialOpen
+                  ? theme.primary
+                  : theme.isDark
+                  ? theme.cardBg
+                  : '#FFFFFF',
+                borderColor: isRadialOpen ? theme.primaryLight : theme.borderLuminous,
+                boxShadow: theme.isDark
+                  ? `0 12px 32px rgba(0, 0, 0, 0.65), 0 0 24px ${theme.glowColor}`
+                  : `0 10px 28px rgba(15, 23, 42, 0.16), 0 0 16px ${theme.glowColor}`,
+                color: isRadialOpen ? '#FFFFFF' : theme.primary,
+              }}
+              className="w-15 h-15 rounded-full flex items-center justify-center border-2 backdrop-blur-2xl cursor-pointer transition-all duration-200 hover:scale-105 active:scale-95 relative group"
+              aria-label={isRadialOpen ? 'بستن منوی شعاعی' : 'باز کردن منوی ناوبری شعاعی'}
+              aria-expanded={isRadialOpen}
+            >
+              {isRadialOpen ? (
+                <X className="w-6 h-6 text-white transition-transform duration-200 rotate-90" />
+              ) : (
+                RADIAL_ITEMS.find((r) => r.id === activeTab)?.icon || <Home className="w-6 h-6" />
+              )}
+
+              {!isRadialOpen && (
+                <span
+                  style={{ backgroundColor: theme.primary }}
+                  className="absolute bottom-1.5 w-1.5 h-1.5 rounded-full"
+                />
+              )}
+            </button>
+          </div>
+        </>
+      )}
     </div>
   );
 }

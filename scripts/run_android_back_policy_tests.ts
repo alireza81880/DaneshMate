@@ -226,6 +226,7 @@ function runDirectAndroidBackPolicyTests() {
     'close_time_picker',
     'close_date_picker',
     'close_timeline_review',
+    'close_radial_menu',
     'navigate_back_from_profile',
     'exit_app',
   ];
@@ -335,6 +336,179 @@ function runDirectAndroidBackPolicyTests() {
   );
 
   // -------------------------------------------------------------------------
+  // SUITE 5: Radial Menu Back Navigation & Multi-Step Priority Hierarchy
+  // -------------------------------------------------------------------------
+  console.log('\n--- 5. Radial Menu Back Navigation & Multi-Step Priority Hierarchy ---');
+
+  // 5.1 Radial menu open on Home tab -> close_radial_menu
+  const res5_1 = resolveAndroidBackAction({
+    selectedChatSessionLog: null,
+    previewFile: null,
+    isSessionDatePickerOpen: false,
+    isSessionTimePickerOpen: false,
+    isRadialOpen: true,
+    activeTab: 'home',
+    isEditingProfile: false,
+  });
+  assert(
+    res5_1 === 'close_radial_menu',
+    '5.1: Radial menu open on Home tab -> close_radial_menu',
+    `Expected 'close_radial_menu', got '${res5_1}'`
+  );
+
+  // 5.2 Radial menu open on Profile tab -> first close_radial_menu, next Back navigate_back_from_profile
+  const res5_2a = resolveAndroidBackAction({
+    selectedChatSessionLog: null,
+    previewFile: null,
+    isSessionDatePickerOpen: false,
+    isSessionTimePickerOpen: false,
+    isRadialOpen: true,
+    activeTab: 'profile',
+    isEditingProfile: false,
+  });
+  const res5_2b = resolveAndroidBackAction({
+    selectedChatSessionLog: null,
+    previewFile: null,
+    isSessionDatePickerOpen: false,
+    isSessionTimePickerOpen: false,
+    isRadialOpen: false,
+    activeTab: 'profile',
+    isEditingProfile: false,
+  });
+  assert(
+    res5_2a === 'close_radial_menu' && res5_2b === 'navigate_back_from_profile',
+    '5.2: Radial menu open on Profile tab -> close_radial_menu first, then navigate_back_from_profile',
+    `Got '${res5_2a}' then '${res5_2b}'`
+  );
+
+  // 5.3 Radial menu closed on Profile tab -> navigate_back_from_profile
+  const res5_3 = resolveAndroidBackAction({
+    selectedChatSessionLog: null,
+    previewFile: null,
+    isSessionDatePickerOpen: false,
+    isSessionTimePickerOpen: false,
+    isRadialOpen: false,
+    activeTab: 'profile',
+    isEditingProfile: false,
+  });
+  assert(
+    res5_3 === 'navigate_back_from_profile',
+    '5.3: Radial menu closed on Profile tab -> navigate_back_from_profile',
+    `Expected 'navigate_back_from_profile', got '${res5_3}'`
+  );
+
+  // 5.4 Radial menu closed on Home tab -> exit_app
+  const res5_4 = resolveAndroidBackAction({
+    selectedChatSessionLog: null,
+    previewFile: null,
+    isSessionDatePickerOpen: false,
+    isSessionTimePickerOpen: false,
+    isRadialOpen: false,
+    activeTab: 'home',
+    isEditingProfile: false,
+  });
+  assert(
+    res5_4 === 'exit_app',
+    '5.4: Radial menu closed on Home tab -> exit_app',
+    `Expected 'exit_app', got '${res5_4}'`
+  );
+
+  // 5.5 Timeline Review open simultaneously with isRadialOpen: true -> close_timeline_review takes priority
+  const res5_5 = resolveAndroidBackAction({
+    selectedChatSessionLog: dummySession,
+    previewFile: null,
+    isSessionDatePickerOpen: false,
+    isSessionTimePickerOpen: false,
+    isRadialOpen: true,
+    activeTab: 'home',
+    isEditingProfile: false,
+  });
+  assert(
+    res5_5 === 'close_timeline_review',
+    '5.5: Timeline Review open with isRadialOpen: true -> close_timeline_review takes priority',
+    `Expected 'close_timeline_review', got '${res5_5}'`
+  );
+
+  // 5.6 File preview or Time/Date pickers open simultaneously with isRadialOpen: true -> higher modal takes priority
+  const res5_6_preview = resolveAndroidBackAction({
+    selectedChatSessionLog: dummySession,
+    previewFile: dummyFile,
+    isSessionDatePickerOpen: false,
+    isSessionTimePickerOpen: false,
+    isRadialOpen: true,
+    activeTab: 'home',
+  });
+  const res5_6_time = resolveAndroidBackAction({
+    selectedChatSessionLog: dummySession,
+    previewFile: null,
+    isSessionDatePickerOpen: false,
+    isSessionTimePickerOpen: true,
+    isRadialOpen: true,
+    activeTab: 'home',
+  });
+  const res5_6_date = resolveAndroidBackAction({
+    selectedChatSessionLog: dummySession,
+    previewFile: null,
+    isSessionDatePickerOpen: true,
+    isSessionTimePickerOpen: false,
+    isRadialOpen: true,
+    activeTab: 'home',
+  });
+  assert(
+    res5_6_preview === 'close_preview_file' &&
+      res5_6_time === 'close_time_picker' &&
+      res5_6_date === 'close_date_picker',
+    '5.6: Preview / TimePicker / DatePicker open with isRadialOpen: true -> higher overlay takes priority',
+    `Got preview='${res5_6_preview}', time='${res5_6_time}', date='${res5_6_date}'`
+  );
+
+  // 5.7 Three-step sequential flow: Radial open on Profile -> Back 1 closes radial -> Back 2 returns to previous tab -> Back 3 exits app
+  let simTab = 'profile';
+  let simRadialOpen = true;
+  const simPreviousNonProfileTab = 'notes';
+
+  const multiStep1 = resolveAndroidBackAction({
+    selectedChatSessionLog: null,
+    previewFile: null,
+    isSessionDatePickerOpen: false,
+    isSessionTimePickerOpen: false,
+    isRadialOpen: simRadialOpen,
+    activeTab: simTab,
+  });
+  if (multiStep1 === 'close_radial_menu') {
+    simRadialOpen = false;
+  }
+
+  const multiStep2 = resolveAndroidBackAction({
+    selectedChatSessionLog: null,
+    previewFile: null,
+    isSessionDatePickerOpen: false,
+    isSessionTimePickerOpen: false,
+    isRadialOpen: simRadialOpen,
+    activeTab: simTab,
+  });
+  if (multiStep2 === 'navigate_back_from_profile') {
+    simTab = simPreviousNonProfileTab;
+  }
+
+  const multiStep3 = resolveAndroidBackAction({
+    selectedChatSessionLog: null,
+    previewFile: null,
+    isSessionDatePickerOpen: false,
+    isSessionTimePickerOpen: false,
+    isRadialOpen: simRadialOpen,
+    activeTab: simTab,
+  });
+  assert(
+    multiStep1 === 'close_radial_menu' &&
+      multiStep2 === 'navigate_back_from_profile' &&
+      simTab === 'notes' &&
+      multiStep3 === 'exit_app',
+    '5.7: Three-step flow (Open Radial on Profile -> Back closes radial -> Back returns to previous tab -> Back exits app)',
+    `step1=${multiStep1}, step2=${multiStep2}, tabAfterStep2=${simTab}, step3=${multiStep3}`
+  );
+
+  // -------------------------------------------------------------------------
   // Summary
   // -------------------------------------------------------------------------
   console.log('\n----------------------------------------------------');
@@ -347,3 +521,4 @@ function runDirectAndroidBackPolicyTests() {
 }
 
 runDirectAndroidBackPolicyTests();
+
