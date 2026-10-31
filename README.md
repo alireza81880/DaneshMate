@@ -97,7 +97,6 @@ University students in Iran and Persian-speaking academic environments face a re
 - **کاملاً آفلاین و حافظ حریم خصوصی:** تمامی اطلاعات، فایل‌ها و یادداشت‌های شما بدون نیاز به ثبت‌نام یا سرور ابری، به‌صورت محلی و امن روی دستگاه ذخیره می‌شوند.
 
 📥 **دریافت نسخه رسمی اندروید:**
-- **[صفحه رسمی دانش‌میت در مایکت](https://myket.ir/app/com.daneshmate.app)**
 - **[دانلود دانش‌میت از مایکت](https://myket.ir/app/com.daneshmate.app)**
 
 </div>
